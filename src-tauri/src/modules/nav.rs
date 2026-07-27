@@ -1,10 +1,14 @@
 //! Navegação.
 //!
-//! O que dá para fazer aqui é menor do que parece, e vale registrar por quê:
-//! **navegação turn-by-turn embutida não existe em nenhuma plataforma**. O Maps
-//! SDK entrega o mapa, não a navegação; o Navigation SDK, que entrega, é produto
-//! enterprise sem preço público. Então este módulo cuida do mapa seguindo o
-//! carro, e guiar de verdade continua sendo abrir o app do Google Maps por cima.
+//! Este módulo mostra **onde o carro está**, e só. Guiar é trabalho do app do
+//! Google Maps, que é aberto por cima.
+//!
+//! Houve uma tentativa de guiar aqui dentro — rota da Directions API, manobras
+//! calculadas contra o GPS, aviso de desvio. Funcionava. Mas era uma imitação
+//! pior de um app que já existe e roda nativo na mesma head unit: sem trânsito
+//! ao vivo, sem orientação de faixa, sem voz, sem alerta de radar. Entregar o
+//! destino ao Maps dá ao motorista a coisa de verdade. Está no histórico do git
+//! se um dia fizer sentido voltar.
 //!
 //! Como a UI roda num WebView, o mapa é um elemento comum da página — encolhe
 //! para widget e cresce para tela cheia sem truque nenhum. Foi por isso que a
@@ -12,8 +16,8 @@
 //! nossa árvore e exigiria recortar um buraco transparente no WebView.
 
 use async_trait::async_trait;
-use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_gps::{Fix, LocationSource, Progresso, Route};
+use eclipse_core::{Module, ModuleCtx, ModuleId, ModuleResult};
+use eclipse_gps::{Fix, LocationSource};
 use serde::Serialize;
 
 pub const NAV: ModuleId = ModuleId::new("nav");
@@ -37,11 +41,6 @@ struct Mapa {
     /// garagem, túnel, prédio alto. O mapa continua na tela, só não segue.
     fix: Option<Fix>,
 
-    /// A rota traçada, se houver destino.
-    rota: Option<Route>,
-
-    /// Onde estamos dentro dela. Recalculado a cada posição.
-    progresso: Option<Progresso>,
 }
 
 pub struct NavModule {
@@ -80,8 +79,6 @@ impl Module for NavModule {
             api_key,
             map_id: self.map_id.clone(),
             fix: None,
-            rota: None,
-            progresso: None,
         };
         ctx.ready(&estado);
 
@@ -89,9 +86,6 @@ impl Module for NavModule {
             tokio::select! {
                 posicao = self.gps.next_fix() => match posicao {
                     Ok(fix) => {
-                        // O progresso é derivado, nunca guardado à parte: assim
-                        // não existe estado que possa discordar da posição.
-                        estado.progresso = estado.rota.as_ref().map(|r| r.progresso(&fix));
                         estado.fix = Some(fix);
                         ctx.ready(&estado);
                     }
@@ -100,46 +94,10 @@ impl Module for NavModule {
                     Err(err) => ctx.degraded(err.to_string()),
                 },
 
-                comando = ctx.next_command() => match comando {
-                    None => return Ok(()),
-
-                    Some(ModuleCommand::Action { payload, .. }) => {
-                        match payload.get("acao").and_then(|v| v.as_str()) {
-                            // A rota vem pronta do lado JavaScript, que é onde
-                            // mora o DirectionsService. Daqui pra frente ela é
-                            // do Rust, junto com a posição — que é o que permite
-                            // raciocinar sobre as duas juntas.
-                            Some("rota") => {
-                                match serde_json::from_value::<Route>(
-                                    payload.get("rota").cloned().unwrap_or_default(),
-                                ) {
-                                    Ok(rota) => {
-                                        // Pede ao simulador para percorrer a
-                                        // rota. Num GPS de verdade isto não faz
-                                        // nada — ele relata, não obedece.
-                                        self.gps.seguir(&rota.pontos);
-
-                                        estado.progresso =
-                                            estado.fix.as_ref().map(|f| rota.progresso(f));
-                                        estado.rota = Some(rota);
-                                        ctx.ready(&estado);
-                                    }
-                                    Err(err) => {
-                                        tracing::warn!(%err, "rota malformada");
-                                    }
-                                }
-                            }
-                            Some("cancelar") => {
-                                self.gps.seguir(eclipse_gps::TRACADO.as_slice());
-                                estado.rota = None;
-                                estado.progresso = None;
-                                ctx.ready(&estado);
-                            }
-                            _ => {}
-                        }
+                comando = ctx.next_command() => {
+                    if comando.is_none() {
+                        return Ok(());
                     }
-
-                    Some(_) => {}
                 }
             }
         }
