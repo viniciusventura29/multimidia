@@ -68,9 +68,11 @@ impl Default for SimulatedSource {
 }
 
 impl SimulatedSource {
-    fn avancar(&mut self) {
+    /// Recebe a velocidade em vez de buscá-la: em produção vem do relógio
+    /// compartilhado com o GPS, no teste vem de um tempo que o teste controla.
+    fn avancar(&mut self, velocidade: f32) {
         self.t += DT;
-        self.speed = eclipse_sim::velocidade_kmh(self.t);
+        self.speed = velocidade;
 
         self.coolant += (TEMPERATURA_OPERACAO - self.coolant) * AQUECIMENTO;
 
@@ -91,7 +93,9 @@ impl ObdSource for SimulatedSource {
         // A espera é parte do comportamento, não um detalhe de implementação:
         // é ela que faz a UI ser construída contra a lentidão do carro de verdade.
         tokio::time::sleep(PID_ROUNDTRIP).await;
-        self.avancar();
+        // O relógio é compartilhado com o GPS: é o que mantém os dois falando do
+        // mesmo carro mesmo que um deles tenha reiniciado no meio do caminho.
+        self.avancar(eclipse_sim::velocidade_agora());
 
         Ok(match pid {
             Pid::Rpm => rpm_para(self.speed),
@@ -110,9 +114,9 @@ mod tests {
     /// Roda o trajeto por `n` leituras, devolvendo o estado a cada passo.
     fn rodar(n: usize) -> Vec<SimulatedSource> {
         let mut fonte = SimulatedSource::default();
-        (0..n)
-            .map(|_| {
-                fonte.avancar();
+        (1..=n)
+            .map(|i| {
+                fonte.avancar(eclipse_sim::velocidade_kmh(i as f32 * DT));
                 fonte.clone()
             })
             .collect()

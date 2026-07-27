@@ -9,6 +9,25 @@
 //! compartilhado nem trava: dois sensores amostrando em ritmos diferentes — o
 //! OBD a cada 300 ms, o GPS a cada 1 s — continuam coerentes de graça.
 
+use std::sync::OnceLock;
+use std::time::Instant;
+
+/// Quando o carro imaginário deu a partida.
+///
+/// Ancorar num instante compartilhado, em vez de cada sensor contar o próprio
+/// tempo, é o que garante que eles não divirjam. Um módulo que reinicia depois
+/// de um pânico voltaria o contador dele para zero e passaria a relatar um carro
+/// diferente do que o vizinho vê — para sempre.
+pub fn ligado_em() -> Instant {
+    static PARTIDA: OnceLock<Instant> = OnceLock::new();
+    *PARTIDA.get_or_init(Instant::now)
+}
+
+/// Velocidade agora, no relógio compartilhado.
+pub fn velocidade_agora() -> f32 {
+    velocidade_kmh(ligado_em().elapsed().as_secs_f32())
+}
+
 /// Duração de cada fase do ciclo, em segundos.
 const PARADO: f32 = 8.0;
 const ACELERANDO: f32 = 14.0;

@@ -109,12 +109,6 @@ function Mapa({ data, status }: TileView<MapaState>) {
         <SeguirCarro fix={data.fix} navegando={modoNavegacao} />
       </APIProvider>
 
-      {data.fix && (
-        <div className="mapa__velocidade">
-          <strong>{Math.round(data.fix.speedKmh)}</strong> km/h
-        </div>
-      )}
-
       {data.mapId ? (
         <button
           className="mapa__modo"
