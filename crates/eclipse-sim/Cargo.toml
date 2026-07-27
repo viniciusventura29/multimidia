@@ -1,0 +1,4 @@
+[package]
+name = "eclipse-sim"
+version.workspace = true
+edition.workspace = true

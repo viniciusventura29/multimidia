@@ -1,5 +1,5 @@
 [package]
-name = "eclipse-obd"
+name = "eclipse-gps"
 version.workspace = true
 edition.workspace = true
 

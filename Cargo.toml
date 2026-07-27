@@ -21,6 +21,8 @@ eclipse-core = { path = "crates/eclipse-core" }
 eclipse-obd = { path = "crates/eclipse-obd" }
 eclipse-music = { path = "crates/eclipse-music" }
 eclipse-messaging = { path = "crates/eclipse-messaging" }
+eclipse-sim = { path = "crates/eclipse-sim" }
+eclipse-gps = { path = "crates/eclipse-gps" }
 
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
