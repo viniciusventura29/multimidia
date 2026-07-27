@@ -141,22 +141,24 @@ fn anunciar_perfil(app: &tauri::AppHandle, supervisor: &Supervisor, profile: Opt
 /// O cofre de refresh tokens, compartilhado com o módulo de música.
 struct Cofre(Arc<Mutex<TokenStore>>);
 
-/// Onde procurar o Client ID do app no Spotify for Developers.
+/// Lê uma credencial.
 ///
 /// Variável de ambiente para desenvolver, arquivo para a head unit — lá não há
 /// shell para exportar nada antes de o launcher subir.
-fn client_id(dir_dados: &std::path::Path) -> Option<String> {
-    if let Ok(id) = std::env::var("ECLIPSE_SPOTIFY_CLIENT_ID") {
-        let id = id.trim().to_string();
-        if !id.is_empty() {
-            return Some(id);
-        }
-    }
-
-    std::fs::read_to_string(dir_dados.join("spotify_client_id.txt"))
+fn credencial(dir_dados: &std::path::Path, env: &str, arquivo: &str) -> Option<String> {
+    std::env::var(env)
         .ok()
-        .map(|conteudo| conteudo.trim().to_string())
-        .filter(|id| !id.is_empty())
+        .or_else(|| std::fs::read_to_string(dir_dados.join(arquivo)).ok())
+        .map(|valor| valor.trim().to_string())
+        .filter(|valor| !valor.is_empty())
+}
+
+fn client_id(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
+}
+
+fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_MAPS_API_KEY", "maps_api_key.txt")
 }
 
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
@@ -263,6 +265,7 @@ pub fn run() {
                     demo: std::env::var("ECLIPSE_MUSIC_DEMO").is_ok_and(|v| v == "1"),
                 });
 
+            let chave_mapa = maps_api_key(&dir);
             let handle = app.handle().clone();
 
             // `block_on` serve só para entrar no runtime do Tauri, para que os
@@ -276,9 +279,12 @@ pub fn run() {
                     modules::music::MusicModule::new(Arc::clone(&conector))
                 }));
                 supervisor.spawn(factory(
-                    modules::nav::NAV,
-                    modules::nav::PlaceholderNav::default,
+                    modules::messaging::MESSAGING,
+                    modules::messaging::MessagingModule::default,
                 ));
+                supervisor.spawn(factory(modules::nav::NAV, move || {
+                    modules::nav::NavModule::new(chave_mapa.clone())
+                }));
 
                 supervisor
             });

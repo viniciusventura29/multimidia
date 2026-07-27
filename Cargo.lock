@@ -898,6 +898,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclipse-messaging"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "eclipse-music"
 version = "0.1.0"
 dependencies = [
@@ -927,7 +938,9 @@ name = "eclipse-os"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "eclipse-core",
+ "eclipse-messaging",
  "eclipse-music",
  "eclipse-obd",
  "serde",

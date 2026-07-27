@@ -22,10 +22,12 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 
 eclipse-core.workspace = true
+eclipse-messaging.workspace = true
 eclipse-music.workspace = true
 eclipse-obd.workspace = true
 
 async-trait.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
