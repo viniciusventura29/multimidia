@@ -23,11 +23,4 @@ pub trait LocationSource: Send {
     /// cerca de uma leitura por segundo, não um fluxo contínuo.
     async fn next_fix(&mut self) -> Result<Fix, GpsError>;
 
-    /// Pede para o carro passar a andar por este caminho.
-    ///
-    /// Só faz sentido para o simulador, e por isso o padrão é não fazer nada: um
-    /// GPS de verdade relata onde o carro está, não obedece a para onde ir. Está
-    /// no trait — e não num tipo concreto — porque quem tem a rota é o módulo, e
-    /// ele só enxerga o trait.
-    fn seguir(&mut self, _caminho: &[(f64, f64)]) {}
 }
