@@ -14,7 +14,7 @@ pub mod sim;
 pub mod source;
 
 pub use fix::Fix;
-pub use guia::{Passo, Progresso, Route};
+pub use guia::{Guia, Passo, Progresso, Route};
 pub use rota::TRACADO;
 pub use sim::SimulatedLocation;
 pub use source::{GpsError, LocationSource};

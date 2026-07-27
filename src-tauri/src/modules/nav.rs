@@ -13,7 +13,7 @@
 
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_gps::{Fix, LocationSource, Progresso, Route};
+use eclipse_gps::{Fix, Guia, LocationSource, Progresso, Route};
 use serde::Serialize;
 
 pub const NAV: ModuleId = ModuleId::new("nav");
@@ -40,14 +40,23 @@ struct Mapa {
     /// A rota traçada, se houver destino.
     rota: Option<Route>,
 
-    /// Onde estamos dentro dela. Recalculado a cada posição.
+    /// Onde estamos dentro dela. Derivado a cada posição, nunca guardado à
+    /// parte — assim não existe campo que possa discordar de onde o carro está.
     progresso: Option<Progresso>,
+
+    /// A frase a ser falada agora, se houver.
+    ///
+    /// Vai junto do estado em vez de num evento próprio para carregar o número
+    /// de sequência do envelope: a tela ignora o que já falou, e uma fala
+    /// atrasada nunca atropela uma mais recente.
+    fala: Option<String>,
 }
 
 pub struct NavModule {
     api_key: Option<String>,
     map_id: Option<String>,
     gps: Box<dyn LocationSource>,
+    guia: Option<Guia>,
 }
 
 impl NavModule {
@@ -60,6 +69,7 @@ impl NavModule {
             api_key,
             map_id,
             gps,
+            guia: None,
         }
     }
 }
@@ -82,6 +92,7 @@ impl Module for NavModule {
             fix: None,
             rota: None,
             progresso: None,
+            fala: None,
         };
         ctx.ready(&estado);
 
@@ -89,9 +100,17 @@ impl Module for NavModule {
             tokio::select! {
                 posicao = self.gps.next_fix() => match posicao {
                     Ok(fix) => {
-                        // O progresso é derivado, nunca guardado à parte: assim
-                        // não existe estado que possa discordar da posição.
-                        estado.progresso = estado.rota.as_ref().map(|r| r.progresso(&fix));
+                        match self.guia.as_mut() {
+                            Some(guia) => {
+                                let (progresso, fala) = guia.avaliar(&fix);
+                                estado.progresso = Some(progresso);
+                                estado.fala = fala;
+                            }
+                            None => {
+                                estado.progresso = None;
+                                estado.fala = None;
+                            }
+                        }
                         estado.fix = Some(fix);
                         ctx.ready(&estado);
                     }
@@ -119,9 +138,16 @@ impl Module for NavModule {
                                         // nada — ele relata, não obedece.
                                         self.gps.seguir(&rota.pontos);
 
-                                        estado.progresso =
-                                            estado.fix.as_ref().map(|f| rota.progresso(f));
-                                        estado.rota = Some(rota);
+                                        estado.rota = Some(rota.clone());
+                                        let mut guia = Guia::nova(rota);
+
+                                        if let Some(fix) = &estado.fix {
+                                            let (progresso, fala) = guia.avaliar(fix);
+                                            estado.progresso = Some(progresso);
+                                            estado.fala = fala;
+                                        }
+
+                                        self.guia = Some(guia);
                                         ctx.ready(&estado);
                                     }
                                     Err(err) => {
@@ -131,8 +157,10 @@ impl Module for NavModule {
                             }
                             Some("cancelar") => {
                                 self.gps.seguir(eclipse_gps::TRACADO.as_slice());
+                                self.guia = None;
                                 estado.rota = None;
                                 estado.progresso = None;
+                                estado.fala = None;
                                 ctx.ready(&estado);
                             }
                             _ => {}

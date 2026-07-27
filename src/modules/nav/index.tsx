@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 
 import { defineTile, type AnyTileSpec, type TileView } from "../../core/types";
-import { BuscarRota, Manobra } from "./rota";
+import { Manobra } from "./manobra";
+import { BuscarRota } from "./rota";
+import { falar } from "./voz";
 import type { Fix, MapaState } from "./tipos";
 
 const NAV = "nav";
@@ -123,6 +125,11 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
 function Mapa({ data, status }: TileView<MapaState>) {
   const [navegando, setNavegando] = useState(true);
 
+  // O Rust decide o que e quando falar; aqui só se pronuncia.
+  useEffect(() => {
+    falar(data?.fala ?? null);
+  }, [data?.fala]);
+
   if (!data?.apiKey) {
     return (
       <div className="mapa">
@@ -147,7 +154,11 @@ function Mapa({ data, status }: TileView<MapaState>) {
           reuseMaps
         />
         <SeguirCarro fix={data.fix} navegando={modoNavegacao} />
-        <BuscarRota fix={data.fix} rota={data.rota} />
+        <BuscarRota
+          fix={data.fix}
+          rota={data.rota}
+          recalcular={data.progresso?.recalcular ?? false}
+        />
       </APIProvider>
 
       {data.progresso && <Manobra progresso={data.progresso} />}
