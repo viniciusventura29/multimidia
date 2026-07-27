@@ -228,6 +228,50 @@ fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Localização                                                         */
+/* ------------------------------------------------------------------ */
+
+/// O lado do canal que os comandos abaixo usam para repassar ao módulo `nav`
+/// o que o `navigator.geolocation` do navegador relatou.
+struct Localizacao(eclipse_gps::Emissor);
+
+/// Uma posição nova, vinda do `navigator.geolocation.watchPosition` do JS.
+///
+/// O Rust não tem como chamar essa API sozinho — só o navegador fala com o
+/// sistema operacional para isso. Por isso a posição entra pelo caminho
+/// inverso dos outros sensores: o JS empurra, o módulo só escuta.
+#[tauri::command]
+fn push_location(
+    canal: tauri::State<'_, Localizacao>,
+    lat: f64,
+    lon: f64,
+    heading: f32,
+    speed_kmh: f32,
+) {
+    let _ = canal.0.send(Ok(eclipse_gps::Fix {
+        lat,
+        lon,
+        heading,
+        speed_kmh,
+    }));
+}
+
+/// O navegador não conseguiu (ou não quis) dar a localização.
+///
+/// Chega pelo mesmo canal que as posições boas, como erro em vez de sucesso —
+/// é o que faz o módulo `nav` degradar com um motivo certo, em vez de ficar
+/// esperando para sempre uma posição que não vem.
+#[tauri::command]
+fn push_location_error(canal: tauri::State<'_, Localizacao>, permissao_negada: bool) {
+    let erro = if permissao_negada {
+        eclipse_gps::GpsError::SemPermissao
+    } else {
+        eclipse_gps::GpsError::SemSinal
+    };
+    let _ = canal.0.send(Err(erro));
+}
+
+/* ------------------------------------------------------------------ */
 /* Fiação                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -268,6 +312,8 @@ pub fn run() {
             delete_profile,
             connect_spotify,
             open_notification_settings,
+            push_location,
+            push_location_error,
         ])
         .setup(|app| {
             let dir = app
@@ -308,6 +354,13 @@ pub fn run() {
             let chave_mapa = maps_api_key(&dir);
             let id_mapa = maps_map_id(&dir);
 
+            // Criado uma vez só, fora da closure do `factory`: um
+            // `watch::Receiver` clona, e é isso que permite o supervisor
+            // reconstruir o módulo depois de um pânico sem perder a última
+            // posição conhecida — um canal `mpsc` não teria como existir de
+            // novo depois de reconstruído.
+            let (emissor_local, receptor_local) = eclipse_gps::PushedLocation::canal();
+
             // `block_on` serve só para entrar no runtime do Tauri, para que os
             // `tokio::spawn` lá dentro tenham contexto; as tasks seguem vivas depois.
             let supervisor = tauri::async_runtime::block_on(async move {
@@ -326,7 +379,7 @@ pub fn run() {
                     modules::nav::NavModule::new(
                         chave_mapa.clone(),
                         id_mapa.clone(),
-                        Box::new(eclipse_gps::SimulatedLocation::default()),
+                        Box::new(eclipse_gps::PushedLocation::nova(receptor_local.clone())),
                     )
                 }));
 
@@ -340,6 +393,7 @@ pub fn run() {
             }
 
             app.manage(supervisor);
+            app.manage(Localizacao(emissor_local));
             app.manage(Perfis(Mutex::new(store)));
             app.manage(Cofre(cofre));
             Ok(())

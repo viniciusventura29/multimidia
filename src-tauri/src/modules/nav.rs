@@ -133,11 +133,6 @@ impl Module for NavModule {
                                     payload.get("rota").cloned().unwrap_or_default(),
                                 ) {
                                     Ok(rota) => {
-                                        // Pede ao simulador para percorrer a
-                                        // rota. Num GPS de verdade isto não faz
-                                        // nada — ele relata, não obedece.
-                                        self.gps.seguir(&rota.pontos);
-
                                         estado.rota = Some(rota.clone());
                                         let mut guia = Guia::nova(rota);
 
@@ -156,7 +151,6 @@ impl Module for NavModule {
                                 }
                             }
                             Some("cancelar") => {
-                                self.gps.seguir(eclipse_gps::TRACADO.as_slice());
                                 self.guia = None;
                                 estado.rota = None;
                                 estado.progresso = None;

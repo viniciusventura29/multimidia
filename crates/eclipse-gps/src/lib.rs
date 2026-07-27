@@ -1,20 +1,18 @@
 //! Posição.
 //!
 //! Mesma separação dos outros sensores: o módulo fala com [`LocationSource`], e
-//! quem fornece a posição é trocável. Hoje é o trajeto simulado; no carro será
-//! o `LocationManager` do Android atrás de um plugin Kotlin.
-//!
-//! A velocidade vem do `eclipse-sim`, compartilhada com o OBD, para o mapa e os
-//! mostradores nunca discordarem sobre o que o carro está fazendo.
+//! quem fornece a posição é trocável. Hoje é [`PushedLocation`] — a
+//! geolocalização do navegador, empurrada do JS — porque o Rust não tem como
+//! chamar `navigator.geolocation` sozinho. No Android real pode continuar
+//! sendo a mesma API do WebView, ou virar um plugin Kotlin sobre o
+//! `LocationManager`, dependendo de como a WebView tratar a permissão.
 
 pub mod fix;
 pub mod guia;
-pub mod rota;
-pub mod sim;
+pub mod pushed;
 pub mod source;
 
 pub use fix::Fix;
 pub use guia::{Guia, Passo, Progresso, Route};
-pub use rota::TRACADO;
-pub use sim::SimulatedLocation;
+pub use pushed::{Emissor, PushedLocation, Receptor};
 pub use source::{GpsError, LocationSource};

@@ -118,9 +118,9 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
  * componente serve de widget e de tela cheia, e a transição é só o CSS mudando
  * de tamanho. Era exatamente isso que o SDK nativo do Android não permitiria.
  *
- * O que **não** dá para fazer aqui: navegação turn-by-turn. O Maps SDK entrega
- * mapa, não navegação — quem entrega é o Navigation SDK, que é enterprise.
- * Guiar de verdade é abrir o app do Google Maps por cima.
+ * A guiagem (rota, manobras, voz, recálculo) é própria — ver `guia.rs` e
+ * `rota.tsx`. O que continua fora de alcance é orientação de faixa e trânsito
+ * ao vivo desviando a rota: isso é o Navigation SDK, que é enterprise.
  */
 function Mapa({ data, status }: TileView<MapaState>) {
   const [navegando, setNavegando] = useState(true);
@@ -187,6 +187,8 @@ function Mapa({ data, status }: TileView<MapaState>) {
     </div>
   );
 }
+
+export { useLocalizacaoReal } from "./localizacao";
 
 export const navTile: AnyTileSpec = defineTile<MapaState>({
   id: "mapa",
