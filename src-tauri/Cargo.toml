@@ -22,6 +22,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 
 eclipse-core.workspace = true
+eclipse-music.workspace = true
 eclipse-obd.workspace = true
 
 async-trait.workspace = true
@@ -31,3 +32,6 @@ tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

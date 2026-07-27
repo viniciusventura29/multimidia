@@ -38,6 +38,9 @@ export interface NowPlaying {
   track: string;
   artist: string;
   isPlaying: boolean;
+  albumArt: string | null;
+  progressMs: number | null;
+  durationMs: number | null;
 }
 
 /* ------------------------------------------------------------------ */

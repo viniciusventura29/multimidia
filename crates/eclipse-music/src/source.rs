@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// O que está tocando agora.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NowPlaying {
     pub track: String,
@@ -31,6 +31,11 @@ pub enum MusicError {
 
     #[error("o perfil ainda não conectou o Spotify")]
     NotConnected,
+
+    /// Falta o Client ID no `eclipse.toml`. Não é falha de rede nem de conta:
+    /// o app nunca foi configurado.
+    #[error("falta configurar o Client ID do Spotify")]
+    NotConfigured,
 
     #[error("falha ao falar com o Spotify: {0}")]
     Network(String),

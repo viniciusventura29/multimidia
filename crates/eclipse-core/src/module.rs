@@ -31,6 +31,12 @@ pub(crate) struct Bus {
     commands: broadcast::Sender<ModuleCommand>,
     latest: Arc<Mutex<HashMap<ModuleId, StateEnvelope>>>,
     seq: Arc<AtomicU64>,
+    /// Quem está dirigindo agora.
+    ///
+    /// Guardado porque um `broadcast` não entrega o que passou: sem isto, um
+    /// módulo que sobe depois do anúncio — no boot, ou reiniciando depois de um
+    /// pânico — ficaria sem saber de qual perfil são as contas.
+    perfil: Arc<Mutex<Option<Arc<Profile>>>>,
 }
 
 impl Bus {
@@ -40,6 +46,7 @@ impl Bus {
             commands: broadcast::Sender::new(capacity),
             latest: Arc::new(Mutex::new(HashMap::new())),
             seq: Arc::new(AtomicU64::new(0)),
+            perfil: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -83,7 +90,14 @@ impl Bus {
     }
 
     pub(crate) fn dispatch(&self, command: ModuleCommand) {
+        if let ModuleCommand::ProfileChanged(profile) = &command {
+            *self.perfil.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(profile));
+        }
         let _ = self.commands.send(command);
+    }
+
+    pub(crate) fn perfil_atual(&self) -> Option<Arc<Profile>> {
+        self.perfil.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub(crate) fn snapshot(&self) -> Vec<StateEnvelope> {
@@ -99,12 +113,20 @@ pub struct ModuleCtx {
     id: ModuleId,
     bus: Bus,
     commands: broadcast::Receiver<ModuleCommand>,
+    /// O perfil ativo, esperando para ser entregue como primeira ordem.
+    pendente: Option<ModuleCommand>,
 }
 
 impl ModuleCtx {
     pub(crate) fn new(id: ModuleId, bus: Bus) -> Self {
         let commands = bus.subscribe_commands();
-        Self { id, bus, commands }
+        let pendente = bus.perfil_atual().map(ModuleCommand::ProfileChanged);
+        Self {
+            id,
+            bus,
+            commands,
+            pendente,
+        }
     }
 
     pub fn id(&self) -> &ModuleId {
@@ -138,6 +160,13 @@ impl ModuleCtx {
     /// Ações para outros módulos são ignoradas aqui. Se o módulo ficar lento e
     /// perder mensagens, o canal pula as antigas em vez de travar o barramento.
     pub async fn next_command(&mut self) -> Option<ModuleCommand> {
+        // O perfil ativo vem antes de qualquer coisa vinda do barramento: um
+        // módulo que acabou de subir precisa saber de quem são as contas antes
+        // de tentar usá-las.
+        if let Some(pendente) = self.pendente.take() {
+            return Some(pendente);
+        }
+
         loop {
             match self.commands.recv().await {
                 Ok(ModuleCommand::Action { target, .. }) if target != self.id => continue,
