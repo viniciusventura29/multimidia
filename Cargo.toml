@@ -1,0 +1,29 @@
+[workspace]
+members = ["src-tauri", "crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+# Um target/ de 1,8 GB para um app deste tamanho é quase todo símbolo de debug,
+# e quase todo ele vem das dependências (tauri, wry, objc2...) — que ninguém vai
+# depurar linha a linha. Cortar os símbolos delas devolve mais de 1 GB e mantém
+# o nosso código com backtrace com número de linha.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[workspace.dependencies]
+eclipse-core = { path = "crates/eclipse-core" }
+eclipse-obd = { path = "crates/eclipse-obd" }
+
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
