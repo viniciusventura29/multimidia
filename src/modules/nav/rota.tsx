@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "re
 import { useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 
 import { dispatchAction } from "../../core/actions";
+import { destacar, useSugestoes } from "./sugestoes";
 import { calarSe } from "./voz";
 import type { Fix, Rota } from "./tipos";
 
@@ -43,10 +44,12 @@ export function BuscarRota({
   fix,
   rota,
   recalcular,
+  apiKey,
 }: {
   fix: Fix | null;
   rota: Rota | null;
   recalcular: boolean;
+  apiKey: string;
 }) {
   const map = useMap();
   const biblioteca = useMapsLibrary("routes");
@@ -54,6 +57,7 @@ export function BuscarRota({
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const desenho = useRef<google.maps.Polyline | null>(null);
+  const { sugestoes, limpar } = useSugestoes(destino, apiKey, fix);
 
   // Desenha a rota recebida de volta do Rust — não a que acabou de ser buscada.
   // Assim o que aparece na tela é sempre o que o Rust está usando para guiar.
@@ -76,7 +80,10 @@ export function BuscarRota({
   useEffect(() => () => desenho.current?.setMap(null), []);
 
 
-  const buscar = async (alvo: string, origem: Fix) => {
+  const buscar = async (
+    alvo: string | google.maps.Place | { placeId: string },
+    origem: Fix,
+  ) => {
     if (!biblioteca) return;
 
     setBuscando(true);
@@ -101,7 +108,7 @@ export function BuscarRota({
       dispatchAction(NAV, {
         acao: "rota",
         rota: {
-          destino: perna.end_address ?? alvo,
+          destino: perna.end_address ?? (typeof alvo === "string" ? alvo : ""),
           pontos: resposta.routes[0].overview_path.map((p) => [p.lat(), p.lng()]),
           passos: perna.steps.map((passo) => {
             const { instrucao, detalhe } = separarInstrucao(passo.instructions ?? "");
@@ -130,11 +137,30 @@ export function BuscarRota({
     event.preventDefault();
     event.stopPropagation();
 
+    // Enter sem escolher nada aproveita a primeira sugestão: é o que o motorista
+    // espera, e o lugar exato dá rota melhor que o texto solto.
+    const primeira = sugestoes[0];
+    if (primeira) {
+      await escolher(primeira.placeId);
+      return;
+    }
+
     const alvo = destino.trim();
     if (!alvo || !fix) return;
 
     await buscar(alvo, fix);
     setDestino("");
+    limpar();
+  };
+
+
+  const escolher = async (placeId: string) => {
+    if (!fix) return;
+    // Vai pelo `placeId`, não pelo texto: é o lugar exato que o motorista tocou,
+    // sem o Google ter que adivinhar de novo a partir da frase.
+    await buscar({ placeId }, fix);
+    setDestino("");
+    limpar();
   };
 
   // O Rust avisa quando saímos do caminho tempo suficiente. A busca refeita
@@ -166,18 +192,50 @@ export function BuscarRota({
   }
 
   return (
-    <form className="rota__busca" onSubmit={tracar} onClick={(e) => e.stopPropagation()}>
-      <input
-        className="rota__campo"
-        value={destino}
-        onChange={(e) => setDestino(e.target.value)}
-        placeholder={erro ?? "para onde?"}
-        aria-label="Destino"
-      />
-      <button className="rota__ir" type="submit" disabled={!destino.trim() || buscando || !fix}>
-        {buscando ? "…" : "ir"}
-      </button>
-    </form>
+    <div className="rota__caixa" onClick={(e) => e.stopPropagation()}>
+      {sugestoes.length > 0 && (
+        <ul className="sugestoes">
+          {sugestoes.map((s) => (
+            <li key={s.placeId}>
+              <button className="sugestao" onClick={() => void escolher(s.placeId)}>
+                <span className="sugestao__pino" aria-hidden>
+                  ⌖
+                </span>
+                <span className="sugestao__texto">
+                  <span className="sugestao__principal">
+                    {destacar(s.principal, s.destaques).map((parte, i) =>
+                      parte.forte ? (
+                        <strong key={i}>{parte.trecho}</strong>
+                      ) : (
+                        <span key={i}>{parte.trecho}</span>
+                      ),
+                    )}
+                  </span>
+                  <span className="sugestao__complemento">{s.complemento}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form className="rota__busca" onSubmit={tracar}>
+        <input
+          className="rota__campo"
+          value={destino}
+          onChange={(e) => setDestino(e.target.value)}
+          placeholder={erro ?? "para onde?"}
+          aria-label="Destino"
+        />
+        <button
+          className="rota__ir"
+          type="submit"
+          disabled={!destino.trim() || buscando || !fix}
+        >
+          {buscando ? "…" : "ir"}
+        </button>
+      </form>
+    </div>
   );
 }
 
