@@ -16,6 +16,9 @@ use crate::source::{GpsError, LocationSource};
 pub const INTERVALO: Duration = Duration::from_secs(1);
 
 pub struct SimulatedLocation {
+    /// Por onde andar. Começa na Paulista e é trocado pela rota quando o
+    /// motorista escolhe um destino.
+    caminho: Vec<(f64, f64)>,
     /// Segundos desde a partida, no mesmo relógio do carro imaginário.
     t: f32,
     /// Em qual segmento do traçado o carro está.
@@ -36,6 +39,7 @@ pub struct SimulatedLocation {
 impl Default for SimulatedLocation {
     fn default() -> Self {
         Self {
+            caminho: TRACADO.to_vec(),
             t: 0.0,
             segmento: 0,
             andado_m: 0.0,
@@ -50,14 +54,14 @@ impl SimulatedLocation {
     fn extremos(&self) -> ((f64, f64), (f64, f64)) {
         let i = self.segmento;
         if self.sentido > 0 {
-            (TRACADO[i], TRACADO[i + 1])
+            (self.caminho[i], self.caminho[i + 1])
         } else {
-            (TRACADO[i + 1], TRACADO[i])
+            (self.caminho[i + 1], self.caminho[i])
         }
     }
 
     fn proximo_segmento(&mut self) {
-        let ultimo = TRACADO.len() - 2;
+        let ultimo = self.caminho.len() - 2;
 
         if self.sentido > 0 && self.segmento == ultimo {
             self.sentido = -1;
@@ -116,6 +120,20 @@ impl SimulatedLocation {
 
 #[async_trait]
 impl LocationSource for SimulatedLocation {
+    fn seguir(&mut self, caminho: &[(f64, f64)]) {
+        // Menos de dois pontos não é caminho. Ignorar é melhor que entrar num
+        // estado onde `extremos` estoura o índice.
+        if caminho.len() < 2 {
+            return;
+        }
+
+        self.caminho = caminho.to_vec();
+        self.segmento = 0;
+        self.andado_m = 0.0;
+        self.sentido = 1;
+        self.ultimo_rumo = rumo(self.caminho[0], self.caminho[1]);
+    }
+
     async fn next_fix(&mut self) -> Result<Fix, GpsError> {
         tokio::time::sleep(INTERVALO).await;
         Ok(self.avancar(
@@ -208,6 +226,42 @@ mod tests {
                 .any(|&p| distancia_m((fix.lat, fix.lon), p) < 600.0);
             assert!(perto, "saiu do traçado: {}, {}", fix.lat, fix.lon);
         }
+    }
+
+    /// Sem isto, escolher um destino deixaria o carro andando na Paulista
+    /// enquanto a rota aponta para outro lugar — e o painel acusaria "fora da
+    /// rota" o tempo todo, o que é verdade mas é uma demonstração inútil.
+    #[test]
+    fn seguir_troca_o_caminho_e_recomeca_do_inicio() {
+        let mut gps = SimulatedLocation::default();
+        for _ in 0..20 {
+            gps.avancar(1.0, 60.0);
+        }
+
+        let outro = vec![(-23.5400, -46.6300), (-23.5390, -46.6280), (-23.5380, -46.6260)];
+        gps.seguir(&outro);
+
+        let fix = gps.avancar(1.0, 0.0);
+        assert!(
+            distancia_m((fix.lat, fix.lon), outro[0]) < 5.0,
+            "não recomeçou no início do caminho novo"
+        );
+    }
+
+    #[test]
+    fn seguir_ignora_caminho_curto_demais() {
+        let mut gps = SimulatedLocation::default();
+        let antes = gps.avancar(1.0, 0.0);
+
+        gps.seguir(&[]);
+        gps.seguir(&[(-23.54, -46.63)]);
+
+        let depois = gps.avancar(1.0, 0.0);
+        assert_eq!(
+            (antes.lat, antes.lon),
+            (depois.lat, depois.lon),
+            "um caminho inválido não pode mexer no estado"
+        );
     }
 
     #[test]

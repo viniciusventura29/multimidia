@@ -816,3 +816,142 @@ body {
   color: var(--warn);
   backdrop-filter: blur(4px);
 }
+
+/* O carro fica parado no centro e o mundo gira em volta, como num navegador. */
+.mapa__carro {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  /* Um triângulo apontando para cima: em modo navegação a frente do carro é
+     sempre o topo da tela, então ele nunca precisa girar. */
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-bottom: 24px solid var(--accent);
+  transform: translate(-50%, -60%);
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.7));
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Rota e manobra                                                      */
+/* ------------------------------------------------------------------ */
+
+.rota__busca,
+.rota__ativa {
+  position: absolute;
+  left: 0.7rem;
+  bottom: 0.7rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: calc(100% - 9rem);
+}
+
+.rota__campo {
+  min-width: 0;
+  flex: 1;
+  min-height: 2.4rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(7, 9, 13, 0.85);
+  color: var(--text);
+  font-size: 0.85rem;
+  backdrop-filter: blur(4px);
+}
+
+.rota__campo:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.rota__ir,
+.rota__cancelar {
+  min-height: 2.4rem;
+  padding: 0 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 0.5rem;
+  background: rgba(7, 9, 13, 0.85);
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.rota__ir:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: default;
+}
+
+.rota__cancelar {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.rota__destino {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.5rem;
+  background: rgba(7, 9, 13, 0.85);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+
+/* A manobra fica no topo, onde o olho do motorista já está indo. */
+.manobra {
+  position: absolute;
+  left: 0.7rem;
+  right: 0.7rem;
+  top: 0.7rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.9rem;
+  padding: 0.7rem 1rem;
+  border-radius: 0.7rem;
+  background: rgba(7, 9, 13, 0.88);
+  backdrop-filter: blur(6px);
+}
+
+.manobra__distancia {
+  grid-row: span 2;
+  align-self: center;
+  font-size: 1.7rem;
+  font-weight: 500;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.manobra__instrucao {
+  font-size: 0.95rem;
+  line-height: 1.25;
+}
+
+.manobra__restante {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.manobra--fora,
+.manobra--chegou {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.manobra--fora strong {
+  color: var(--warn);
+}
+
+.manobra--fora span {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.manobra--chegou strong {
+  color: var(--accent);
+}
