@@ -213,6 +213,20 @@ async fn connect_spotify(
     Ok(())
 }
 
+/// Abre a tela de Ajustes onde o usuário concede "acesso a notificações".
+///
+/// É a permissão que a sessão de mídia do Android exige — não dá para conceder
+/// programaticamente, só apontar o caminho. No Mac isto não faz nada: o
+/// `MediaSession` do desktop é um objeto vazio de propósito, ver
+/// `tauri-plugin-media-session/src/desktop.rs`.
+#[tauri::command]
+fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_media_session::MediaSessionExt;
+    app.media_session()
+        .request_notification_access()
+        .map_err(|e| e.to_string())
+}
+
 /* ------------------------------------------------------------------ */
 /* Fiação                                                              */
 /* ------------------------------------------------------------------ */
@@ -243,6 +257,7 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_media_session::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             dispatch_action,
@@ -252,6 +267,7 @@ pub fn run() {
             select_profile,
             delete_profile,
             connect_spotify,
+            open_notification_settings,
         ])
         .setup(|app| {
             let dir = app
@@ -262,7 +278,26 @@ pub fn run() {
             let store = ProfileStore::load(dir.join("profiles.json"));
             let ativo = store.active().cloned();
 
+            let handle = app.handle().clone();
+
+            // O cofre de tokens continua existindo nas duas plataformas — o
+            // comando `connect_spotify` e a Web API seguem úteis mesmo no
+            // Android para busca e playlists, ainda que a reprodução em si não
+            // passe mais por eles.
             let cofre = Arc::new(Mutex::new(TokenStore::load(dir.join("spotify_tokens.json"))));
+
+            // No Android, a fonte é a sessão de mídia do sistema — o Spotify
+            // (ou qualquer player) de verdade, rodando na head unit. É a troca
+            // por perder conta-por-perfil: o Android guarda uma conta só por
+            // app, ao contrário do token que cada perfil tinha no Spotify Web
+            // API. No Mac, para desenvolver, o caminho antigo continua.
+            #[cfg(target_os = "android")]
+            let conector: Arc<dyn modules::music::Conector> =
+                Arc::new(modules::music::AndroidConector {
+                    app: handle.clone(),
+                });
+
+            #[cfg(not(target_os = "android"))]
             let conector: Arc<dyn modules::music::Conector> =
                 Arc::new(modules::music::SpotifyConector {
                     client_id: client_id(&dir),
@@ -272,7 +307,6 @@ pub fn run() {
 
             let chave_mapa = maps_api_key(&dir);
             let id_mapa = maps_map_id(&dir);
-            let handle = app.handle().clone();
 
             // `block_on` serve só para entrar no runtime do Tauri, para que os
             // `tokio::spawn` lá dentro tenham contexto; as tasks seguem vivas depois.

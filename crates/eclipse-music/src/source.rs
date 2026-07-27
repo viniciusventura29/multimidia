@@ -39,6 +39,12 @@ pub enum MusicError {
 
     #[error("falha ao falar com o Spotify: {0}")]
     Network(String),
+
+    /// O Android exige a permissão manual "acesso a notificações" para ler a
+    /// sessão de mídia — não é login, é um toggle em Ajustes. A UI oferece um
+    /// botão que abre a tela certa em vez de repetir o erro do sistema.
+    #[error("falta conceder acesso a notificações ao Eclipse OS")]
+    PermissionRequired,
 }
 
 impl MusicError {
@@ -46,6 +52,11 @@ impl MusicError {
     /// vez de sugerir que foi um erro passageiro.
     pub fn exige_reautenticacao(&self) -> bool {
         matches!(self, Self::NeedsReauth | Self::NotConnected)
+    }
+
+    /// Se o caminho é abrir uma tela de permissão do sistema, não refazer login.
+    pub fn exige_permissao(&self) -> bool {
+        matches!(self, Self::PermissionRequired)
     }
 }
 

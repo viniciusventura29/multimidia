@@ -23,6 +23,7 @@ eclipse-music = { path = "crates/eclipse-music" }
 eclipse-messaging = { path = "crates/eclipse-messaging" }
 eclipse-sim = { path = "crates/eclipse-sim" }
 eclipse-gps = { path = "crates/eclipse-gps" }
+tauri-plugin-media-session = { path = "crates/tauri-plugin-media-session" }
 
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
