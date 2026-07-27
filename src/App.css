@@ -1,0 +1,572 @@
+:root {
+  --bg: #07090d;
+  --tile: #12161d;
+  --tile-alto: #171c25;
+  --line: #232a35;
+  --text: #e8edf5;
+  --muted: #7c8899;
+  --warn: #f5a524;
+  /* Sobrescrita em runtime pela cor do perfil ativo — ver `useTema`. */
+  --accent: #3ddc97;
+
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  /* Painel de carro: nada de seleção acidental, bounce de scroll ou zoom. */
+  user-select: none;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------------ */
+/* Grid                                                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * O layout do mockup: mapa ocupando a faixa de cima, e dois blocos de três
+ * embaixo. As áreas são nomeadas para que cada tile diga onde mora sem depender
+ * da ordem em que foi registrado.
+ */
+.dashboard {
+  height: 100vh;
+  display: grid;
+  grid-template-areas:
+    "mapa        mapa      mapa"
+    "musica      rpm       temp"
+    "combustivel voltagem  velocidade";
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 1.7fr 1fr 1fr;
+  gap: 0.6rem;
+  padding: 0.6rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tile                                                                */
+/* ------------------------------------------------------------------ */
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--tile);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.tile--clicavel {
+  cursor: pointer;
+}
+
+.tile--clicavel:hover,
+.tile--clicavel:focus-visible {
+  background: var(--tile-alto);
+  outline: none;
+}
+
+.tile__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.tile__title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tile__badge {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.tile__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.tile__reason {
+  margin: 0.5rem 0 0;
+  font-size: 0.72rem;
+  color: var(--warn);
+}
+
+.tile--degraded {
+  border-color: var(--warn);
+}
+
+/*
+ * Degradado esmaece, não apaga. O último valor bom continua legível para o
+ * motorista perceber que está velho — some é pior do que velho.
+ */
+.tile--degraded .tile__body,
+.overlay__painel--degraded .overlay__body {
+  opacity: 0.42;
+}
+
+.tile--loading .tile__body {
+  opacity: 0.55;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mostradores                                                         */
+/* ------------------------------------------------------------------ */
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gauge__value {
+  margin: 0;
+  font-size: clamp(1.8rem, 4.2vw, 2.9rem);
+  font-weight: 300;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge--grande .gauge__value {
+  font-size: clamp(4rem, 14vw, 9rem);
+}
+
+.gauge__unit {
+  margin-left: 0.35rem;
+  font-size: 0.42em;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.gauge__track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.gauge--grande .gauge__track {
+  height: 6px;
+}
+
+/*
+ * A transição é longa porque as leituras chegam a cada ~0,9 s no barramento do
+ * Eclipse. Sem ela a barra andaria em degraus e o painel pareceria travado.
+ */
+.gauge__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 900ms linear;
+}
+
+.tile--degraded .gauge__fill {
+  background: var(--warn);
+}
+
+/* ------------------------------------------------------------------ */
+/* Música                                                              */
+/* ------------------------------------------------------------------ */
+
+.musica {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.musica__track {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.musica--grande .musica__track {
+  font-size: 2.4rem;
+  white-space: normal;
+}
+
+.musica__artist {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.musica--grande .musica__artist {
+  font-size: 1.2rem;
+}
+
+.musica__vazio {
+  margin: 0;
+  color: var(--muted);
+}
+
+.controles {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.controles__botao {
+  /* Alvo de toque com o carro andando: nada menor que isto. */
+  min-width: 2.6rem;
+  min-height: 2.6rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.controles__botao:hover,
+.controles__botao:focus-visible {
+  background: var(--tile-alto);
+  outline: none;
+}
+
+.controles__botao--principal {
+  min-width: 3.2rem;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
+}
+
+.musica--grande .controles {
+  margin-top: 1.5rem;
+}
+
+.musica--grande .controles__botao {
+  min-width: 4rem;
+  min-height: 4rem;
+  font-size: 1.5rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Mapa                                                                */
+/* ------------------------------------------------------------------ */
+
+.mapa {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 0.6rem;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 12px,
+      rgba(255, 255, 255, 0.018) 12px 24px
+    ),
+    #0d1117;
+}
+
+.mapa__marca {
+  font-size: 0.7rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Tela cheia                                                          */
+/* ------------------------------------------------------------------ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: stretch;
+  padding: 0.6rem;
+  background: rgba(4, 6, 9, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.overlay__painel {
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--tile);
+}
+
+.overlay__painel--degraded {
+  border-color: var(--warn);
+}
+
+.overlay__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.overlay__titulo {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.overlay__fechar {
+  min-height: 2.6rem;
+  padding: 0 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.overlay__fechar:hover,
+.overlay__fechar:focus-visible {
+  background: var(--tile-alto);
+  outline: none;
+}
+
+.overlay__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* ------------------------------------------------------------------ */
+/* Perfis                                                              */
+/* ------------------------------------------------------------------ */
+
+.boot {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  font-size: 0.8rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/*
+ * Serve tanto como tela de boot quanto como troca rápida. Na primeira, não há
+ * botão de fechar: sem saber quem está dirigindo, o painel não abre.
+ */
+.perfis {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(4, 6, 9, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+.perfis__painel {
+  width: min(46rem, 100%);
+  padding: 1.4rem 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--tile);
+}
+
+.perfis__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.perfis__titulo {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.perfis__lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1.2rem;
+}
+
+.perfil {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--bg);
+  transition: border-color 140ms ease;
+}
+
+.perfil--ativo {
+  border-color: var(--accent);
+}
+
+.perfil__escolher {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 4rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.8rem;
+  background: transparent;
+  color: var(--text);
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.perfil__ponto {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: none;
+  border-radius: 50%;
+}
+
+.perfil__nome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perfil__remover {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.5rem;
+  padding: 0.2rem 0.45rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+
+.perfil__remover:hover {
+  color: var(--text);
+}
+
+.perfil__remover--confirma {
+  color: var(--warn);
+}
+
+.novo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.novo__nome {
+  flex: 1 1 10rem;
+  min-height: 3rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.novo__nome:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.novo__cores {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.novo__cor {
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.novo__cor--ativa {
+  border-color: var(--text);
+}
+
+.novo__criar {
+  min-height: 3rem;
+  padding: 0 1.4rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.novo__criar:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: default;
+}
+
+/* Fica fora do grid para não roubar altura dos tiles. */
+.chip {
+  position: fixed;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.4rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--tile-alto);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+}
+
+.chip__ponto {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+}

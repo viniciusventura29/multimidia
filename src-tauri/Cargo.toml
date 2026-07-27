@@ -1,0 +1,33 @@
+[package]
+name = "eclipse-os"
+version.workspace = true
+edition.workspace = true
+description = "Computador de bordo do Mitsubishi Eclipse GT 2000"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# O sufixo `_lib` evita conflito com o nome do binário no Windows.
+# Ver https://github.com/rust-lang/cargo/issues/8519
+name = "eclipse_os_lib"
+# `staticlib` existe só para iOS, que não é alvo deste projeto (macOS para
+# desenvolver, Android na head unit) — e custava 300 MB de artefato por build.
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+
+eclipse-core.workspace = true
+eclipse-obd.workspace = true
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
