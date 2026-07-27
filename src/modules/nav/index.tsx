@@ -158,6 +158,7 @@ function Mapa({ data, status }: TileView<MapaState>) {
           fix={data.fix}
           rota={data.rota}
           recalcular={data.progresso?.recalcular ?? false}
+          apiKey={data.apiKey}
         />
       </APIProvider>
 

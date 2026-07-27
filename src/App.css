@@ -838,7 +838,24 @@ body {
 /* Rota e manobra                                                      */
 /* ------------------------------------------------------------------ */
 
-.rota__busca,
+/* A caixa ancora embaixo e a lista cresce para cima, empurrando o campo para
+   baixo — assim o que o motorista está digitando não sai de onde ele olha. */
+.rota__caixa {
+  position: absolute;
+  left: 0.7rem;
+  bottom: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: min(26rem, calc(100% - 9rem));
+}
+
+.rota__busca {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .rota__ativa {
   position: absolute;
   left: 0.7rem;
@@ -979,6 +996,81 @@ body {
 
 /* Referência visual de apoio: útil, mas não é a manobra. */
 .manobra__detalhe {
+  font-size: 0.74rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sugestões de destino                                                */
+/* ------------------------------------------------------------------ */
+
+.sugestoes {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: rgba(7, 9, 13, 0.94);
+  list-style: none;
+  backdrop-filter: blur(8px);
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.sugestao {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  /* Alvo de toque com o carro andando. */
+  min-height: 3rem;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sugestao:hover,
+.sugestao:focus-visible {
+  background: var(--tile-alto);
+  outline: none;
+}
+
+.sugestao__pino {
+  flex: none;
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.sugestao__texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* O que casou com a busca vem em negrito; o resto, esmaecido. É o que deixa a
+   lista legível de relance. */
+.sugestao__principal {
+  font-size: 0.92rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sugestao__principal strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sugestao__complemento {
   font-size: 0.74rem;
   color: var(--muted);
   overflow: hidden;
