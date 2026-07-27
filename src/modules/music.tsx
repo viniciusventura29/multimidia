@@ -74,19 +74,23 @@ function Conectar() {
   );
 }
 
+/**
+ * Só estes três motivos se resolvem com login. "Nenhum dispositivo ativo" não:
+ * ali a sessão está de pé e oferecer "conectar" mandaria o usuário refazer um
+ * login que já funcionou.
+ *
+ * Casar com o texto é frágil — o certo seria o Rust mandar a natureza da falha
+ * junto do motivo, e não a tela adivinhar pela prosa.
+ */
+const PRECISA_LOGIN = /reconectar|conectou o Spotify|Client ID/i;
+
 function Faixa({
   data,
   status,
   reason,
   grande,
 }: TileView<NowPlaying> & { grande?: boolean }) {
-  // Degradado sem nada guardado quer dizer que nunca conectou, ou que a sessão
-  // caiu de vez: oferecer o caminho de volta é mais útil que repetir o erro.
-  const precisaConectar =
-    status === "degraded" &&
-    (!data || /reconectar|conectou|Client ID/i.test(reason ?? ""));
-
-  if (precisaConectar) {
+  if (status === "degraded" && PRECISA_LOGIN.test(reason ?? "")) {
     return (
       <div className="musica">
         <Conectar />
@@ -94,7 +98,15 @@ function Faixa({
     );
   }
 
-  if (!data) return <p className="musica__vazio">nada tocando</p>;
+  if (!data) {
+    // Conectado, mas não há o que controlar: a Web API comanda um device que já
+    // esteja tocando, ela não cria um.
+    return (
+      <p className="musica__vazio">
+        abra o Spotify em algum aparelho e dê play
+      </p>
+    );
+  }
 
   return (
     <div className={`musica${grande ? " musica--grande" : ""}`}>
