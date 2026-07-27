@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useProfiles, useTema } from "./core/useProfiles";
+import { useLocalizacaoReal } from "./modules/nav";
 import { ProfileChip, ProfilePicker } from "./profiles/ProfilePicker";
 import { Dashboard } from "./shell/Dashboard";
 import "./App.css";
@@ -10,6 +11,10 @@ export default function App() {
   const [trocando, setTrocando] = useState(false);
 
   useTema(perfis.active);
+  // Mora aqui, e não dentro do tile do mapa, porque o tile monta duas vezes
+  // (grid + tela expandida) — abrir dois `watchPosition` ao mesmo tempo seria
+  // desperdício. Aqui só existe uma instância do App.
+  useLocalizacaoReal();
 
   if (perfis.carregando) {
     return <div className="boot">Eclipse OS</div>;
