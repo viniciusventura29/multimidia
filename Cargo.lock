@@ -848,6 +848,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclipse-music"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "eclipse-obd"
 version = "0.1.0"
 dependencies = [
