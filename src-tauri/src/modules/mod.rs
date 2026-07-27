@@ -4,6 +4,7 @@
 //! crate própria na fase em que ganha lógica de verdade (`eclipse-obd` na 4,
 //! `eclipse-music` na 5), e o `src-tauri` volta a ser só fiação.
 
+pub mod messaging;
 pub mod music;
 pub mod nav;
 pub mod obd;

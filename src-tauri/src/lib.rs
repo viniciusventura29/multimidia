@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use eclipse_core::{
     factory, ModuleCommand, ModuleId, Profile, ProfileStore, StateEnvelope, Supervisor,
 };
+use eclipse_music::TokenStore;
 use serde_json::Value;
 use tauri::{Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
@@ -134,6 +135,80 @@ fn anunciar_perfil(app: &tauri::AppHandle, supervisor: &Supervisor, profile: Opt
 }
 
 /* ------------------------------------------------------------------ */
+/* Spotify                                                             */
+/* ------------------------------------------------------------------ */
+
+/// O cofre de refresh tokens, compartilhado com o módulo de música.
+struct Cofre(Arc<Mutex<TokenStore>>);
+
+/// Lê uma credencial.
+///
+/// Variável de ambiente para desenvolver, arquivo para a head unit — lá não há
+/// shell para exportar nada antes de o launcher subir.
+fn credencial(dir_dados: &std::path::Path, env: &str, arquivo: &str) -> Option<String> {
+    std::env::var(env)
+        .ok()
+        .or_else(|| std::fs::read_to_string(dir_dados.join(arquivo)).ok())
+        .map(|valor| valor.trim().to_string())
+        .filter(|valor| !valor.is_empty())
+}
+
+fn client_id(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
+}
+
+fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_MAPS_API_KEY", "maps_api_key.txt")
+}
+
+/// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
+/// e guarda o refresh token.
+#[tauri::command]
+async fn connect_spotify(
+    app: tauri::AppHandle,
+    id: Uuid,
+) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("sem diretório de dados: {e}"))?;
+
+    let client_id = client_id(&dir).ok_or_else(|| {
+        "falta o Client ID: defina ECLIPSE_SPOTIFY_CLIENT_ID ou crie spotify_client_id.txt \
+         no diretório de dados do app"
+            .to_string()
+    })?;
+
+    let (client, url) =
+        eclipse_music::spotify::iniciar_autorizacao(&client_id).map_err(|e| e.to_string())?;
+
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
+
+    let autorizacao = eclipse_music::spotify::concluir_autorizacao(client)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    {
+        let cofre = app.state::<Cofre>();
+        let mut cofre = cofre.0.lock().unwrap_or_else(|e| e.into_inner());
+        cofre
+            .autorizou(id, autorizacao.refresh_token, autorizacao.quando)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // O módulo só descobre que agora há token quando tentar de novo; avisar via
+    // troca de perfil faz ele reconectar na hora.
+    let perfis = app.state::<Perfis>();
+    let ativo = perfis.lock().active().cloned();
+    if let Some(profile) = ativo.filter(|p| p.id == id) {
+        app.state::<Supervisor>()
+            .dispatch(ModuleCommand::ProfileChanged(Arc::new(profile)));
+    }
+
+    Ok(())
+}
+
+/* ------------------------------------------------------------------ */
 /* Fiação                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -171,16 +246,26 @@ pub fn run() {
             create_profile,
             select_profile,
             delete_profile,
+            connect_spotify,
         ])
         .setup(|app| {
-            let caminho = app
+            let dir = app
                 .path()
                 .app_data_dir()
-                .expect("sem diretório de dados do app")
-                .join("profiles.json");
-            let store = ProfileStore::load(caminho);
+                .expect("sem diretório de dados do app");
+
+            let store = ProfileStore::load(dir.join("profiles.json"));
             let ativo = store.active().cloned();
 
+            let cofre = Arc::new(Mutex::new(TokenStore::load(dir.join("spotify_tokens.json"))));
+            let conector: Arc<dyn modules::music::Conector> =
+                Arc::new(modules::music::SpotifyConector {
+                    client_id: client_id(&dir),
+                    cofre: Arc::clone(&cofre),
+                    demo: std::env::var("ECLIPSE_MUSIC_DEMO").is_ok_and(|v| v == "1"),
+                });
+
+            let chave_mapa = maps_api_key(&dir);
             let handle = app.handle().clone();
 
             // `block_on` serve só para entrar no runtime do Tauri, para que os
@@ -190,14 +275,16 @@ pub fn run() {
                 forward_states(handle, &supervisor);
 
                 supervisor.spawn(factory(modules::obd::OBD, modules::obd::ObdModule::default));
+                supervisor.spawn(factory(modules::music::MUSIC, move || {
+                    modules::music::MusicModule::new(Arc::clone(&conector))
+                }));
                 supervisor.spawn(factory(
-                    modules::music::MUSIC,
-                    modules::music::PlaceholderMusic::default,
+                    modules::messaging::MESSAGING,
+                    modules::messaging::MessagingModule::default,
                 ));
-                supervisor.spawn(factory(
-                    modules::nav::NAV,
-                    modules::nav::PlaceholderNav::default,
-                ));
+                supervisor.spawn(factory(modules::nav::NAV, move || {
+                    modules::nav::NavModule::new(chave_mapa.clone())
+                }));
 
                 supervisor
             });
@@ -210,6 +297,7 @@ pub fn run() {
 
             app.manage(supervisor);
             app.manage(Perfis(Mutex::new(store)));
+            app.manage(Cofre(cofre));
             Ok(())
         })
         .run(tauri::generate_context!())

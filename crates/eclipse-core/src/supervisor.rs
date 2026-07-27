@@ -306,6 +306,39 @@ mod tests {
         assert_eq!(snapshot[1].data, Some(serde_json::json!(20)));
     }
 
+    /// Um `broadcast` não entrega o que passou. Sem o supervisor guardar o
+    /// perfil, um módulo que sobe depois do anúncio — no boot, ou renascendo de
+    /// um pânico — passaria a vida sem saber de quem são as contas.
+    #[tokio::test(start_paused = true)]
+    async fn modulo_que_sobe_depois_ainda_recebe_o_perfil_ativo() {
+        /// Publica o nome de quem está dirigindo, ou nada se não souber.
+        struct QuemDirige;
+
+        #[async_trait]
+        impl Module for QuemDirige {
+            async fn run(&mut self, mut ctx: ModuleCtx) -> ModuleResult {
+                while let Some(comando) = ctx.next_command().await {
+                    if let ModuleCommand::ProfileChanged(perfil) = comando {
+                        ctx.ready(&perfil.name);
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let mut sup = Supervisor::new();
+        let mut rx = sup.subscribe();
+
+        // O perfil é anunciado ANTES de o módulo existir.
+        sup.dispatch(ModuleCommand::ProfileChanged(Arc::new(
+            crate::Profile::new("Vinicius", "#3ddc97"),
+        )));
+        sup.spawn(factory(ModuleId::new("quem"), || QuemDirige));
+
+        let env = espera_por(&mut rx, |e| e.status == Status::Ready).await;
+        assert_eq!(env.data, Some(serde_json::json!("Vinicius")));
+    }
+
     #[test]
     fn backoff_cresce_ate_o_teto_e_zera_no_reset() {
         let mut b = Backoff::new();
