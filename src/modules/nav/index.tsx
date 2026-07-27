@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 
 import { defineTile, type AnyTileSpec, type TileView } from "../../core/types";
-import { Destino } from "./destino";
+import { BuscarRota, Manobra } from "./rota";
 import type { Fix, MapaState } from "./tipos";
 
 const NAV = "nav";
@@ -147,9 +147,10 @@ function Mapa({ data, status }: TileView<MapaState>) {
           reuseMaps
         />
         <SeguirCarro fix={data.fix} navegando={modoNavegacao} />
+        <BuscarRota fix={data.fix} rota={data.rota} />
       </APIProvider>
 
-      <Destino />
+      {data.progresso && <Manobra progresso={data.progresso} />}
 
       {/* Em modo navegação o carro fica parado no centro e o mundo gira em
           volta. Um marcador que se move seria redundante — e erraria, porque a
