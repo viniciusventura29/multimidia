@@ -161,6 +161,11 @@ fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_MAPS_API_KEY", "maps_api_key.txt")
 }
 
+/// Sem Map ID o mapa é raster, e raster ignora inclinação e rotação.
+fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_MAPS_MAP_ID", "maps_map_id.txt")
+}
+
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
 /// e guarda o refresh token.
 #[tauri::command]
@@ -266,6 +271,7 @@ pub fn run() {
                 });
 
             let chave_mapa = maps_api_key(&dir);
+            let id_mapa = maps_map_id(&dir);
             let handle = app.handle().clone();
 
             // `block_on` serve só para entrar no runtime do Tauri, para que os
@@ -283,7 +289,11 @@ pub fn run() {
                     modules::messaging::MessagingModule::default,
                 ));
                 supervisor.spawn(factory(modules::nav::NAV, move || {
-                    modules::nav::NavModule::new(chave_mapa.clone())
+                    modules::nav::NavModule::new(
+                        chave_mapa.clone(),
+                        id_mapa.clone(),
+                        Box::new(eclipse_gps::SimulatedLocation::default()),
+                    )
                 }));
 
                 supervisor

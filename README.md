@@ -23,12 +23,18 @@ diretório de dados do app (para a head unit, onde não há shell antes do launc
 |---|---|---|
 | Client ID do Spotify | `ECLIPSE_SPOTIFY_CLIENT_ID` | `spotify_client_id.txt` |
 | Chave da Maps JavaScript API | `ECLIPSE_MAPS_API_KEY` | `maps_api_key.txt` |
+| Map ID vetorial | `ECLIPSE_MAPS_MAP_ID` | `maps_map_id.txt` |
 
 No macOS o diretório é `~/Library/Application Support/com.eclipseos.app`.
 
 O Spotify exige um app registrado em [developer.spotify.com](https://developer.spotify.com),
 com `http://127.0.0.1:8888/callback` cadastrado como Redirect URI, e conta Premium.
 **Configure um teto de cota no Google Cloud antes da primeira chamada ao Maps.**
+
+O Map ID precisa ser criado em *Google Maps Platform → Map Management*, tipo
+JavaScript, renderização **Vector**. Sem ele o mapa é raster, e mapa raster
+ignora inclinação e rotação: fica sempre chapado, olhando para o norte. É esse
+Map ID que separa "um mapa na tela" de "modo navegação".
 
 `ECLIPSE_MUSIC_DEMO=1` troca o Spotify por faixas de mentira, para trabalhar no
 layout sem Client ID.
@@ -38,7 +44,9 @@ layout sem Client ID.
 ```
 crates/
   eclipse-core       contrato de módulo, barramento, supervisor, perfis
-  eclipse-obd        cadência de varredura e o trajeto simulado
+  eclipse-sim        o carro imaginário, lido pelo OBD e pelo GPS
+  eclipse-obd        cadência de varredura dos PIDs
+  eclipse-gps        posição, rumo e o traçado percorrido
   eclipse-music      cofre de tokens e a ponte com o Spotify
   eclipse-messaging  caixa de entrada e a fonte de mensagens
 src-tauri            fiação: eventos, comandos, registro dos módulos
@@ -51,6 +59,12 @@ no React.
 **Módulo e tile são coisas diferentes.** Os cinco mostradores leem todos do módulo
 `obd`, porque é um ELM327 e um barramento — por isso caem juntos quando o
 adaptador solta, sem contaminar música e navegação.
+
+**Um simulador só, vários sensores.** No carro real o OBD e o GPS observam o
+mesmo movimento. Se cada simulador inventasse o seu, o painel mostraria o motor
+acelerando com o mapa parado — e pareceria funcionar, contando duas histórias.
+Por isso o `eclipse-sim` é função pura do tempo: dois sensores amostrando em
+ritmos diferentes (OBD a 300 ms, GPS a 1 s) ficam coerentes de graça.
 
 **Falhar é um estado, não uma exceção.** `ModuleState::Degraded` carrega o último
 valor bom: o tile fica esmaecido mostrando o número velho em vez de sumir. Cada
@@ -78,6 +92,8 @@ Não são pendências — são o que a plataforma permite:
 
 - Plugin Kotlin com `NotificationListenerService` — hoje as mensagens vêm de um
   mock. Depende da head unit comprada.
+- GPS real via `LocationManager` — hoje a posição vem de um traçado simulado
+  pela Av. Paulista.
 - OBD real via ELM327 (comprar a variante **Bluetooth Clássico/SPP**, não BLE).
 - Câmera lateral via USB/UVC.
 - APK, launcher, viagens, rádio.

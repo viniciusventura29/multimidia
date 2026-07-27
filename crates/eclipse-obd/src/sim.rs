@@ -1,10 +1,12 @@
-//! O trajeto simulado.
+//! A fonte simulada.
 //!
-//! Determinístico de propósito: o estado é função das leituras já feitas, sem
-//! aleatoriedade. Isso deixa o comportamento testável e faz o painel se
-//! comportar igual em toda execução, o que ajuda a enxergar regressão de layout.
+//! O movimento do carro **não** mora aqui: vem do `eclipse-sim`, que é lido
+//! também pelo GPS. Assim o mapa anda quando o motor acelera, em vez de cada
+//! simulador contar a sua própria história.
+//!
+//! O que é do motor — temperatura e consumo — continua sendo acumulado aqui,
+//! porque são coisas que o motor faz, não o trajeto.
 
-use std::f32::consts::TAU;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -34,19 +36,6 @@ const TEMPERATURA_OPERACAO: f32 = 88.0;
 const AQUECIMENTO: f32 = 0.0116;
 const TANQUE_LITROS: f32 = 60.0;
 const COMBUSTIVEL_INICIAL: f32 = 62.0;
-/// Acima da última troca, para o cruzeiro acontecer em quinta.
-const VELOCIDADE_CRUZEIRO: f32 = 104.0;
-
-const TICKS_PARADO: u64 = 27; // ~8 s
-const TICKS_CRUZEIRO: u64 = 84; // ~25 s
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Fase {
-    MarchaLenta,
-    Acelerando,
-    Cruzeiro,
-    Freando,
-}
 
 fn marcha_para(speed: f32) -> usize {
     TROCAS.iter().filter(|&&troca| speed >= troca).count()
@@ -58,9 +47,11 @@ fn rpm_para(speed: f32) -> f32 {
 
 #[derive(Clone)]
 pub struct SimulatedSource {
-    fase: Fase,
-    fase_tick: u64,
+    /// Segundos desde a partida. A velocidade sai daqui, não de estado próprio:
+    /// é o que mantém o OBD e o GPS falando do mesmo carro.
+    t: f32,
     speed: f32,
+    /// Temperatura e combustível o motor acumula sozinho, então continuam aqui.
     coolant: f32,
     fuel: f32,
 }
@@ -68,8 +59,7 @@ pub struct SimulatedSource {
 impl Default for SimulatedSource {
     fn default() -> Self {
         Self {
-            fase: Fase::MarchaLenta,
-            fase_tick: 0,
+            t: 0.0,
             speed: 0.0,
             coolant: TEMPERATURA_AMBIENTE,
             fuel: COMBUSTIVEL_INICIAL,
@@ -78,44 +68,9 @@ impl Default for SimulatedSource {
 }
 
 impl SimulatedSource {
-    fn mudar(&mut self, fase: Fase) {
-        self.fase = fase;
-        self.fase_tick = 0;
-    }
-
     fn avancar(&mut self) {
-        self.fase_tick += 1;
-
-        match self.fase {
-            Fase::MarchaLenta => {
-                self.speed = 0.0;
-                if self.fase_tick >= TICKS_PARADO {
-                    self.mudar(Fase::Acelerando);
-                }
-            }
-            Fase::Acelerando => {
-                // A aceleração cai conforme a velocidade sobe, como no carro real.
-                let acel = (9.0 - self.speed * 0.06).max(2.0);
-                self.speed = (self.speed + acel * DT).min(VELOCIDADE_CRUZEIRO);
-                if self.speed >= VELOCIDADE_CRUZEIRO - 0.1 {
-                    self.mudar(Fase::Cruzeiro);
-                }
-            }
-            Fase::Cruzeiro => {
-                // Variação leve de acelerador, para o painel não ficar estático.
-                let onda = (self.fase_tick as f32 / 40.0 * TAU).sin();
-                self.speed = VELOCIDADE_CRUZEIRO + onda * 3.0;
-                if self.fase_tick >= TICKS_CRUZEIRO {
-                    self.mudar(Fase::Freando);
-                }
-            }
-            Fase::Freando => {
-                self.speed = (self.speed - 12.0 * DT).max(0.0);
-                if self.speed <= 0.0 {
-                    self.mudar(Fase::MarchaLenta);
-                }
-            }
-        }
+        self.t += DT;
+        self.speed = eclipse_sim::velocidade_kmh(self.t);
 
         self.coolant += (TEMPERATURA_OPERACAO - self.coolant) * AQUECIMENTO;
 
@@ -248,9 +203,15 @@ mod tests {
             "velocidade negativa"
         );
 
-        let fases: Vec<Fase> = estados.iter().map(|e| e.fase).collect();
-        for fase in [Fase::Acelerando, Fase::Cruzeiro, Fase::Freando] {
-            assert!(fases.contains(&fase), "a fase {fase:?} nunca aconteceu");
+        for fase in [
+            eclipse_sim::Fase::Acelerando,
+            eclipse_sim::Fase::Cruzeiro,
+            eclipse_sim::Fase::Freando,
+        ] {
+            assert!(
+                estados.iter().any(|e| eclipse_sim::fase_em(e.t) == fase),
+                "a fase {fase:?} nunca aconteceu"
+            );
         }
     }
 

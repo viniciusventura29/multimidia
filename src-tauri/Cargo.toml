@@ -22,6 +22,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 
 eclipse-core.workspace = true
+eclipse-gps.workspace = true
 eclipse-messaging.workspace = true
 eclipse-music.workspace = true
 eclipse-obd.workspace = true
