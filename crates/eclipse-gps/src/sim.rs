@@ -68,10 +68,11 @@ impl SimulatedLocation {
         }
     }
 
-    fn avancar(&mut self, dt: f32) -> Fix {
+    /// Recebe a velocidade em vez de buscá-la: em produção vem do relógio
+    /// compartilhado com o OBD, no teste vem de um tempo que o teste controla.
+    /// Sem isso a simulação não seria reproduzível.
+    fn avancar(&mut self, dt: f32, velocidade: f32) -> Fix {
         self.t += dt;
-
-        let velocidade = eclipse_sim::velocidade_kmh(self.t);
         let mut restante = velocidade as f64 / 3.6 * dt as f64;
 
         // Consome a distância podendo atravessar vários segmentos numa tacada:
@@ -117,7 +118,10 @@ impl SimulatedLocation {
 impl LocationSource for SimulatedLocation {
     async fn next_fix(&mut self) -> Result<Fix, GpsError> {
         tokio::time::sleep(INTERVALO).await;
-        Ok(self.avancar(INTERVALO.as_secs_f32()))
+        Ok(self.avancar(
+            INTERVALO.as_secs_f32(),
+            eclipse_sim::velocidade_agora(),
+        ))
     }
 }
 
@@ -127,7 +131,9 @@ mod tests {
 
     fn rodar(segundos: usize) -> Vec<Fix> {
         let mut gps = SimulatedLocation::default();
-        (0..segundos).map(|_| gps.avancar(1.0)).collect()
+        (1..=segundos)
+            .map(|s| gps.avancar(1.0, eclipse_sim::velocidade_kmh(s as f32)))
+            .collect()
     }
 
     #[test]
@@ -146,10 +152,12 @@ mod tests {
     #[test]
     fn a_distancia_percorrida_bate_com_a_velocidade_do_carro() {
         let mut gps = SimulatedLocation::default();
-        let mut anterior = gps.avancar(1.0);
+        let mut t = 1.0;
+        let mut anterior = gps.avancar(1.0, eclipse_sim::velocidade_kmh(t));
 
         for _ in 0..60 {
-            let atual = gps.avancar(1.0);
+            t += 1.0;
+            let atual = gps.avancar(1.0, eclipse_sim::velocidade_kmh(t));
             let andou = distancia_m((anterior.lat, anterior.lon), (atual.lat, atual.lon));
             let esperado = atual.speed_kmh as f64 / 3.6;
 
@@ -167,10 +175,10 @@ mod tests {
     #[test]
     fn o_rumo_nao_gira_com_o_carro_parado() {
         let mut gps = SimulatedLocation::default();
-        let primeiro = gps.avancar(1.0);
+        let primeiro = gps.avancar(1.0, 0.0);
         for _ in 0..5 {
             assert_eq!(
-                gps.avancar(1.0).heading,
+                gps.avancar(1.0, 0.0).heading,
                 primeiro.heading,
                 "o mapa giraria sozinho no semáforo"
             );
