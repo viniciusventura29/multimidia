@@ -1,0 +1,20 @@
+[package]
+name = "tauri-plugin-media-session"
+version.workspace = true
+edition.workspace = true
+description = "Lê e controla a sessão de mídia ativa do Android (Spotify, YouTube Music, o que estiver tocando)"
+# Exigido pelo crate `tauri-plugin`: ele usa o mecanismo de `links` do Cargo
+# para levar o caminho do projeto Android até quem consome o plugin.
+links = "tauri-plugin-media-session"
+
+[build-dependencies]
+# Nome e API deste crate de build não foram conferidos contra o docs.rs — é o
+# padrão documentado para plugins Tauri v2, mas só um `cargo check` com o
+# Android SDK instalado confirma de verdade. Ver o aviso no topo de src/lib.rs.
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

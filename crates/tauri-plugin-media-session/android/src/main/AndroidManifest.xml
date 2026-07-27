@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fragmento de manifest do plugin — o Gradle mescla isto no manifest final do
+  app quando o projeto Android é gerado. Declara o `NotificationListenerService`
+  que empresta identidade para `MediaSessionManager.getActiveSessions()`: o
+  Android exige que quem chama esse método seja (ou aponte para) um listener
+  com acesso a notificações concedido pelo usuário, mesmo sem ler notificação
+  nenhuma de verdade.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/auto">
+    <application>
+        <service
+            android:name=".EclipseNotificationListener"
+            android:label="Eclipse OS — sessão de mídia"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

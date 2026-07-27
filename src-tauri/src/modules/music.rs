@@ -54,6 +54,24 @@ impl Conector for SpotifyConector {
     }
 }
 
+/// O player que já está tocando no aparelho, via sessão de mídia do Android.
+///
+/// Ignora o perfil de propósito: o Android guarda uma conta só por app, ao
+/// contrário do Spotify por token que cada perfil tinha antes. É a troca feita
+/// ao escolher "o Spotify de verdade" em vez de embarcar um cliente próprio.
+pub struct AndroidConector {
+    pub app: tauri::AppHandle,
+}
+
+#[async_trait]
+impl Conector for AndroidConector {
+    async fn conectar(&self, _perfil: Uuid) -> Result<Box<dyn MusicSource>, MusicError> {
+        Ok(Box::new(crate::modules::android_media::AndroidMediaSource::new(
+            self.app.clone(),
+        )))
+    }
+}
+
 pub struct MusicModule {
     conector: Arc<dyn Conector>,
 }

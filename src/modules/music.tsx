@@ -1,4 +1,5 @@
 import { useState, type MouseEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
 import {
@@ -75,6 +76,35 @@ function Conectar() {
 }
 
 /**
+ * O caminho de permissão, no Android.
+ *
+ * A sessão de mídia do sistema exige "acesso a notificações" concedido em
+ * Ajustes — não dá para pedir isso num diálogo comum, só abrir a tela certa.
+ * No Mac o comando existe mas não faz nada (ver `desktop.rs` do plugin).
+ */
+function PedirPermissao() {
+  const [abrindo, setAbrindo] = useState(false);
+
+  const abrir = async (event: MouseEvent) => {
+    event.stopPropagation();
+    setAbrindo(true);
+    try {
+      await invoke("open_notification_settings");
+    } catch (err) {
+      console.error("[eclipse] não consegui abrir Ajustes", err);
+    } finally {
+      setAbrindo(false);
+    }
+  };
+
+  return (
+    <button className="musica__conectar" onClick={abrir} disabled={abrindo}>
+      conceder acesso a notificações
+    </button>
+  );
+}
+
+/**
  * Só estes três motivos se resolvem com login. "Nenhum dispositivo ativo" não:
  * ali a sessão está de pé e oferecer "conectar" mandaria o usuário refazer um
  * login que já funcionou.
@@ -83,6 +113,7 @@ function Conectar() {
  * junto do motivo, e não a tela adivinhar pela prosa.
  */
 const PRECISA_LOGIN = /reconectar|conectou o Spotify|Client ID/i;
+const PRECISA_PERMISSAO = /acesso a notificações/i;
 
 function Faixa({
   data,
@@ -90,6 +121,14 @@ function Faixa({
   reason,
   grande,
 }: TileView<NowPlaying> & { grande?: boolean }) {
+  if (status === "degraded" && PRECISA_PERMISSAO.test(reason ?? "")) {
+    return (
+      <div className="musica">
+        <PedirPermissao />
+      </div>
+    );
+  }
+
   if (status === "degraded" && PRECISA_LOGIN.test(reason ?? "")) {
     return (
       <div className="musica">
@@ -99,13 +138,10 @@ function Faixa({
   }
 
   if (!data) {
-    // Conectado, mas não há o que controlar: a Web API comanda um device que já
-    // esteja tocando, ela não cria um.
-    return (
-      <p className="musica__vazio">
-        abra o Spotify em algum aparelho e dê play
-      </p>
-    );
+    // Nada tocando em lugar nenhum — no Android, o próprio aparelho; via
+    // Web API, algum dispositivo Spotify Connect. Ela não cria reprodução,
+    // só controla o que já existe.
+    return <p className="musica__vazio">nada tocando — abra o Spotify e dê play</p>;
   }
 
   return (
