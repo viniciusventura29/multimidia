@@ -5,8 +5,40 @@ export interface Fix {
   speedKmh: number;
 }
 
+export interface Passo {
+  instrucao: string;
+  detalhe: string | null;
+  distanciaM: number;
+  manobra: string | null;
+}
+
+export interface Rota {
+  destino: string;
+  pontos: [number, number][];
+  passos: Passo[];
+  distanciaTotalM: number;
+  duracaoTotalS: number;
+}
+
+export interface Progresso {
+  distanciaRestanteM: number;
+  chegadaEmS: number;
+  passoAtual: number;
+  proximaInstrucao: string;
+  proximoDetalhe: string | null;
+  proximaManobra: string | null;
+  distanciaParaManobraM: number;
+  desvioM: number;
+  foraDaRota: boolean;
+  recalcular: boolean;
+  chegou: boolean;
+}
+
 export interface MapaState {
   apiKey: string;
   mapId: string | null;
   fix: Fix | null;
+  rota: Rota | null;
+  progresso: Progresso | null;
+  fala: string | null;
 }

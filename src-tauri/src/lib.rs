@@ -214,75 +214,6 @@ async fn connect_spotify(
 }
 
 /* ------------------------------------------------------------------ */
-/* Navegação                                                           */
-/* ------------------------------------------------------------------ */
-
-/// Entrega um destino ao app do Google Maps.
-///
-/// O painel não navega: ele passa a bola para quem faz isso bem. No Android o
-/// esquema `google.navigation:` cai direto no turn-by-turn, sem tela
-/// intermediária — que é o que se quer com o carro andando. Fora do Android não
-/// existe app para abrir, então vai pela URL universal, que resolve no navegador
-/// e serve para desenvolver.
-#[tauri::command]
-fn open_navigation(destino: String) -> Result<(), String> {
-    let destino = destino.trim();
-    if destino.is_empty() {
-        return Err("destino vazio".into());
-    }
-
-    let alvo = urlencoding(destino);
-    let url = if cfg!(target_os = "android") {
-        format!("google.navigation:q={alvo}&mode=d")
-    } else {
-        format!("https://www.google.com/maps/dir/?api=1&destination={alvo}&travelmode=driving")
-    };
-
-    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
-}
-
-/// Percent-encoding do que vai na query.
-///
-/// Endereço brasileiro tem acento, vírgula e espaço; mandar cru quebra a URL.
-fn urlencoding(texto: &str) -> String {
-    texto
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (b as char).to_string()
-            }
-            b' ' => "+".to_string(),
-            outro => format!("%{outro:02X}"),
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::urlencoding;
-
-    /// Endereço brasileiro tem acento, vírgula e espaço. Mandar cru quebra a URL
-    /// e o Maps abre no lugar errado — ou não abre.
-    #[test]
-    fn codifica_endereco_brasileiro() {
-        assert_eq!(
-            urlencoding("Praça da Sé, São Paulo"),
-            "Pra%C3%A7a+da+S%C3%A9%2C+S%C3%A3o+Paulo"
-        );
-    }
-
-    #[test]
-    fn nao_mexe_no_que_ja_e_seguro() {
-        assert_eq!(urlencoding("Av-Paulista_1000.5~x"), "Av-Paulista_1000.5~x");
-    }
-
-    #[test]
-    fn escapa_o_que_quebraria_a_query() {
-        assert_eq!(urlencoding("a&b=c"), "a%26b%3Dc");
-    }
-}
-
-/* ------------------------------------------------------------------ */
 /* Fiação                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -321,7 +252,6 @@ pub fn run() {
             select_profile,
             delete_profile,
             connect_spotify,
-            open_navigation,
         ])
         .setup(|app| {
             let dir = app

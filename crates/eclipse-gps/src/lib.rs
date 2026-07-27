@@ -8,11 +8,13 @@
 //! mostradores nunca discordarem sobre o que o carro está fazendo.
 
 pub mod fix;
+pub mod guia;
 pub mod rota;
 pub mod sim;
 pub mod source;
 
 pub use fix::Fix;
+pub use guia::{Guia, Passo, Progresso, Route};
 pub use rota::TRACADO;
 pub use sim::SimulatedLocation;
 pub use source::{GpsError, LocationSource};
