@@ -38,17 +38,99 @@ body {
  * embaixo. As áreas são nomeadas para que cada tile diga onde mora sem depender
  * da ordem em que foi registrado.
  */
-.dashboard {
+/* Header fininho em cima, painel ocupando o resto. */
+.app {
   height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard {
+  flex: 1;
+  min-height: 0;
   display: grid;
+  /*
+   * O painel do Assistente ocupa toda a coluna estreita da esquerda; velocidade
+   * (com RPM e temperatura encaixados) e Spotify no meio; o mapa domina o bloco
+   * da direita e o WhatsApp, menor, mora embaixo dele.
+   */
   grid-template-areas:
-    "mapa        mapa      mensagens"
-    "musica      rpm       temp"
-    "combustivel voltagem  velocidade";
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: 1.7fr 1fr 1fr;
+    "ia velocidade  maps      maps"
+    "ia velocidade  maps      maps"
+    "ia spotify     maps      maps"
+    "ia spotify     whatsapp  whatsapp";
+  grid-template-columns: 0.75fr 1fr 1fr 1fr;
+  grid-template-rows: repeat(4, 1fr);
   gap: 0.6rem;
-  padding: 0.6rem;
+  padding: 0 0.6rem 0.6rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* Header (barra de status)                                            */
+/* ------------------------------------------------------------------ */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 1.1rem;
+}
+
+.topbar__infos {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  min-width: 0;
+}
+
+.topbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--tom, var(--text));
+}
+
+/* A hora não é telemetria — fica na cor do texto, sem tom por faixa. */
+.topbar__hora {
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.topbar__icone {
+  font-size: 1.25rem;
+}
+
+.topbar__nome {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  min-height: 2.2rem;
+  padding: 0.25rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--tile-alto);
+  color: var(--text);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: border-color 140ms ease;
+}
+
+.topbar__nome:hover,
+.topbar__nome:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.topbar__ponto {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: none;
+  border-radius: 50%;
 }
 
 /* ------------------------------------------------------------------ */
@@ -59,9 +141,9 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 0.85rem 1rem;
+  padding: 0.7rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 0.9rem;
+  border-radius: 1.25rem;
   background: var(--tile);
   transition: border-color 160ms ease, background 160ms ease;
 }
@@ -78,10 +160,24 @@ body {
 
 .tile__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.4rem;
+}
+
+.tile__rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.tile__icone {
+  display: inline-flex;
+  flex: none;
+  font-size: 0.95rem;
+  color: var(--accent);
 }
 
 .tile__title {
@@ -141,9 +237,29 @@ body {
   gap: 0.5rem;
 }
 
+/* Ícone e número lado a lado; a barra fica embaixo dos dois. */
+.gauge__linha {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.gauge__icone {
+  display: inline-flex;
+  flex: none;
+  font-size: clamp(1rem, 2.2vw, 1.4rem);
+  line-height: 1;
+  color: var(--tom, var(--accent));
+}
+
+.gauge--grande .gauge__icone {
+  font-size: clamp(3rem, 10vw, 6.5rem);
+}
+
 .gauge__value {
   margin: 0;
-  font-size: clamp(1.8rem, 4.2vw, 2.9rem);
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
   font-weight: 300;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -177,12 +293,120 @@ body {
  */
 .gauge__fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--tom, var(--accent));
   transition: width 900ms linear;
 }
 
 .tile--degraded .gauge__fill {
   background: var(--warn);
+}
+
+/* Degradado manda na cor: o tom da métrica não pode disfarçar o "sem sinal". */
+.tile--degraded .gauge__icone {
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------------ */
+/* Velocidade (herói) + RPM encaixado                                  */
+/* ------------------------------------------------------------------ */
+
+.velo {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Número grande e centralizado; sem barra — a velocidade não precisa de nível. */
+.velo__medidor {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.velo__medidor .gauge {
+  align-items: center;
+  text-align: center;
+}
+
+.velo__medidor .gauge__value {
+  font-size: clamp(2.6rem, 7vw, 4.8rem);
+}
+
+.velo__medidor .gauge__icone {
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+}
+
+/* RPM e temperatura moram encaixados no rodapé do quadro da velocidade. */
+.velo__chips {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.velo__chip {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--tile-alto);
+}
+
+.velo__chip-titulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.velo__chip-valor {
+  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+  font-weight: 300;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.velo__chip-unit {
+  margin-left: 0.15rem;
+  font-size: 0.6em;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
+/* Assistente (IA — reservado)                                         */
+/* ------------------------------------------------------------------ */
+
+.ia {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.ia__brilho {
+  font-size: 1.8rem;
+  color: var(--accent);
+}
+
+.ia__titulo {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+.ia__texto {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
 /* ------------------------------------------------------------------ */
@@ -234,6 +458,9 @@ body {
 
 .controles__botao {
   /* Alvo de toque com o carro andando: nada menor que isto. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 2.6rem;
   min-height: 2.6rem;
   padding: 0;
@@ -241,7 +468,7 @@ body {
   border-radius: 0.6rem;
   background: transparent;
   color: var(--text);
-  font-size: 1rem;
+  font-size: 1.15rem;
   cursor: pointer;
   transition: background 120ms ease;
 }
@@ -329,12 +556,19 @@ body {
 }
 
 .overlay__titulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   margin: 0;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.overlay__titulo .tile__icone {
+  font-size: 1.1rem;
 }
 
 .overlay__fechar {
@@ -569,6 +803,59 @@ body {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Saudação de boas-vindas                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Aparece no topo ao entrar num perfil e some sozinha. Fica acima de tudo
+ * (mapa, chip) e não intercepta toque — é só um "olá", não um controle.
+ */
+.bemvindo {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 1.2rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 999px;
+  background: var(--tile-alto);
+  color: var(--text);
+  font-size: 1.05rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: bemvindo-entra 260ms ease-out;
+}
+
+.bemvindo__icone {
+  color: var(--accent);
+}
+
+.bemvindo__texto strong {
+  font-weight: 600;
+}
+
+@keyframes bemvindo-entra {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -0.6rem);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bemvindo {
+    animation: none;
+  }
 }
 
 .musica__conectar {

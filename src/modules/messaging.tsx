@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type MouseEvent } from "react";
+import { MessageSquare } from "lucide-react";
 
 import { dispatchAction } from "../core/actions";
 import { defineTile, type AnyTileSpec, type TileView } from "../core/types";
@@ -122,8 +123,9 @@ function Caixa({ data, grande }: TileView<InboxState> & { grande?: boolean }) {
 export const messagingTile: AnyTileSpec = defineTile<InboxState>({
   id: "mensagens",
   module: MESSAGING,
-  title: "Mensagens",
-  area: "mensagens",
+  title: "WhatsApp",
+  area: "whatsapp",
+  icon: <MessageSquare size="1em" />,
   Compact: (view) => <Caixa {...view} />,
   Expanded: (view) => <Caixa {...view} grande />,
 });

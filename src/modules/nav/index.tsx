@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
+import { Navigation } from "lucide-react";
 
 import { defineTile, type AnyTileSpec, type TileView } from "../../core/types";
 import { Manobra } from "./manobra";
@@ -194,7 +195,8 @@ export const navTile: AnyTileSpec = defineTile<MapaState>({
   id: "mapa",
   module: NAV,
   title: "Navegação",
-  area: "mapa",
+  area: "maps",
+  icon: <Navigation size="1em" />,
   Compact: (view) => <Mapa {...view} />,
   Expanded: (view) => <Mapa {...view} />,
 });

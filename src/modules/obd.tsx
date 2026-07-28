@@ -1,50 +1,90 @@
+import { Gauge as GaugeIcon, Thermometer, Zap } from "lucide-react";
+
 import { Gauge } from "../shell/Gauge";
+import { AZUL, corTemp } from "../core/telemetria";
 import { defineTile, type AnyTileSpec, type ObdReadings } from "../core/types";
 
 const OBD = "obd";
 
-/**
- * Os cinco mostradores.
- *
- * Todos leem do mesmo módulo, porque é uma conexão só com o carro: um adaptador
- * ELM327, um barramento. Isso é o que faz os cinco escurecerem juntos quando o
- * adaptador cai, sem contaminar música nem navegação.
- */
-function mostrador(
-  id: string,
-  title: string,
-  area: string,
-  ler: (r: ObdReadings) => number | null,
-  opcoes: { unit?: string; max?: number; decimals?: number } = {},
-): AnyTileSpec {
-  const valor = (data: ObdReadings | null) => (data ? ler(data) : null);
+const CIANO = "#4dd8e0";
 
-  return defineTile<ObdReadings>({
-    id,
-    module: OBD,
-    title,
-    area,
-    Compact: ({ data }) => <Gauge value={valor(data)} {...opcoes} />,
-    Expanded: ({ data }) => <Gauge value={valor(data)} {...opcoes} size="grande" />,
-  });
+/** Um mini-mostrador que mora encaixado no quadro da velocidade. */
+function Chip({
+  icon,
+  rotulo,
+  valor,
+  unit,
+  tone,
+}: {
+  icon: React.ReactNode;
+  rotulo: string;
+  valor: number | null;
+  unit?: string;
+  tone: string;
+}) {
+  return (
+    <div className="velo__chip">
+      <span className="velo__chip-titulo">
+        {icon} {rotulo}
+      </span>
+      <span className="velo__chip-valor" style={{ color: tone }}>
+        {valor === null ? "--" : valor.toFixed(0)}
+        {unit && <span className="velo__chip-unit">{unit}</span>}
+      </span>
+    </div>
+  );
 }
 
-export const obdTiles: AnyTileSpec[] = [
-  mostrador("rpm", "RPM", "rpm", (r) => r.rpm, { max: 7000 }),
-  mostrador("temp", "Temperatura", "temp", (r) => r.coolantC, {
-    unit: "°C",
-    max: 120,
-  }),
-  mostrador("combustivel", "Combustível", "combustivel", (r) => r.fuelPct, {
-    unit: "%",
-    max: 100,
-  }),
-  mostrador("voltagem", "Voltagem", "voltagem", (r) => r.voltage, {
-    unit: "V",
-    decimals: 1,
-  }),
-  mostrador("velocidade", "Velocidade", "velocidade", (r) => r.speedKmh, {
-    unit: "km/h",
-    max: 200,
-  }),
-];
+/**
+ * A velocidade é o mostrador herói: número grande, e o RPM e a temperatura
+ * encaixados em mini-mostradores no rodapé — os três vêm da mesma leitura do
+ * carro, então moram juntos.
+ */
+function Velocidade({ data }: { data: ObdReadings | null }) {
+  const speed = data?.speedKmh ?? null;
+  const rpm = data?.rpm ?? null;
+  const temp = data?.coolantC ?? null;
+
+  return (
+    <div className="velo">
+      <div className="velo__medidor">
+        <Gauge value={speed} unit="km/h" icon={<Zap size="1em" />} tone={AZUL} />
+      </div>
+      <div className="velo__chips">
+        <Chip
+          icon={<GaugeIcon size="1em" />}
+          rotulo="RPM"
+          valor={rpm}
+          tone={CIANO}
+        />
+        <Chip
+          icon={<Thermometer size="1em" />}
+          rotulo="Temp"
+          valor={temp}
+          unit="°C"
+          tone={corTemp(temp)}
+        />
+      </div>
+    </div>
+  );
+}
+
+const velocidadeTile: AnyTileSpec = defineTile<ObdReadings>({
+  id: "velocidade",
+  module: OBD,
+  title: "Velocidade",
+  area: "velocidade",
+  Compact: ({ data }) => <Velocidade data={data} />,
+  Expanded: ({ data }) => (
+    <Gauge
+      value={data?.speedKmh ?? null}
+      unit="km/h"
+      max={200}
+      icon={<Zap size="1em" />}
+      tone={AZUL}
+      size="grande"
+    />
+  ),
+});
+
+export const obdTiles: AnyTileSpec[] = [velocidadeTile];
