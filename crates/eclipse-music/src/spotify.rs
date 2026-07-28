@@ -146,6 +146,19 @@ impl SpotifySource {
         Ok(Self { client })
     }
 
+    /// Escolhe onde tocar: o device ativo, senão o primeiro com id — que na
+    /// head unit é o app do Spotify em segundo plano. Vazio = ninguém pra
+    /// comandar (o usuário precisa abrir o Spotify uma vez para ele aparecer).
+    async fn escolher_device(&self) -> Result<String, MusicError> {
+        let devices = self.client.device().await.map_err(traduzir)?;
+        devices
+            .into_iter()
+            .filter(|d| d.id.is_some())
+            .max_by_key(|d| d.is_active)
+            .and_then(|d| d.id)
+            .ok_or(MusicError::NoActiveDevice)
+    }
+
     async fn tocando_agora(&self) -> Result<Option<NowPlaying>, MusicError> {
         let contexto = self
             .client
@@ -207,6 +220,57 @@ impl MusicSource for SpotifySource {
 
     async fn previous(&mut self) -> Result<(), MusicError> {
         self.client.previous_track(None).await.map_err(traduzir)
+    }
+
+    async fn buscar(&mut self, termo: &str) -> Result<Vec<crate::source::Faixa>, MusicError> {
+        use rspotify::model::{Id, SearchResult, SearchType};
+
+        let resultado = self
+            .client
+            .search(termo, SearchType::Track, None, None, Some(20), None)
+            .await
+            .map_err(traduzir)?;
+
+        let SearchResult::Tracks(pagina) = resultado else {
+            return Ok(Vec::new());
+        };
+
+        Ok(pagina
+            .items
+            .into_iter()
+            .filter_map(|faixa| {
+                Some(crate::source::Faixa {
+                    uri: faixa.id?.uri(),
+                    track: faixa.name,
+                    artist: faixa
+                        .artists
+                        .into_iter()
+                        .map(|a| a.name)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    album_art: faixa.album.images.into_iter().next().map(|i| i.url),
+                })
+            })
+            .collect())
+    }
+
+    async fn tocar(&mut self, uri: &str) -> Result<(), MusicError> {
+        use rspotify::model::{PlayableId, TrackId};
+
+        let device = self.escolher_device().await?;
+        let faixa = TrackId::from_uri(uri)
+            .map_err(|e| MusicError::Network(format!("URI de faixa inválida: {e}")))?
+            .into_static();
+
+        self.client
+            .start_uris_playback(
+                std::iter::once(PlayableId::Track(faixa)),
+                Some(&device),
+                None,
+                None,
+            )
+            .await
+            .map_err(traduzir)
     }
 }
 

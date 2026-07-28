@@ -13,6 +13,18 @@ pub struct NowPlaying {
     pub duration_ms: Option<u32>,
 }
 
+/// Uma faixa achada na busca (ou item de playlist) — o suficiente para listar
+/// e mandar tocar.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Faixa {
+    /// URI do Spotify (`spotify:track:...`) — é o que se manda para tocar.
+    pub uri: String,
+    pub track: String,
+    pub artist: String,
+    pub album_art: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum MusicError {
     /// O refresh token venceu (o Spotify expira em 6 meses) ou foi revogado.
@@ -70,4 +82,16 @@ pub trait MusicSource: Send {
     async fn toggle(&mut self) -> Result<(), MusicError>;
     async fn next(&mut self) -> Result<(), MusicError>;
     async fn previous(&mut self) -> Result<(), MusicError>;
+
+    /// Busca faixas por texto. Default vazio: fontes que não são a Web API
+    /// (demo, sessão de mídia) não têm busca.
+    async fn buscar(&mut self, _termo: &str) -> Result<Vec<Faixa>, MusicError> {
+        Ok(Vec::new())
+    }
+
+    /// Toca uma faixa (URI do Spotify) no device ativo — o app do Spotify em
+    /// segundo plano. Default: não suportado.
+    async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
+        Err(MusicError::NotConfigured)
+    }
 }
