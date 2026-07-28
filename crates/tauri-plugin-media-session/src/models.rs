@@ -14,6 +14,11 @@ pub struct AndroidNowPlaying {
     /// URI de conteúdo (`content://…`) ou HTTP, quando o app publica uma.
     /// Muitos não publicam — nem todo player tem capa disponível assim.
     pub album_art_uri: Option<String>,
+    /// `default` porque o `invoke.resolve(null)` do Kotlin ("nada tocando")
+    /// chega aqui como `{}`, não como `null` — a ponte do Tauri embrulha em
+    /// objeto vazio, e sem o default a desserialização morre com
+    /// "missing field `isPlaying`" toda vez que não há mídia nenhuma.
+    #[serde(default)]
     pub is_playing: bool,
     pub position_ms: Option<i64>,
     pub duration_ms: Option<i64>,

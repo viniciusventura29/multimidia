@@ -157,13 +157,25 @@ fn client_id(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
 }
 
+/// Fallback embutido em tempo de compilação, para builds de teste em aparelho
+/// físico: sem root não há como criar o arquivo no diretório de dados, e não há
+/// shell para exportar variável. A chave do Maps já é pública por natureza (vai
+/// ao WebView de qualquer jeito — ver `modules/nav.rs`); a proteção é a cota.
+fn embutida(valor: Option<&'static str>) -> Option<String> {
+    valor
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
 fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_MAPS_API_KEY", "maps_api_key.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_MAPS_API_KEY")))
 }
 
 /// Sem Map ID o mapa é raster, e raster ignora inclinação e rotação.
 fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_MAPS_MAP_ID", "maps_map_id.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_MAPS_MAP_ID")))
 }
 
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta

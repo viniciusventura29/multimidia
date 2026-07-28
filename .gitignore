@@ -25,3 +25,4 @@ dist-ssr
 
 # Rust — o workspace fica na raiz, então o target também
 /target
+
