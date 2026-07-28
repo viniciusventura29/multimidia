@@ -40,9 +40,14 @@ use crate::tokens::TokenStore;
 /// - No **desktop** o loopback funciona bem e não exige registrar scheme no SO.
 ///
 /// AMBAS precisam estar cadastradas idênticas no painel do app Spotify.
-#[cfg(mobile)]
+///
+/// ⚠️ Aqui é `target_os = "android"`, NÃO `mobile`: o cfg `mobile` é emitido
+/// pelo `tauri_build` só para o crate `src-tauri`, não para dependências como
+/// este `eclipse-music` — usar `mobile` aqui daria sempre o ramo desktop e a
+/// URL sairia com `127.0.0.1` no Android (o bug que fazia o navegador travar).
+#[cfg(target_os = "android")]
 pub const REDIRECT_URI: &str = "eclipseos://callback";
-#[cfg(not(mobile))]
+#[cfg(not(target_os = "android"))]
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 
 pub fn escopos() -> HashSet<String> {
