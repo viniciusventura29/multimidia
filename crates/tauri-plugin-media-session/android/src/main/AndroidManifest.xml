@@ -7,10 +7,13 @@
   com acesso a notificações concedido pelo usuário, mesmo sem ler notificação
   nenhuma de verdade.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/auto">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <!-- Nome completo, não `.EclipseNotificationListener`: este fragmento é
+             mesclado no manifest do app (`com.eclipseos.app`), e um nome
+             relativo ali é ambíguo — a classe vive em `com.eclipseos.mediasession`. -->
         <service
-            android:name=".EclipseNotificationListener"
+            android:name="com.eclipseos.mediasession.EclipseNotificationListener"
             android:label="Eclipse OS — sessão de mídia"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="false">

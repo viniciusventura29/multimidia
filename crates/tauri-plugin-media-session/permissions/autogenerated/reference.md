@@ -1,3 +1,19 @@
+## Default Permission
+
+Permite ler a sessão de mídia ativa e comandá-la (play/pause/faixa), mais a
+checagem e o pedido de acesso às notificações — que é como o Android entrega
+`MediaSessionManager.getActiveSessions()`.
+
+#### This default permission set includes the following:
+
+- `allow-now-playing`
+- `allow-play`
+- `allow-pause`
+- `allow-next`
+- `allow-previous`
+- `allow-has-notification-access`
+- `allow-request-notification-access`
+
 ## Permission Table
 
 <table>
