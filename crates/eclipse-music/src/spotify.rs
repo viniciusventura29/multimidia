@@ -38,7 +38,10 @@ pub fn escopos() -> HashSet<String> {
     scopes!(
         "user-read-playback-state",
         "user-modify-playback-state",
-        "user-read-currently-playing"
+        "user-read-currently-playing",
+        // Para listar e abrir as playlists do usuário dentro do Eclipse.
+        "playlist-read-private",
+        "playlist-read-collaborative"
     )
 }
 

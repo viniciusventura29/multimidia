@@ -9,3 +9,6 @@
 # Credenciais de dev embutidas pelo build.rs
 /maps_api_key.txt
 /maps_map_id.txt
+
+# Client ID do Spotify embutido pelo build.rs (fora do git)
+/spotify_client_id.txt

@@ -13,6 +13,7 @@ use eclipse_core::{
 use eclipse_music::TokenStore;
 use serde_json::Value;
 use tauri::{Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
@@ -155,6 +156,7 @@ fn credencial(dir_dados: &std::path::Path, env: &str, arquivo: &str) -> Option<S
 
 fn client_id(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_SPOTIFY_CLIENT_ID")))
 }
 
 /// Fallback embutido em tempo de compilação, para builds de teste em aparelho
@@ -199,7 +201,14 @@ async fn connect_spotify(
     let (client, url) =
         eclipse_music::spotify::iniciar_autorizacao(&client_id).map_err(|e| e.to_string())?;
 
-    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
+    // `app.opener().open_url` (método do manager), NÃO a função livre
+    // `tauri_plugin_opener::open_url`: a função livre cai no crate `open`, que
+    // tenta *exec* de um helper (estilo xdg-open) — o Android nega com EACCES
+    // ("Permission denied, os error 13") e o navegador nem abre. O método do
+    // manager tem o branch `#[cfg(mobile)]` que dispara um ACTION_VIEW nativo.
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())?;
 
     let autorizacao = eclipse_music::spotify::concluir_autorizacao(client)
         .await
@@ -344,18 +353,13 @@ pub fn run() {
             // passe mais por eles.
             let cofre = Arc::new(Mutex::new(TokenStore::load(dir.join("spotify_tokens.json"))));
 
-            // No Android, a fonte é a sessão de mídia do sistema — o Spotify
-            // (ou qualquer player) de verdade, rodando na head unit. É a troca
-            // por perder conta-por-perfil: o Android guarda uma conta só por
-            // app, ao contrário do token que cada perfil tinha no Spotify Web
-            // API. No Mac, para desenvolver, o caminho antigo continua.
-            #[cfg(target_os = "android")]
-            let conector: Arc<dyn modules::music::Conector> =
-                Arc::new(modules::music::AndroidConector {
-                    app: handle.clone(),
-                });
-
-            #[cfg(not(target_os = "android"))]
+            // Spotify pela Web API nas DUAS plataformas: é o que dá busca,
+            // playlists e "escolher a música dentro do Eclipse" sem abrir o app
+            // do Spotify. No Android o app oficial do Spotify serve só de device
+            // (Spotify Connect) em segundo plano — a UI é toda aqui. Isso
+            // abandona o caminho da sessão de mídia (`AndroidConector`), que só
+            // controlava o que já estivesse tocando e não sabia iniciar nada.
+            let _ = &handle; // ainda usado por outros módulos
             let conector: Arc<dyn modules::music::Conector> =
                 Arc::new(modules::music::SpotifyConector {
                     client_id: client_id(&dir),

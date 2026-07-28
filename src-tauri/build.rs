@@ -6,6 +6,7 @@ fn main() {
     for (arquivo, var) in [
         ("maps_api_key.txt", "ECLIPSE_MAPS_API_KEY"),
         ("maps_map_id.txt", "ECLIPSE_MAPS_MAP_ID"),
+        ("spotify_client_id.txt", "ECLIPSE_SPOTIFY_CLIENT_ID"),
     ] {
         println!("cargo:rerun-if-changed={arquivo}");
         if let Ok(valor) = std::fs::read_to_string(arquivo) {
