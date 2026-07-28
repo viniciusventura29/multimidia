@@ -86,6 +86,13 @@ export interface TileSpec<T> {
   title: string;
   /** Nome da área no `grid-template-areas`. */
   area: string;
+  /** Ícone no cabeçalho do tile — dá um marcador visual de relance. */
+  icon?: React.ReactNode;
+  /**
+   * Tile que não lê de módulo nenhum (relógio, por ex.): nasce pronto em vez de
+   * "carregando", já que nunca vai chegar um evento para ele.
+   */
+  estatico?: boolean;
   Compact: React.ComponentType<TileView<T>>;
   Expanded?: React.ComponentType<TileView<T>>;
 }

@@ -1,3 +1,4 @@
+import { assistenteTile } from "../modules/assistente";
 import { messagingTile } from "../modules/messaging";
 import { musicTile } from "../modules/music";
 import { navTile } from "../modules/nav";
@@ -11,4 +12,10 @@ import type { AnyTileSpec } from "../core/types";
  * e o desenho fica no CSS. Acrescentar um módulo é acrescentar uma entrada aqui
  * e uma área lá.
  */
-export const TILES: AnyTileSpec[] = [navTile, messagingTile, musicTile, ...obdTiles];
+export const TILES: AnyTileSpec[] = [
+  navTile,
+  messagingTile,
+  musicTile,
+  assistenteTile,
+  ...obdTiles,
+];
