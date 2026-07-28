@@ -30,8 +30,19 @@ use uuid::Uuid;
 use crate::source::{MusicError, MusicSource, NowPlaying};
 use crate::tokens::TokenStore;
 
-/// O Spotify exige a URI de redirect cadastrada no painel do app.
-/// Esta precisa estar lá exatamente igual.
+/// A URI de redirect cadastrada no painel do Spotify. Difere por plataforma:
+///
+/// - No **mobile**, um servidor loopback não funciona: o Android congela o app
+///   assim que ele vai pro fundo (enquanto o navegador aprova), então o
+///   `127.0.0.1:8888` fica sem ninguém para responder e o navegador trava
+///   carregando. O caminho robusto é um **deep link** de scheme próprio, que o
+///   sistema entrega de volta ao app (e ainda o traz pra frente sozinho).
+/// - No **desktop** o loopback funciona bem e não exige registrar scheme no SO.
+///
+/// AMBAS precisam estar cadastradas idênticas no painel do app Spotify.
+#[cfg(mobile)]
+pub const REDIRECT_URI: &str = "eclipseos://callback";
+#[cfg(not(mobile))]
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 
 pub fn escopos() -> HashSet<String> {
@@ -200,11 +211,17 @@ pub struct Autorizacao {
     pub quando: chrono::DateTime<Utc>,
 }
 
+/// Cliente PKCE no meio de uma autorização, carregando o `code_verifier`.
+///
+/// Opaco de propósito: o `src-tauri` precisa guardá-lo entre montar a URL e
+/// receber o `code` (pelo deep link, no mobile) sem depender do rspotify.
+pub struct PkcePendente(AuthCodePkceSpotify);
+
 /// Monta a URL de autorização e o cliente que vai trocar o código por token.
 ///
 /// Devolve o cliente junto porque o PKCE exige que o mesmo `code_verifier`
 /// gerado aqui seja usado na troca — um cliente novo não conseguiria completar.
-pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, String), MusicError> {
+pub fn iniciar_autorizacao(client_id: &str) -> Result<(PkcePendente, String), MusicError> {
     let mut client = AuthCodePkceSpotify::new(
         Credentials::new_pkce(client_id),
         OAuth {
@@ -215,7 +232,7 @@ pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, Stri
     );
 
     let url = client.get_authorize_url(None).map_err(traduzir)?;
-    Ok((client, url))
+    Ok((PkcePendente(client), url))
 }
 
 /// Espera o Spotify redirecionar de volta e troca o código pelo refresh token.
@@ -224,11 +241,22 @@ pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, Stri
 /// para app desktop: o navegador abre, o usuário aprova, e o Spotify devolve o
 /// código para o próprio aparelho — sem servidor na internet no meio.
 pub async fn concluir_autorizacao(
-    client: AuthCodePkceSpotify,
+    pendente: PkcePendente,
 ) -> Result<Autorizacao, MusicError> {
     let codigo = esperar_codigo().await?;
+    trocar_codigo(pendente, &codigo).await
+}
 
-    client.request_token(&codigo).await.map_err(traduzir)?;
+/// Troca o `code` pelo refresh token. É a metade final do PKCE, isolada porque
+/// no mobile o `code` não vem de um servidor loopback e sim de um deep link —
+/// o `connect_spotify` guarda o `client` (que carrega o `code_verifier`) e
+/// chama isto quando o deep link chega.
+pub async fn trocar_codigo(
+    pendente: PkcePendente,
+    codigo: &str,
+) -> Result<Autorizacao, MusicError> {
+    let client = pendente.0;
+    client.request_token(codigo).await.map_err(traduzir)?;
 
     let token = client
         .token
@@ -246,6 +274,12 @@ pub async fn concluir_autorizacao(
         refresh_token,
         quando: Utc::now(),
     })
+}
+
+/// Extrai o `code` de uma URL de callback (deep link `eclipseos://callback?...`
+/// ou loopback). Reaproveita o parser da linha de requisição fingindo uma.
+pub fn codigo_de_url(url: &str) -> Option<String> {
+    extrair_codigo(&format!("GET {url} HTTP/1.1"))
 }
 
 /// Servidor de uma requisição só, o suficiente para capturar o `code`.

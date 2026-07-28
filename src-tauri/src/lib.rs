@@ -142,6 +142,12 @@ fn anunciar_perfil(app: &tauri::AppHandle, supervisor: &Supervisor, profile: Opt
 /// O cofre de refresh tokens, compartilhado com o módulo de música.
 struct Cofre(Arc<Mutex<TokenStore>>);
 
+/// Login do Spotify em curso: o cliente PKCE (com o `code_verifier`) e o perfil
+/// que iniciou, esperando o `code` chegar pelo deep link. Só existe no mobile,
+/// onde o callback vem por `eclipseos://callback` em vez de servidor loopback.
+#[cfg(mobile)]
+struct SpotifyPendingAuth(Mutex<Option<(Uuid, eclipse_music::spotify::PkcePendente)>>);
+
 /// Lê uma credencial.
 ///
 /// Variável de ambiente para desenvolver, arquivo para a head unit — lá não há
@@ -198,7 +204,7 @@ async fn connect_spotify(
             .to_string()
     })?;
 
-    let (client, url) =
+    let (pendente, url) =
         eclipse_music::spotify::iniciar_autorizacao(&client_id).map_err(|e| e.to_string())?;
 
     // `app.opener().open_url` (método do manager), NÃO a função livre
@@ -206,14 +212,46 @@ async fn connect_spotify(
     // tenta *exec* de um helper (estilo xdg-open) — o Android nega com EACCES
     // ("Permission denied, os error 13") e o navegador nem abre. O método do
     // manager tem o branch `#[cfg(mobile)]` que dispara um ACTION_VIEW nativo.
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| e.to_string())?;
 
-    let autorizacao = eclipse_music::spotify::concluir_autorizacao(client)
-        .await
-        .map_err(|e| e.to_string())?;
+    // No mobile o `code` volta por deep link (`eclipseos://callback`), não por
+    // servidor loopback (o Android congela o app em segundo plano e o servidor
+    // trava). Guarda o cliente PKCE — que carrega o `code_verifier` — e deixa o
+    // handler `on_open_url` concluir quando o sistema entregar o deep link.
+    #[cfg(mobile)]
+    {
+        *app.state::<SpotifyPendingAuth>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((id, pendente));
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
 
+    // No desktop o loopback funciona: abre o navegador e espera o redirect.
+    #[cfg(not(mobile))]
+    {
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let autorizacao = eclipse_music::spotify::concluir_autorizacao(pendente)
+            .await
+            .map_err(|e| e.to_string())?;
+        finalizar_spotify(&app, id, autorizacao)?;
+        Ok(())
+    }
+}
+
+/// Guarda o refresh token no cofre e faz o módulo reconectar na hora.
+///
+/// Compartilhado pelos dois caminhos de login: o loopback (desktop, inline) e o
+/// deep link (mobile, pelo `on_open_url`).
+fn finalizar_spotify(
+    app: &tauri::AppHandle,
+    id: Uuid,
+    autorizacao: eclipse_music::spotify::Autorizacao,
+) -> Result<(), String> {
     {
         let cofre = app.state::<Cofre>();
         let mut cofre = cofre.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -322,6 +360,7 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_media_session::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -412,6 +451,53 @@ pub fn run() {
             app.manage(Localizacao(emissor_local));
             app.manage(Perfis(Mutex::new(store)));
             app.manage(Cofre(cofre));
+
+            // Login do Spotify no mobile: o `code` chega por deep link
+            // (`eclipseos://callback?code=...`). O `connect_spotify` guardou o
+            // cliente PKCE aqui; ao chegar o deep link, troca o code pelo token,
+            // finaliza no cofre e faz o módulo reconectar.
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.manage(SpotifyPendingAuth(Mutex::new(None)));
+                let alvo = app.handle().clone();
+                app.deep_link().on_open_url(move |evento| {
+                    for url in evento.urls() {
+                        println!("[eclipse] deep link recebido: {}", url.as_str());
+                        let Some(codigo) =
+                            eclipse_music::spotify::codigo_de_url(url.as_str())
+                        else {
+                            println!("[eclipse] deep link sem code, ignorando");
+                            continue;
+                        };
+                        let pendente = alvo
+                            .state::<SpotifyPendingAuth>()
+                            .0
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .take();
+                        let Some((id, pkce)) = pendente else {
+                            println!("[eclipse] deep link com code, mas sem login pendente");
+                            continue;
+                        };
+                        println!("[eclipse] code recebido, trocando pelo token…");
+                        let app = alvo.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match eclipse_music::spotify::trocar_codigo(pkce, &codigo).await {
+                                Ok(autorizacao) => {
+                                    println!("[eclipse] Spotify conectado com sucesso");
+                                    if let Err(err) = finalizar_spotify(&app, id, autorizacao) {
+                                        eprintln!("[eclipse] falha ao finalizar login do Spotify: {err}");
+                                    }
+                                }
+                                Err(err) => {
+                                    eprintln!("[eclipse] troca do code do Spotify falhou: {err}");
+                                }
+                            }
+                        });
+                    }
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
