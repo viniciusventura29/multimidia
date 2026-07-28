@@ -28,7 +28,12 @@ export function useLocalizacaoReal(): void {
       (posicao) => {
         const { latitude, longitude, heading, speed } = posicao.coords;
 
-        if (heading !== null && !Number.isNaN(heading)) {
+        // Só aceita rumo novo quando há movimento de verdade. Parado, o GPS
+        // devolve `heading` não-nulo porém ruidoso (gira sozinho a cada
+        // leitura) — era isso que fazia o carro "sambar" no mapa. Abaixo de
+        // ~5 km/h congela o último rumo bom.
+        const emMovimento = speed !== null && !Number.isNaN(speed) && speed > 1.4;
+        if (emMovimento && heading !== null && !Number.isNaN(heading)) {
           ultimoRumo.current = heading;
         }
 

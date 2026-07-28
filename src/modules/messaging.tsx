@@ -75,7 +75,7 @@ function Caixa({ data, grande }: TileView<InboxState> & { grande?: boolean }) {
   if (!grande) {
     return (
       <ul className="msg__lista">
-        {conversas.slice(0, 3).map((conversa) => (
+        {conversas.slice(0, 2).map((conversa) => (
           <li key={conversa.name} className="msg__item">
             <span className="msg__nome">{conversa.name}</span>
             <span className="msg__previa">

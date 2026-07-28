@@ -12,11 +12,19 @@
         <!-- Nome completo, não `.EclipseNotificationListener`: este fragmento é
              mesclado no manifest do app (`com.eclipseos.app`), e um nome
              relativo ali é ambíguo — a classe vive em `com.eclipseos.mediasession`. -->
+        <!-- exported=true é OBRIGATÓRIO: quem vincula este serviço é o sistema
+             (outro processo/UID), não o app. Com exported=false o serviço até
+             aparece na lista de "acesso a notificações" para o usuário marcar, e
+             getEnabledListenerPackages() passa a devolver true — MAS o sistema
+             nunca consegue fazer o bind, então getActiveSessions() volta vazio e
+             o controle de mídia morre em silêncio. Quem restringe o bind ao
+             sistema é a permission BIND_NOTIFICATION_LISTENER_SERVICE, não o
+             exported. É assim que a doc oficial do Android declara. -->
         <service
             android:name="com.eclipseos.mediasession.EclipseNotificationListener"
             android:label="Eclipse OS — sessão de mídia"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
