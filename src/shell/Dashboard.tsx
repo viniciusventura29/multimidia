@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { useModuleStates } from "../core/useModuleStates";
 import type { AnyTileSpec, ModuleStates, TileView } from "../core/types";
 import { TILES } from "./registry";
 import { Tile } from "./Tile";
@@ -10,7 +9,7 @@ function viewDe(states: ModuleStates, spec: AnyTileSpec): TileView<unknown> {
   const envelope = states[spec.module];
   return {
     data: envelope?.data ?? null,
-    status: envelope?.status ?? "loading",
+    status: envelope?.status ?? (spec.estatico ? "ready" : "loading"),
     reason: envelope?.reason ?? null,
   };
 }
@@ -33,7 +32,14 @@ function Expandido({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="overlay__head">
-          <h2 className="overlay__titulo">{spec.title}</h2>
+          <h2 className="overlay__titulo">
+            {spec.icon && (
+              <span className="tile__icone" aria-hidden>
+                {spec.icon}
+              </span>
+            )}
+            {spec.title}
+          </h2>
           <button className="overlay__fechar" onClick={aoFechar}>
             fechar
           </button>
@@ -49,8 +55,7 @@ function Expandido({
   );
 }
 
-export function Dashboard() {
-  const states = useModuleStates();
+export function Dashboard({ states }: { states: ModuleStates }) {
   const [expandido, setExpandido] = useState<string | null>(null);
 
   const aberto = TILES.find((spec) => spec.id === expandido);
@@ -67,6 +72,7 @@ export function Dashboard() {
               key={spec.id}
               title={spec.title}
               area={spec.area}
+              icon={spec.icon}
               status={view.status}
               reason={view.reason}
               onExpand={spec.Expanded ? () => setExpandido(spec.id) : undefined}

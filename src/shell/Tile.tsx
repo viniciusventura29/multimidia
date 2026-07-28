@@ -6,6 +6,7 @@ interface Props {
   status: Status;
   reason: string | null;
   area?: string;
+  icon?: ReactNode;
   onExpand?: () => void;
   children: ReactNode;
 }
@@ -17,7 +18,7 @@ interface Props {
  * O conteúdo continua na tela, esmaecido, com o motivo embaixo, para o motorista
  * saber que aquele número está velho em vez de achar que zerou.
  */
-export function Tile({ title, status, reason, area, onExpand, children }: Props) {
+export function Tile({ title, status, reason, area, icon, onExpand, children }: Props) {
   const clicavel = Boolean(onExpand);
 
   const aoTeclar = (event: KeyboardEvent<HTMLElement>) => {
@@ -38,7 +39,14 @@ export function Tile({ title, status, reason, area, onExpand, children }: Props)
       tabIndex={clicavel ? 0 : undefined}
     >
       <header className="tile__head">
-        <span className="tile__title">{title}</span>
+        <span className="tile__rotulo">
+          {icon && (
+            <span className="tile__icone" aria-hidden>
+              {icon}
+            </span>
+          )}
+          <span className="tile__title">{title}</span>
+        </span>
         {status === "degraded" && <span className="tile__badge">sem sinal</span>}
       </header>
 

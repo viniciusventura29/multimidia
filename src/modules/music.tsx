@@ -1,5 +1,6 @@
 import { useState, type MouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
 import {
@@ -26,21 +27,25 @@ function Controles({ tocando }: { tocando: boolean }) {
         onClick={(e) => acionar(e, "prev")}
         aria-label="Faixa anterior"
       >
-        ⏮
+        <SkipBack size="1em" fill="currentColor" />
       </button>
       <button
         className="controles__botao controles__botao--principal"
         onClick={(e) => acionar(e, "toggle")}
         aria-label={tocando ? "Pausar" : "Tocar"}
       >
-        {tocando ? "⏸" : "▶"}
+        {tocando ? (
+          <Pause size="1em" fill="currentColor" />
+        ) : (
+          <Play size="1em" fill="currentColor" />
+        )}
       </button>
       <button
         className="controles__botao"
         onClick={(e) => acionar(e, "next")}
         aria-label="Próxima faixa"
       >
-        ⏭
+        <SkipForward size="1em" fill="currentColor" />
       </button>
     </div>
   );
@@ -160,7 +165,8 @@ export const musicTile: AnyTileSpec = defineTile<NowPlaying>({
   id: "musica",
   module: MUSIC,
   title: "Spotify",
-  area: "musica",
+  area: "spotify",
+  icon: <Music size="1em" />,
   Compact: (view) => <Faixa {...view} />,
   Expanded: (view) => <Faixa {...view} grande />,
 });

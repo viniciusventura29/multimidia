@@ -1,13 +1,17 @@
 import { useState } from "react";
 
+import { useModuleStates } from "./core/useModuleStates";
 import { useProfiles, useTema } from "./core/useProfiles";
 import { useLocalizacaoReal } from "./modules/nav";
-import { ProfileChip, ProfilePicker } from "./profiles/ProfilePicker";
+import { ProfilePicker } from "./profiles/ProfilePicker";
+import { BemVindo } from "./shell/BemVindo";
 import { Dashboard } from "./shell/Dashboard";
+import { Header } from "./shell/Header";
 import "./App.css";
 
 export default function App() {
   const perfis = useProfiles();
+  const states = useModuleStates();
   const [trocando, setTrocando] = useState(false);
 
   useTema(perfis.active);
@@ -28,9 +32,16 @@ export default function App() {
 
   return (
     <>
-      <Dashboard />
+      <div className="app">
+        <Header
+          states={states}
+          profile={perfis.active}
+          aoTrocar={() => setTrocando(true)}
+        />
+        <Dashboard states={states} />
+      </div>
 
-      <ProfileChip profile={perfis.active} aoClicar={() => setTrocando(true)} />
+      <BemVindo key={perfis.active.id} profile={perfis.active} />
 
       {trocando && (
         <ProfilePicker
