@@ -417,10 +417,48 @@ impl MusicSource for SpotifySource {
         })
     }
 
-    async fn tocar(&mut self, uri: &str) -> Result<(), MusicError> {
-        use rspotify::model::{PlayableId, TrackId};
+    async fn tocar(
+        &mut self,
+        faixa: Option<&str>,
+        contexto: Option<&str>,
+    ) -> Result<(), MusicError> {
+        use rspotify::model::{
+            AlbumId, Offset, PlayContextId, PlayableId, PlaylistId, TrackId,
+        };
 
         let device = self.escolher_device().await?;
+
+        // Com contexto: toca dentro da playlist/álbum, com a faixa como offset.
+        // É isto que dá fila real — sem ela, "próxima" não tem para onde ir e a
+        // reprodução simplesmente para (parecia pausar).
+        if let Some(ctx) = contexto {
+            // Mesma decisão de `abrir`: o tipo vem do próprio URI.
+            let contexto_id = if ctx.contains(":album:") {
+                PlayContextId::Album(
+                    AlbumId::from_uri(ctx)
+                        .map_err(|e| MusicError::Network(format!("URI de álbum inválida: {e}")))?
+                        .into_static(),
+                )
+            } else {
+                PlayContextId::Playlist(
+                    PlaylistId::from_uri(ctx)
+                        .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
+                        .into_static(),
+                )
+            };
+            let offset = faixa.map(|u| Offset::Uri(u.to_string()));
+            return self
+                .client
+                .start_context_playback(contexto_id, Some(&device), offset, None)
+                .await
+                .map_err(traduzir);
+        }
+
+        // Sem contexto: faixa avulsa (busca). Não há fila — é o comportamento
+        // esperado de tocar um resultado solto.
+        let Some(uri) = faixa else {
+            return Err(MusicError::Network("nada para tocar".into()));
+        };
         let faixa = TrackId::from_uri(uri)
             .map_err(|e| MusicError::Network(format!("URI de faixa inválida: {e}")))?
             .into_static();
@@ -432,6 +470,13 @@ impl MusicSource for SpotifySource {
                 None,
                 None,
             )
+            .await
+            .map_err(traduzir)
+    }
+
+    async fn seek(&mut self, posicao_ms: u32) -> Result<(), MusicError> {
+        self.client
+            .seek_track(chrono::Duration::milliseconds(posicao_ms as i64), None)
             .await
             .map_err(traduzir)
     }
@@ -456,19 +501,6 @@ impl MusicSource for SpotifySource {
             .collect())
     }
 
-    async fn tocar_playlist(&mut self, uri: &str) -> Result<(), MusicError> {
-        use rspotify::model::{PlayContextId, PlaylistId};
-
-        let device = self.escolher_device().await?;
-        let contexto = PlaylistId::from_uri(uri)
-            .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
-            .into_static();
-
-        self.client
-            .start_context_playback(PlayContextId::Playlist(contexto), Some(&device), None, None)
-            .await
-            .map_err(traduzir)
-    }
 }
 
 /// Resultado de uma autorização nova.

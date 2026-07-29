@@ -30,10 +30,15 @@ export interface EstadoLocal {
   albumArt: string | null;
   isPlaying: boolean;
   uri: string;
+  /** Posição atual e duração da faixa, em ms — para a barra de progresso. */
+  positionMs: number | null;
+  durationMs: number | null;
 }
 
 interface WebPlaybackState {
   paused: boolean;
+  position?: number;
+  duration?: number;
   track_window?: {
     current_track?: {
       name?: string;
@@ -51,6 +56,8 @@ interface SpotifyPlayer {
   togglePlay(): Promise<void>;
   nextTrack(): Promise<void>;
   previousTrack(): Promise<void>;
+  /** Salta para uma posição da faixa atual, em ms. */
+  seek(posicaoMs: number): Promise<void>;
   /** Em mobile o áudio só começa após um gesto do usuário. */
   activateElement(): Promise<void>;
 }
@@ -92,12 +99,13 @@ export async function ativarAudio(): Promise<void> {
  * player aqui (o som está em outro aparelho) — aí quem chama cai no caminho do
  * Rust, que comanda pela Web API.
  */
-export async function controlarLocal(acao: string): Promise<boolean> {
+export async function controlarLocal(acao: string, arg?: number): Promise<boolean> {
   if (!atual) return false;
   try {
     if (acao === "toggle") await atual.togglePlay();
     else if (acao === "next") await atual.nextTrack();
     else if (acao === "prev") await atual.previousTrack();
+    else if (acao === "seek") await atual.seek(arg ?? 0);
     else return false;
     return true;
   } catch (err) {
@@ -178,6 +186,11 @@ export function marcarTocandoOtimista(tocando: boolean): void {
   if (estadoAtual) publicarEstado({ ...estadoAtual, isPlaying: tocando });
 }
 
+/** Reflete o seek na hora: a barra pula para a posição arrastada sem esperar o SDK. */
+export function marcarPosicaoOtimista(posicaoMs: number): void {
+  if (estadoAtual) publicarEstado({ ...estadoAtual, positionMs: posicaoMs });
+}
+
 /* ------------------------------------------------------------------ */
 
 /**
@@ -244,6 +257,8 @@ export function useSpotifyPlayer(perfilId: string | null, logado: boolean): Stat
             albumArt: faixa.album?.images?.[0]?.url ?? null,
             isPlaying: !s.paused,
             uri: faixa.uri ?? "",
+            positionMs: s.position ?? null,
+            durationMs: s.duration ?? null,
           });
         }) as never);
 

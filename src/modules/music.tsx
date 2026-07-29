@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { ChevronLeft, Disc3, ListMusic, Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
@@ -11,8 +11,10 @@ import {
 import {
   ativarAudio,
   controlarLocal,
+  marcarPosicaoOtimista,
   marcarTocandoOtimista,
   useEstadoLocal,
+  type EstadoLocal,
   useStatusPlayer,
 } from "./spotifyPlayer";
 
@@ -27,12 +29,34 @@ const MUSIC = "music";
  * aparelho. Antes tudo ia pelo Rust, e o toque somava DUAS viagens de internet
  * antes de a tela mudar: era o delay que se sentia.
  */
-async function transporte(acao: string, tocandoAgora: boolean): Promise<void> {
+async function transporte(acao: string, tocandoAgora: boolean, arg?: number): Promise<void> {
   await ativarAudio();
   // Otimista: a tela reflete o toque na hora e o evento do SDK confirma depois.
   if (acao === "toggle") marcarTocandoOtimista(!tocandoAgora);
-  if (await controlarLocal(acao)) return;
-  dispatchAction(MUSIC, { acao });
+  if (acao === "seek" && arg != null) marcarPosicaoOtimista(arg);
+  if (await controlarLocal(acao, arg)) return;
+  dispatchAction(MUSIC, acao === "seek" ? { acao, posicaoMs: arg } : { acao });
+}
+
+/** "m:ss" a partir de milissegundos. */
+function formatarTempo(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const minutos = Math.floor(total / 60);
+  const segundos = total % 60;
+  return `${minutos}:${segundos.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Posição/duração da faixa, normalizadas: o SDK local usa `positionMs`, o estado
+ * do Rust usa `progressMs` — a barra não precisa saber de onde veio.
+ */
+function progresso(
+  local: EstadoLocal | null,
+  data: MusicState | null,
+): { posicaoMs: number | null; duracaoMs: number | null } {
+  if (local) return { posicaoMs: local.positionMs, duracaoMs: local.durationMs };
+  const np = data?.nowPlaying;
+  return { posicaoMs: np?.progressMs ?? null, duracaoMs: np?.durationMs ?? null };
 }
 
 function Controles({ tocando, grande }: { tocando: boolean; grande?: boolean }) {
@@ -157,7 +181,105 @@ function StatusDevice() {
   return <span className={`sp-device sp-device--${status}`}>{texto}</span>;
 }
 
-/** Compacto: o que toca + controles, ou o caminho para resolver o problema. */
+/**
+ * A linha de progresso: mostra o andamento e deixa arrastar para pular (seek).
+ *
+ * O evento do SDK só chega quando algo muda, não a cada segundo — então a barra
+ * interpola sozinha enquanto toca, e reancora quando um estado novo chega (do SDK
+ * ou do poll do Rust). Enquanto o dedo arrasta, para de interpolar para não brigar
+ * com o toque.
+ */
+function ProgressoTocando({
+  posicaoMs,
+  duracaoMs,
+  tocando,
+  onSeek,
+}: {
+  posicaoMs: number | null;
+  duracaoMs: number | null;
+  tocando: boolean;
+  onSeek: (ms: number) => void;
+}) {
+  const [pos, setPos] = useState(posicaoMs ?? 0);
+  const trilhoRef = useRef<HTMLDivElement>(null);
+  const arrastando = useRef(false);
+
+  // Reancora quando chega posição nova — a não ser que o dedo esteja arrastando.
+  useEffect(() => {
+    if (!arrastando.current) setPos(posicaoMs ?? 0);
+  }, [posicaoMs]);
+
+  // Interpola por segundo enquanto toca; zera o timer quando o estado muda.
+  useEffect(() => {
+    if (!tocando || duracaoMs == null) return;
+    const base = posicaoMs ?? 0;
+    const inicio = Date.now();
+    const id = setInterval(() => {
+      if (arrastando.current) return;
+      setPos(Math.min(base + (Date.now() - inicio), duracaoMs));
+    }, 500);
+    return () => clearInterval(id);
+  }, [tocando, posicaoMs, duracaoMs]);
+
+  if (duracaoMs == null || duracaoMs <= 0) return null;
+
+  const frac = Math.max(0, Math.min(1, pos / duracaoMs));
+
+  const posDeEvento = (clientX: number): number => {
+    const el = trilhoRef.current;
+    if (!el) return pos;
+    const r = el.getBoundingClientRect();
+    const f = r.width > 0 ? Math.max(0, Math.min(1, (clientX - r.left) / r.width)) : 0;
+    return Math.round(f * duracaoMs);
+  };
+
+  const aoApertar = (e: PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    arrastando.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setPos(posDeEvento(e.clientX));
+  };
+  const aoMover = (e: PointerEvent<HTMLDivElement>) => {
+    if (!arrastando.current) return;
+    e.stopPropagation();
+    setPos(posDeEvento(e.clientX));
+  };
+  const aoSoltar = (e: PointerEvent<HTMLDivElement>) => {
+    if (!arrastando.current) return;
+    e.stopPropagation();
+    arrastando.current = false;
+    const ms = posDeEvento(e.clientX);
+    setPos(ms);
+    onSeek(ms);
+  };
+
+  return (
+    <div className="progresso">
+      <span className="progresso__tempo">{formatarTempo(pos)}</span>
+      <div
+        className="progresso__trilho"
+        ref={trilhoRef}
+        onPointerDown={aoApertar}
+        onPointerMove={aoMover}
+        onPointerUp={aoSoltar}
+        onPointerCancel={aoSoltar}
+        // O `click` sintetizado depois do toque borbulharia e abriria a tela cheia.
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="progresso__feito" style={{ width: `${frac * 100}%` }} />
+        <div className="progresso__knob" style={{ left: `${frac * 100}%` }} />
+      </div>
+      <span className="progresso__tempo">{formatarTempo(duracaoMs)}</span>
+    </div>
+  );
+}
+
+/**
+ * Compacto: o que toca + controles, ou o caminho para resolver o problema.
+ *
+ * A capa preenche o quadro e derrete (fade) num painel escuro embaixo, onde ficam
+ * nome, artista, o progresso e os controles — sobrepostos na imagem.
+ */
 function Compacto({ data }: TileView<MusicState>) {
   const local = useEstadoLocal();
   const problema = data?.problema ?? null;
@@ -175,12 +297,29 @@ function Compacto({ data }: TileView<MusicState>) {
     return <p className="musica__vazio">toque para buscar e tocar</p>;
   }
 
+  const { posicaoMs, duracaoMs } = progresso(local, data);
+
   return (
-    <div className="musica">
-      {np.albumArt && <img className="musica__capa" src={np.albumArt} alt="" />}
-      <p className="musica__track">{np.track}</p>
-      <p className="musica__artist">{np.artist}</p>
-      <Controles tocando={np.isPlaying} />
+    <div className="player">
+      {np.albumArt ? (
+        <img className="player__capa" src={np.albumArt} alt="" />
+      ) : (
+        <div className="player__capa player__capa--vazia" />
+      )}
+      <div className="player__fade" />
+      <div className="player__info">
+        <div className="player__texto">
+          <p className="player__track">{np.track}</p>
+          <p className="player__artist">{np.artist}</p>
+        </div>
+        <ProgressoTocando
+          posicaoMs={posicaoMs}
+          duracaoMs={duracaoMs}
+          tocando={np.isPlaying}
+          onSeek={(ms) => void transporte("seek", np.isPlaying, ms)}
+        />
+        <Controles tocando={np.isPlaying} />
+      </div>
     </div>
   );
 }
@@ -216,10 +355,12 @@ function Completa({ data }: TileView<MusicState>) {
     if (q) dispatchAction(MUSIC, { acao: "buscar", termo: q });
   };
 
-  const tocar = (event: MouseEvent, uri: string) => {
+  // `contexto` é a playlist/álbum de onde a faixa veio: tocá-la dentro dele monta
+  // a fila, e é isso que faz "próxima/anterior" andarem em vez de parar.
+  const tocar = (event: MouseEvent, opts: { uri?: string; contexto?: string }) => {
     event.stopPropagation();
     void ativarAudio();
-    dispatchAction(MUSIC, { acao: "tocar", uri });
+    dispatchAction(MUSIC, { acao: "tocar", ...opts });
   };
 
   const abrir = (event: MouseEvent, uri: string) => {
@@ -251,7 +392,7 @@ function Completa({ data }: TileView<MusicState>) {
               {contexto.subtitulo} · {contexto.faixas.length} faixas
             </span>
           </span>
-          <button className="sp-tocar-tudo" onClick={(e) => tocar(e, contexto.uri)}>
+          <button className="sp-tocar-tudo" onClick={(e) => tocar(e, { contexto: contexto.uri })}>
             <Play size="1em" fill="currentColor" /> tocar tudo
           </button>
         </header>
@@ -289,7 +430,7 @@ function Completa({ data }: TileView<MusicState>) {
               capa={f.albumArt}
               titulo={f.track}
               subtitulo={f.artist}
-              onClick={(e) => tocar(e, f.uri)}
+              onClick={(e) => tocar(e, { uri: f.uri, contexto: contexto.uri })}
             />
           ))
         ) : temBusca ? (
@@ -312,7 +453,7 @@ function Completa({ data }: TileView<MusicState>) {
                 capa={f.albumArt}
                 titulo={f.track}
                 subtitulo={f.artist}
-                onClick={(e) => tocar(e, f.uri)}
+                onClick={(e) => tocar(e, { uri: f.uri })}
               />
             ))}
           </>

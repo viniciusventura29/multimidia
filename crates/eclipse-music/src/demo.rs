@@ -15,10 +15,15 @@ const PLAYLIST: [(&str, &str); 3] = [
     ("Bloom", "ODESZA"),
 ];
 
+/// Duração de mentira de cada faixa (3:30), para a barra de progresso ter o que
+/// mostrar quando o assunto é layout.
+const DURACAO_MS: u32 = 210_000;
+
 #[derive(Default)]
 pub struct DemoSource {
     indice: usize,
     tocando: bool,
+    posicao_ms: u32,
 }
 
 impl DemoSource {
@@ -36,8 +41,8 @@ impl DemoSource {
                  cx='150' cy='150' r='70' fill='%233ddc97'/%3E%3C/svg%3E"
                     .to_string(),
             ),
-            progress_ms: None,
-            duration_ms: None,
+            progress_ms: Some(self.posicao_ms.min(DURACAO_MS)),
+            duration_ms: Some(DURACAO_MS),
         }
     }
 }
@@ -56,12 +61,14 @@ impl MusicSource for DemoSource {
     async fn next(&mut self) -> Result<(), MusicError> {
         self.indice = (self.indice + 1) % PLAYLIST.len();
         self.tocando = true;
+        self.posicao_ms = 0;
         Ok(())
     }
 
     async fn previous(&mut self) -> Result<(), MusicError> {
         self.indice = (self.indice + PLAYLIST.len() - 1) % PLAYLIST.len();
         self.tocando = true;
+        self.posicao_ms = 0;
         Ok(())
     }
 
@@ -103,8 +110,18 @@ impl MusicSource for DemoSource {
         })
     }
 
-    async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
+    async fn tocar(
+        &mut self,
+        _faixa: Option<&str>,
+        _contexto: Option<&str>,
+    ) -> Result<(), MusicError> {
         self.tocando = true;
+        self.posicao_ms = 0;
+        Ok(())
+    }
+
+    async fn seek(&mut self, posicao_ms: u32) -> Result<(), MusicError> {
+        self.posicao_ms = posicao_ms.min(DURACAO_MS);
         Ok(())
     }
 
@@ -114,10 +131,5 @@ impl MusicSource for DemoSource {
             Playlist { uri: "spotify:playlist:demo-2".into(), nome: "Estrada".into(), album_art: None },
             Playlist { uri: "spotify:playlist:demo-3".into(), nome: "Domingo".into(), album_art: None },
         ])
-    }
-
-    async fn tocar_playlist(&mut self, _uri: &str) -> Result<(), MusicError> {
-        self.tocando = true;
-        Ok(())
     }
 }

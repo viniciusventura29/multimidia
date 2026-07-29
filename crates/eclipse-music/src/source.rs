@@ -179,19 +179,31 @@ pub trait MusicSource: Send {
         Err(MusicError::NotConfigured)
     }
 
-    /// Toca uma faixa (URI do Spotify) no device ativo — o app do Spotify em
-    /// segundo plano. Default: não suportado.
-    async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
+    /// Toca música no device ativo.
+    ///
+    /// - Com `contexto` (URI de playlist/álbum): toca **dentro** dele, montando a
+    ///   fila — é o que faz "próxima/anterior" funcionarem. `faixa` (URI de faixa)
+    ///   vira o ponto de partida (offset); sem ela, começa do início.
+    /// - Sem `contexto`, só com `faixa`: toca a faixa avulsa (sem fila — o caso da
+    ///   busca, onde não há um contexto para navegar).
+    ///
+    /// Default: não suportado.
+    async fn tocar(
+        &mut self,
+        _faixa: Option<&str>,
+        _contexto: Option<&str>,
+    ) -> Result<(), MusicError> {
+        Err(MusicError::NotConfigured)
+    }
+
+    /// Salta para uma posição da faixa atual (em milissegundos). O caminho rápido
+    /// é o SDK do WebView; aqui é o fallback pela Web API. Default: não suportado.
+    async fn seek(&mut self, _posicao_ms: u32) -> Result<(), MusicError> {
         Err(MusicError::NotConfigured)
     }
 
     /// As playlists do usuário. Default vazio.
     async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
         Ok(Vec::new())
-    }
-
-    /// Toca uma playlist inteira (URI de contexto). Default: não suportado.
-    async fn tocar_playlist(&mut self, _uri: &str) -> Result<(), MusicError> {
-        Err(MusicError::NotConfigured)
     }
 }
