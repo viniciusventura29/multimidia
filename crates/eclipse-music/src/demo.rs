@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 
-use crate::source::{MusicError, MusicSource, NowPlaying};
+use crate::source::{Faixa, MusicError, MusicSource, NowPlaying, Playlist};
 
 const PLAYLIST: [(&str, &str); 3] = [
     ("Weightless", "Marconi Union"),
@@ -54,6 +54,36 @@ impl MusicSource for DemoSource {
 
     async fn previous(&mut self) -> Result<(), MusicError> {
         self.indice = (self.indice + PLAYLIST.len() - 1) % PLAYLIST.len();
+        self.tocando = true;
+        Ok(())
+    }
+
+    async fn buscar(&mut self, termo: &str) -> Result<Vec<Faixa>, MusicError> {
+        Ok(PLAYLIST
+            .iter()
+            .map(|(track, artist)| Faixa {
+                uri: format!("spotify:track:demo-{track}"),
+                track: format!("{track} — {termo}"),
+                artist: artist.to_string(),
+                album_art: None,
+            })
+            .collect())
+    }
+
+    async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
+        self.tocando = true;
+        Ok(())
+    }
+
+    async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
+        Ok(vec![
+            Playlist { uri: "spotify:playlist:demo-1".into(), nome: "Foco".into(), album_art: None },
+            Playlist { uri: "spotify:playlist:demo-2".into(), nome: "Estrada".into(), album_art: None },
+            Playlist { uri: "spotify:playlist:demo-3".into(), nome: "Domingo".into(), album_art: None },
+        ])
+    }
+
+    async fn tocar_playlist(&mut self, _uri: &str) -> Result<(), MusicError> {
         self.tocando = true;
         Ok(())
     }

@@ -25,6 +25,26 @@ pub struct Faixa {
     pub album_art: Option<String>,
 }
 
+/// Uma playlist do usuário.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Playlist {
+    /// URI do Spotify (`spotify:playlist:...`) — o que se manda para tocar.
+    pub uri: String,
+    pub nome: String,
+    pub album_art: Option<String>,
+}
+
+/// Estado publicado do módulo de música: o que toca agora + os resultados da
+/// última busca + as playlists do usuário. Um tipo só para o React ler tudo.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicState {
+    pub now_playing: Option<NowPlaying>,
+    pub resultados: Vec<Faixa>,
+    pub playlists: Vec<Playlist>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum MusicError {
     /// O refresh token venceu (o Spotify expira em 6 meses) ou foi revogado.
@@ -92,6 +112,16 @@ pub trait MusicSource: Send {
     /// Toca uma faixa (URI do Spotify) no device ativo — o app do Spotify em
     /// segundo plano. Default: não suportado.
     async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
+        Err(MusicError::NotConfigured)
+    }
+
+    /// As playlists do usuário. Default vazio.
+    async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
+        Ok(Vec::new())
+    }
+
+    /// Toca uma playlist inteira (URI de contexto). Default: não suportado.
+    async fn tocar_playlist(&mut self, _uri: &str) -> Result<(), MusicError> {
         Err(MusicError::NotConfigured)
     }
 }

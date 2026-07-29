@@ -272,6 +272,40 @@ impl MusicSource for SpotifySource {
             .await
             .map_err(traduzir)
     }
+
+    async fn playlists(&mut self) -> Result<Vec<crate::source::Playlist>, MusicError> {
+        use rspotify::model::Id;
+
+        let pagina = self
+            .client
+            .current_user_playlists_manual(Some(50), Some(0))
+            .await
+            .map_err(traduzir)?;
+
+        Ok(pagina
+            .items
+            .into_iter()
+            .map(|p| crate::source::Playlist {
+                uri: p.id.uri(),
+                nome: p.name,
+                album_art: p.images.into_iter().next().map(|i| i.url),
+            })
+            .collect())
+    }
+
+    async fn tocar_playlist(&mut self, uri: &str) -> Result<(), MusicError> {
+        use rspotify::model::{PlayContextId, PlaylistId};
+
+        let device = self.escolher_device().await?;
+        let contexto = PlaylistId::from_uri(uri)
+            .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
+            .into_static();
+
+        self.client
+            .start_context_playback(PlayContextId::Playlist(contexto), Some(&device), None, None)
+            .await
+            .map_err(traduzir)
+    }
 }
 
 /// Resultado de uma autorização nova.

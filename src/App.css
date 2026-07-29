@@ -499,6 +499,118 @@ body {
   font-size: 1.5rem;
 }
 
+/* --- Spotify em tela cheia: busca + resultados + playlists + tocando --- */
+
+.spotify-full {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.spotify-busca {
+  display: flex;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.spotify-busca__campo {
+  flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.spotify-busca__campo:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.spotify-busca__botao {
+  flex: 0 0 auto;
+  padding: 0 1.1rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+/* A lista rola; o resto (busca em cima, tocando embaixo) fica fixo. */
+.spotify-lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.spotify-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.spotify-item:hover,
+.spotify-item:focus-visible {
+  background: var(--panel);
+  outline: none;
+}
+
+.spotify-item__capa {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.35rem;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.spotify-item__texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.spotify-item__track {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-item__artist {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-tocando {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
 /* ------------------------------------------------------------------ */
 /* Mapa                                                                */
 /* ------------------------------------------------------------------ */
