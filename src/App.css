@@ -19,6 +19,23 @@
   box-sizing: border-box;
 }
 
+/*
+ * O painel se autorregula por aqui.
+ *
+ * Todo o resto do CSS mede em `rem`, então a fonte-base é a única alavanca: ela
+ * amarra o tamanho de TUDO (paddings, gaps, ícones, botões) à altura da tela.
+ * Sem isto o layout era desenhado para 1024x600 e estourava num celular deitado
+ * (~890x410), que tem menos da metade da altura por linha do grid — o conteúdo
+ * não caía fora, mas era recortado, que é o mesmo prejuízo.
+ *
+ * Referências: 600px de altura => ~16px (o tamanho para o qual o painel foi
+ * desenhado); 410px => ~11px. O `min(...)` com vw evita fonte alta demais numa
+ * tela larga e baixa, e o `clamp` segura os extremos.
+ */
+html {
+  font-size: clamp(9px, min(2.7vh, 1.6vw), 17px);
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -27,6 +44,14 @@ body {
   user-select: none;
   overscroll-behavior: none;
   overflow: hidden;
+}
+
+/* Trava o arrasto lateral mesmo se algum conteúdo estourar a largura. */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 /* ------------------------------------------------------------------ */
@@ -40,7 +65,9 @@ body {
  */
 /* Header fininho em cima, painel ocupando o resto. */
 .app {
-  height: 100vh;
+  /* `dvh`, não `vh`: no Android o `vh` conta a área que a barra de navegação
+     cobre, e a última linha do grid ficava atrás dela (era o corte de baixo). */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -62,7 +89,11 @@ body {
   grid-template-columns: 0.75fr 1fr 1fr 1fr;
   grid-template-rows: repeat(4, 1fr);
   gap: 0.6rem;
-  padding: 0 0.6rem 0.6rem;
+  /* `max(...)` com a safe-area: respeita a barra de gestos do Android sem
+     encolher a margem onde ela não existe (head unit). Idem nas laterais, por
+     causa do notch quando o aparelho está deitado. */
+  padding: 0 max(0.6rem, env(safe-area-inset-right)) max(0.6rem, env(safe-area-inset-bottom))
+    max(0.6rem, env(safe-area-inset-left));
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,6 +172,10 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Vira um container de consulta: o conteúdo passa a se adaptar ao tamanho do
+     PRÓPRIO quadro, não ao da tela. É o que deixa o mesmo card servir a uma
+     célula baixa (celular deitado) e a uma alta (head unit) sem recortar nada. */
+  container-type: size;
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--line);
   border-radius: 1.25rem;
@@ -252,25 +287,25 @@ body {
 .gauge__icone {
   display: inline-flex;
   flex: none;
-  font-size: clamp(1rem, 2.2vw, 1.4rem);
+  font-size: 1.25rem;
   line-height: 1;
   color: var(--tom, var(--accent));
 }
 
 .gauge--grande .gauge__icone {
-  font-size: clamp(3rem, 10vw, 6.5rem);
+  font-size: 4.5rem;
 }
 
 .gauge__value {
   margin: 0;
-  font-size: clamp(1.4rem, 3vw, 2.1rem);
+  font-size: 1.8rem;
   font-weight: 300;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .gauge--grande .gauge__value {
-  font-size: clamp(4rem, 14vw, 9rem);
+  font-size: 6rem;
 }
 
 .gauge__unit {
@@ -335,11 +370,11 @@ body {
 }
 
 .velo__medidor .gauge__value {
-  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-size: 2.3rem;
 }
 
 .velo__medidor .gauge__icone {
-  font-size: clamp(1.1rem, 2.4vw, 1.7rem);
+  font-size: 1.35rem;
 }
 
 /* RPM e temperatura moram encaixados no rodapé do quadro da velocidade. */
@@ -371,7 +406,7 @@ body {
 }
 
 .velo__chip-valor {
-  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+  font-size: 1.35rem;
   font-weight: 300;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -417,14 +452,26 @@ body {
 /* Música                                                              */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Deitado, não empilhado: capa à esquerda, nome/artista no meio, controles à
+ * direita. Empilhado, isto exigia mais altura do que a linha do grid tem num
+ * celular deitado — e o que sobrava eram os controles cortados, justamente o que
+ * o motorista precisa alcançar. Na horizontal usa a largura, que é o que sobra.
+ */
 .musica {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "capa track controles"
+    "capa artist controles";
+  align-items: center;
+  gap: 0 0.7rem;
   min-width: 0;
 }
 
 .musica__track {
+  grid-area: track;
+  align-self: end;
   margin: 0;
   font-size: 1.05rem;
   font-weight: 500;
@@ -433,19 +480,15 @@ body {
   text-overflow: ellipsis;
 }
 
-.musica--grande .musica__track {
-  font-size: 2.4rem;
-  white-space: normal;
-}
-
 .musica__artist {
+  grid-area: artist;
+  align-self: start;
   margin: 0;
   font-size: 0.82rem;
   color: var(--muted);
-}
-
-.musica--grande .musica__artist {
-  font-size: 1.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .musica__vazio {
@@ -457,7 +500,39 @@ body {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin-top: 0.6rem;
+}
+
+/* Dentro do card compacto os controles moram na coluna da direita do grid. */
+.musica .controles {
+  grid-area: controles;
+}
+
+/*
+ * Quando o quadro tem altura sobrando (o caso normal: o card do Spotify ocupa
+ * duas linhas do grid), os controles descem para uma faixa própria e o nome da
+ * música ganha a largura inteira — deitado, o texto era truncado em
+ * "Weightle…" sem necessidade. Em quadro baixo, o padrão deitado acima vale.
+ */
+@container (min-height: 7.5rem) {
+  .musica {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "capa track"
+      "capa artist"
+      "controles controles";
+    align-content: center;
+    gap: 0.15rem 0.7rem;
+  }
+
+  .musica__capa {
+    width: 4.2rem;
+    height: 4.2rem;
+  }
+
+  .musica .controles {
+    justify-content: center;
+    margin-top: 0.7rem;
+  }
 }
 
 .controles__botao {
@@ -489,15 +564,8 @@ body {
   color: var(--accent);
 }
 
-.musica--grande .controles {
-  margin-top: 1.5rem;
-}
-
-.musica--grande .controles__botao {
-  min-width: 4rem;
-  min-height: 4rem;
-  font-size: 1.5rem;
-}
+/* (As regras de `.musica--grande` saíram: a tela cheia do Spotify agora é a
+   `.spotify-full`, com busca e playlists — aquela variante não é mais renderizada.) */
 
 /* --- Spotify em tela cheia: busca + resultados + playlists + tocando --- */
 
@@ -661,7 +729,10 @@ body {
   inset: 0;
   display: grid;
   place-items: stretch;
-  padding: 0.6rem;
+  /* Mesma safe-area do painel: sem isto o rodapé da tela cheia (a barra do
+     "tocando agora", com os controles) ficava atrás da barra do Android. */
+  padding: max(0.6rem, env(safe-area-inset-top)) max(0.6rem, env(safe-area-inset-right))
+    max(0.6rem, env(safe-area-inset-bottom)) max(0.6rem, env(safe-area-inset-left));
   background: rgba(4, 6, 9, 0.82);
   backdrop-filter: blur(6px);
 }
@@ -735,7 +806,7 @@ body {
 .boot {
   display: grid;
   place-items: center;
-  height: 100vh;
+  height: 100dvh;
   font-size: 0.8rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -1008,11 +1079,13 @@ body {
   cursor: default;
 }
 
+/* Quadrada e pequena: 12rem aqui era da tela cheia antiga e sozinha estourava a
+   altura do tile compacto, empurrando os controles para fora. */
 .musica__capa {
-  width: 12rem;
-  height: 12rem;
-  margin-bottom: 1rem;
-  border-radius: 0.6rem;
+  grid-area: capa;
+  width: 3.2rem;
+  height: 3.2rem;
+  border-radius: 0.5rem;
   object-fit: cover;
 }
 
@@ -1044,20 +1117,29 @@ body {
 .msg__lista {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.45rem;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/*
+ * Uma linha por conversa: nome, prévia e o contador na direita. Em duas linhas
+ * (nome em cima, prévia embaixo) a lista não cabia na linha do grid num celular
+ * deitado e era recortada pela metade. Numa linha cabe, e de relance no carro se
+ * lê melhor: quem falou e o começo do que disse.
+ */
 .msg__item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0 0.5rem;
-  align-items: center;
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
 .msg__nome {
+  flex: 0 1 auto;
+  /* Nome não empurra a prévia para fora: no máximo metade da linha. */
+  max-width: 45%;
   font-size: 0.9rem;
   font-weight: 500;
   overflow: hidden;
@@ -1066,7 +1148,8 @@ body {
 }
 
 .msg__previa {
-  grid-column: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 0.78rem;
   color: var(--muted);
   overflow: hidden;
@@ -1075,7 +1158,7 @@ body {
 }
 
 .msg__badge {
-  grid-row: span 2;
+  flex: none;
   min-width: 1.4rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;

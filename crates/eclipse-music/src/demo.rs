@@ -28,7 +28,14 @@ impl DemoSource {
             track: track.to_string(),
             artist: artist.to_string(),
             is_playing: self.tocando,
-            album_art: None,
+            // Capa de mentira (SVG embutido): sem ela o layout do card não podia
+            // ser conferido no emulador, e é justo a capa que estourava a altura.
+            album_art: Some(
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' \
+                 height='300'%3E%3Crect width='300' height='300' fill='%234a2b7a'/%3E%3Ccircle \
+                 cx='150' cy='150' r='70' fill='%233ddc97'/%3E%3C/svg%3E"
+                    .to_string(),
+            ),
             progress_ms: None,
             duration_ms: None,
         }

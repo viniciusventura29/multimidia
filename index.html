@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <!-- Painel de carro: sem zoom nem pan — era o que deixava arrastar a tela
+         pro lado quando algo estourava a largura. `viewport-fit=cover` deixa o
+         CSS descontar a barra de navegação do Android via env(safe-area-inset-*). -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Eclipse OS</title>
   </head>
 
   <body>
