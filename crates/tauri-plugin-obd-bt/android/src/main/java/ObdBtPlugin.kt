@@ -35,7 +35,13 @@ class CommandArgs {
 
 @TauriPlugin(
     permissions = [
-        Permission(strings = [Manifest.permission.BLUETOOTH_CONNECT], alias = "bluetooth")
+        Permission(
+            strings = [
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN,
+            ],
+            alias = "bluetooth"
+        )
     ]
 )
 class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
@@ -101,8 +107,14 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                     return@execute
                 }
                 val device = adapter.getRemoteDevice(args.address)
-                // Descoberta ativa deixa o handshake do RFCOMM lento e instável.
-                adapter.cancelDiscovery()
+                // Descoberta ativa deixa o handshake do RFCOMM lento e instável —
+                // mas cancelar é só otimização, e exige BLUETOOTH_SCAN. Se o
+                // usuário negou SCAN, conecta mesmo assim.
+                try {
+                    adapter.cancelDiscovery()
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "sem BLUETOOTH_SCAN para cancelDiscovery; seguindo sem cancelar")
+                }
                 Log.i(TAG, "conectando em ${args.address} via SPP")
                 val s = try {
                     val spp = device.createRfcommSocketToServiceRecord(SPP_UUID)
