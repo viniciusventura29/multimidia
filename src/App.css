@@ -564,45 +564,52 @@ body {
   color: var(--accent);
 }
 
-/* (As regras de `.musica--grande` saíram: a tela cheia do Spotify agora é a
-   `.spotify-full`, com busca e playlists — aquela variante não é mais renderizada.) */
 
-/* --- Spotify em tela cheia: busca + resultados + playlists + tocando --- */
+/* --- Spotify em tela cheia: busca, playlists, e entrar em playlist/álbum --- */
 
-.spotify-full {
+.sp {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.7rem;
   height: 100%;
   min-height: 0;
 }
 
-.spotify-busca {
+/* Busca e cabeçalho do contexto compartilham a faixa de cima. */
+.sp-busca,
+.sp-topo {
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.6rem;
   flex: 0 0 auto;
+  min-width: 0;
 }
 
-.spotify-busca__campo {
+.sp-busca__campo {
   flex: 1;
   min-width: 0;
   padding: 0.7rem 0.9rem;
-  border-radius: 0.5rem;
+  border-radius: 0.6rem;
   border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--fg);
+  background: var(--tile);
+  color: var(--text);
   font-size: 1rem;
 }
 
-.spotify-busca__campo:focus {
+.sp-busca__campo:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.spotify-busca__botao {
-  flex: 0 0 auto;
+.sp-busca__botao,
+.sp-tocar-tudo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: none;
+  min-height: 2.6rem;
   padding: 0 1.1rem;
-  border-radius: 0.5rem;
+  border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   background: transparent;
   color: var(--accent);
@@ -610,58 +617,115 @@ body {
   cursor: pointer;
 }
 
-/* A lista rola; o resto (busca em cima, tocando embaixo) fica fixo. */
-.spotify-lista {
+.sp-tocar-tudo {
+  background: var(--accent);
+  color: #07090d;
+  font-weight: 600;
+}
+
+/* Alvo de toque generoso: é o botão de sair de dentro da playlist. */
+.sp-voltar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 2.6rem;
+  min-height: 2.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.sp-topo__capa {
+  width: 3.4rem;
+  height: 3.4rem;
+  flex: none;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+
+.sp-topo__nome {
+  font-size: 1.15rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A lista rola; busca em cima e "tocando" embaixo ficam fixos. */
+.sp-lista {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.2rem;
 }
 
-.spotify-item {
+.sp-secao {
+  margin: 0.5rem 0 0.1rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sp-linha {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   width: 100%;
-  padding: 0.5rem;
+  padding: 0.45rem 0.5rem;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: 0.6rem;
   background: transparent;
-  color: var(--fg);
+  color: var(--text);
   text-align: left;
   cursor: pointer;
 }
 
-.spotify-item:hover,
-.spotify-item:focus-visible {
-  background: var(--panel);
+.sp-linha:hover,
+.sp-linha:focus-visible {
+  background: var(--tile-alto);
   outline: none;
 }
 
-.spotify-item__capa {
-  width: 2.6rem;
-  height: 2.6rem;
-  border-radius: 0.35rem;
+.sp-linha__capa {
+  width: 2.8rem;
+  height: 2.8rem;
+  flex: none;
+  border-radius: 0.4rem;
   object-fit: cover;
-  flex: 0 0 auto;
 }
 
-.spotify-item__texto {
+.sp-linha__capa--vazia {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tile-alto);
+  color: var(--muted);
+  font-size: 1.1rem;
+}
+
+/* min-width:0 é o que deixa o ellipsis funcionar dentro do flex. */
+.sp-linha__texto {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
 }
 
-.spotify-item__track {
+.sp-linha__titulo {
   font-size: 0.95rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.spotify-item__artist {
+.sp-linha__sub {
   font-size: 0.78rem;
   color: var(--muted);
   white-space: nowrap;
@@ -669,30 +733,41 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Estado do player embutido: verde quando o Eclipse já é o device do Spotify. */
-.spotify-device {
+.sp-tocando {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex: 0 0 auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.sp-tocando__capa {
+  width: 3rem;
+  height: 3rem;
+  flex: none;
+  border-radius: 0.4rem;
+  object-fit: cover;
+}
+
+.controles--grande .controles__botao {
+  min-width: 3.2rem;
+  min-height: 3.2rem;
+  font-size: 1.35rem;
+}
+
+.controles--grande .controles__botao--principal {
+  min-width: 4rem;
+}
+
+.sp-device {
   flex: 0 0 auto;
   font-size: 0.75rem;
-  text-transform: lowercase;
   color: var(--muted);
 }
 
-.spotify-device--pronto {
-  color: var(--accent);
-}
-
-.spotify-device--erro {
+.sp-device--erro {
   color: var(--warn);
-}
-
-.spotify-tocando {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--line);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1272,25 +1347,9 @@ body {
   opacity: 0.6;
 }
 
-.mapa__velocidade {
-  position: absolute;
-  left: 0.7rem;
-  bottom: 0.7rem;
-  padding: 0.3rem 0.7rem;
-  border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.78);
-  font-size: 0.78rem;
-  color: var(--muted);
-  backdrop-filter: blur(4px);
-}
 
-.mapa__velocidade strong {
-  margin-right: 0.2rem;
-  font-size: 1.15rem;
-  font-weight: 500;
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
+
+
 
 .mapa__modo {
   position: absolute;

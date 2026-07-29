@@ -57,11 +57,50 @@ export interface Playlist {
   albumArt: string | null;
 }
 
-/** O estado do módulo de música: o que toca + busca + playlists. */
+export interface Album {
+  uri: string;
+  nome: string;
+  artist: string;
+  albumArt: string | null;
+}
+
+export interface Busca {
+  faixas: Faixa[];
+  albuns: Album[];
+}
+
+/** Uma playlist ou álbum aberto, com as faixas de dentro. */
+export interface Contexto {
+  uri: string;
+  nome: string;
+  subtitulo: string;
+  albumArt: string | null;
+  faixas: Faixa[];
+}
+
+/**
+ * O que está errado, tipado pelo Rust. Antes a tela adivinhava por regex no
+ * texto do erro e dois casos não casavam — o painel dizia "sem sinal" e não
+ * oferecia saída nenhuma.
+ */
+export type TipoProblema =
+  | "precisaLogin"
+  | "precisaPremium"
+  | "semDispositivo"
+  | "rede";
+
+export interface Problema {
+  tipo: TipoProblema;
+  detalhe: string;
+}
+
+/** O estado do módulo de música. */
 export interface MusicState {
   nowPlaying: NowPlaying | null;
-  resultados: Faixa[];
+  busca: Busca;
   playlists: Playlist[];
+  contexto: Contexto | null;
+  problema: Problema | null;
 }
 
 /* ------------------------------------------------------------------ */

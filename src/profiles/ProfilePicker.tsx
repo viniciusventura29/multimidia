@@ -143,21 +143,3 @@ export function ProfilePicker({
   );
 }
 
-export function ProfileChip({
-  profile,
-  aoClicar,
-}: {
-  profile: Profile;
-  aoClicar: () => void;
-}) {
-  return (
-    <button className="chip" onClick={aoClicar}>
-      <span
-        className="chip__ponto"
-        style={{ background: profile.color }}
-        aria-hidden
-      />
-      {profile.name}
-    </button>
-  );
-}

@@ -72,6 +72,15 @@ pub fn escopos() -> HashSet<String> {
     )
 }
 
+/// "Artista A, Artista B" — o Spotify devolve lista em toda faixa e álbum.
+fn nomes(artistas: Vec<rspotify::model::SimplifiedArtist>) -> String {
+    artistas
+        .into_iter()
+        .map(|a| a.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn traduzir(err: ClientError) -> MusicError {
     use rspotify::http::HttpError;
 
@@ -95,6 +104,9 @@ fn traduzir(err: ClientError) -> MusicError {
 
 pub struct SpotifySource {
     client: AuthCodePkceSpotify,
+    /// Último estado conhecido de reprodução, atualizado a cada `now_playing`.
+    /// Evita uma consulta de rede extra no `toggle` — ver o comentário lá.
+    tocando: bool,
 }
 
 impl SpotifySource {
@@ -154,7 +166,10 @@ impl SpotifySource {
 
         client.auto_reauth().await.map_err(traduzir)?;
 
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            tocando: false,
+        })
     }
 
     /// O access token vigente, para o Web Playback SDK usar no WebView.
@@ -251,19 +266,18 @@ impl SpotifySource {
 #[async_trait]
 impl MusicSource for SpotifySource {
     async fn now_playing(&mut self) -> Result<Option<NowPlaying>, MusicError> {
-        self.tocando_agora().await
+        let atual = self.tocando_agora().await?;
+        self.tocando = atual.as_ref().is_some_and(|n| n.is_playing);
+        Ok(atual)
     }
 
     async fn toggle(&mut self) -> Result<(), MusicError> {
-        // O estado real mora no Spotify, não aqui: perguntar antes evita mandar
-        // "play" no que já está tocando quando outro aparelho mexeu na fila.
-        let tocando = self
-            .tocando_agora()
-            .await?
-            .map(|n| n.is_playing)
-            .unwrap_or(false);
-
-        if tocando {
+        // Usa o último estado conhecido em vez de perguntar ao Spotify antes:
+        // aquela consulta extra dobrava a ida-e-volta de rede a cada toque, e era
+        // parte do delay que se sentia no play/pause. Quem sabe o estado é o
+        // módulo, que acabou de pollar — e no caminho normal o SDK do WebView
+        // resolve isso localmente, sem passar por aqui (ver `spotifyPlayer.ts`).
+        if self.tocando {
             self.client.pause_playback(None).await
         } else {
             self.client.resume_playback(None, None).await
@@ -279,36 +293,128 @@ impl MusicSource for SpotifySource {
         self.client.previous_track(None).await.map_err(traduzir)
     }
 
-    async fn buscar(&mut self, termo: &str) -> Result<Vec<crate::source::Faixa>, MusicError> {
+    async fn buscar(&mut self, termo: &str) -> Result<crate::source::Busca, MusicError> {
         use rspotify::model::{Id, SearchResult, SearchType};
 
-        let resultado = self
-            .client
-            .search(termo, SearchType::Track, None, None, Some(20), None)
-            .await
-            .map_err(traduzir)?;
+        // Duas buscas em paralelo: faixa para tocar direto, álbum para abrir e
+        // escolher a faixa dentro.
+        let (faixas, albuns) = tokio::join!(
+            self.client
+                .search(termo, SearchType::Track, None, None, Some(20), None),
+            self.client
+                .search(termo, SearchType::Album, None, None, Some(12), None),
+        );
 
-        let SearchResult::Tracks(pagina) = resultado else {
-            return Ok(Vec::new());
+        let faixas = match faixas.map_err(traduzir)? {
+            SearchResult::Tracks(pagina) => pagina
+                .items
+                .into_iter()
+                .filter_map(|faixa| {
+                    Some(crate::source::Faixa {
+                        uri: faixa.id?.uri(),
+                        track: faixa.name,
+                        artist: nomes(faixa.artists),
+                        album_art: faixa.album.images.into_iter().next().map(|i| i.url),
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
         };
 
-        Ok(pagina
+        let albuns = match albuns.map_err(traduzir)? {
+            SearchResult::Albums(pagina) => pagina
+                .items
+                .into_iter()
+                .filter_map(|album| {
+                    Some(crate::source::Album {
+                        uri: album.id?.uri(),
+                        nome: album.name,
+                        artist: nomes(album.artists),
+                        album_art: album.images.into_iter().next().map(|i| i.url),
+                    })
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+
+        Ok(crate::source::Busca { faixas, albuns })
+    }
+
+    async fn abrir(&mut self, uri: &str) -> Result<crate::source::Contexto, MusicError> {
+        use rspotify::model::{AlbumId, Id, PlayableItem, PlaylistId};
+
+        if uri.contains(":album:") {
+            let id = AlbumId::from_uri(uri)
+                .map_err(|e| MusicError::Network(format!("URI de álbum inválida: {e}")))?
+                .into_static();
+            // O álbum inteiro numa chamada: nome/capa vêm do álbum, e as faixas
+            // dele não repetem a capa (é a mesma), então herdam a do álbum.
+            let album = self.client.album(id.clone(), None).await.map_err(traduzir)?;
+            let capa = album.images.into_iter().next().map(|i| i.url);
+            let faixas = self
+                .client
+                .album_track_manual(id, None, Some(50), Some(0))
+                .await
+                .map_err(traduzir)?
+                .items
+                .into_iter()
+                .filter_map(|f| {
+                    Some(crate::source::Faixa {
+                        uri: f.id?.uri(),
+                        track: f.name,
+                        artist: nomes(f.artists),
+                        album_art: capa.clone(),
+                    })
+                })
+                .collect();
+
+            return Ok(crate::source::Contexto {
+                uri: uri.to_string(),
+                nome: album.name,
+                subtitulo: nomes(album.artists),
+                album_art: capa,
+                faixas,
+            });
+        }
+
+        let id = PlaylistId::from_uri(uri)
+            .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
+            .into_static();
+        let playlist = self
+            .client
+            .playlist(id.clone(), None, None)
+            .await
+            .map_err(traduzir)?;
+        let faixas = self
+            .client
+            .playlist_items_manual(id, None, None, Some(100), Some(0))
+            .await
+            .map_err(traduzir)?
             .items
             .into_iter()
-            .filter_map(|faixa| {
-                Some(crate::source::Faixa {
-                    uri: faixa.id?.uri(),
-                    track: faixa.name,
-                    artist: faixa
-                        .artists
-                        .into_iter()
-                        .map(|a| a.name)
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    album_art: faixa.album.images.into_iter().next().map(|i| i.url),
-                })
+            // `item`, não `track`: o Spotify renomeou o campo (rspotify #550).
+            .filter_map(|item| match item.item? {
+                // Podcast numa playlist é ignorado: o painel só toca faixa.
+                PlayableItem::Track(f) => Some(crate::source::Faixa {
+                    uri: f.id?.uri(),
+                    track: f.name,
+                    artist: nomes(f.artists),
+                    album_art: f.album.images.into_iter().next().map(|i| i.url),
+                }),
+                // Episódio de podcast ou item que a API introduziu depois: o
+                // painel só sabe tocar faixa, então some da lista em vez de virar
+                // uma linha que não faz nada ao ser tocada.
+                _ => None,
             })
-            .collect())
+            .collect();
+
+        Ok(crate::source::Contexto {
+            uri: uri.to_string(),
+            nome: playlist.name,
+            subtitulo: "playlist".to_string(),
+            album_art: playlist.images.into_iter().next().map(|i| i.url),
+            faixas,
+        })
     }
 
     async fn tocar(&mut self, uri: &str) -> Result<(), MusicError> {

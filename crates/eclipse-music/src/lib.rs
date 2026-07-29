@@ -15,5 +15,8 @@ pub mod tokens;
 
 pub use demo::DemoSource;
 pub use spotify::{SpotifySource, REDIRECT_URI};
-pub use source::{Faixa, MusicError, MusicSource, MusicState, NowPlaying, Playlist};
+pub use source::{
+    Album, Busca, Contexto, Faixa, MusicError, MusicSource, MusicState, NowPlaying, Playlist,
+    Problema, TipoProblema,
+};
 pub use tokens::{StoredToken, TokenError, TokenStore};

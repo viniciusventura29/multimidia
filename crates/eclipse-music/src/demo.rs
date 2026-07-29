@@ -65,16 +65,42 @@ impl MusicSource for DemoSource {
         Ok(())
     }
 
-    async fn buscar(&mut self, termo: &str) -> Result<Vec<Faixa>, MusicError> {
-        Ok(PLAYLIST
-            .iter()
-            .map(|(track, artist)| Faixa {
-                uri: format!("spotify:track:demo-{track}"),
-                track: format!("{track} — {termo}"),
-                artist: artist.to_string(),
+    async fn buscar(&mut self, termo: &str) -> Result<crate::source::Busca, MusicError> {
+        Ok(crate::source::Busca {
+            faixas: PLAYLIST
+                .iter()
+                .map(|(track, artist)| Faixa {
+                    uri: format!("spotify:track:demo-{track}"),
+                    track: format!("{track} — {termo}"),
+                    artist: artist.to_string(),
+                    album_art: None,
+                })
+                .collect(),
+            albuns: vec![crate::source::Album {
+                uri: "spotify:album:demo-1".into(),
+                nome: format!("Álbum de {termo}"),
+                artist: "Artista Demo".into(),
                 album_art: None,
-            })
-            .collect())
+            }],
+        })
+    }
+
+    async fn abrir(&mut self, uri: &str) -> Result<crate::source::Contexto, MusicError> {
+        Ok(crate::source::Contexto {
+            uri: uri.to_string(),
+            nome: if uri.contains(":album:") { "Álbum Demo" } else { "Playlist Demo" }.into(),
+            subtitulo: if uri.contains(":album:") { "Artista Demo" } else { "playlist" }.into(),
+            album_art: None,
+            faixas: PLAYLIST
+                .iter()
+                .map(|(track, artist)| Faixa {
+                    uri: format!("spotify:track:demo-{track}"),
+                    track: track.to_string(),
+                    artist: artist.to_string(),
+                    album_art: None,
+                })
+                .collect(),
+        })
     }
 
     async fn tocar(&mut self, _uri: &str) -> Result<(), MusicError> {
