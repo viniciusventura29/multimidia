@@ -50,6 +50,11 @@ pub const REDIRECT_URI: &str = "eclipseos://callback";
 #[cfg(not(target_os = "android"))]
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 
+/// O nome com que o Eclipse se registra como device do Spotify (via Web Playback
+/// SDK). Compartilhado entre o JS que cria o player e o Rust que escolhe onde
+/// tocar — se divergirem, o Rust não acha o player e o som sai em outro aparelho.
+pub const NOME_DEVICE: &str = "Eclipse OS";
+
 pub fn escopos() -> HashSet<String> {
     scopes!(
         "user-read-playback-state",
@@ -57,7 +62,13 @@ pub fn escopos() -> HashSet<String> {
         "user-read-currently-playing",
         // Para listar e abrir as playlists do usuário dentro do Eclipse.
         "playlist-read-private",
-        "playlist-read-collaborative"
+        "playlist-read-collaborative",
+        // `streaming` é o que permite o Web Playback SDK tocar o áudio DENTRO do
+        // Eclipse — é o que dispensa o app oficial do Spotify no aparelho. Os
+        // dois `user-read-*` são exigidos pelo SDK para identificar a conta.
+        "streaming",
+        "user-read-email",
+        "user-read-private"
     )
 }
 
@@ -146,6 +157,24 @@ impl SpotifySource {
         Ok(Self { client })
     }
 
+    /// O access token vigente, para o Web Playback SDK usar no WebView.
+    ///
+    /// O SDK precisa do token cru (ele fala com o Spotify direto do JS para
+    /// tocar o áudio aqui dentro, em vez de comandar outro aparelho). Curto —
+    /// vence em ~1h — então o SDK pede de novo pelo callback dele.
+    pub async fn access_token(&self) -> Result<String, MusicError> {
+        self.client.auto_reauth().await.map_err(traduzir)?;
+        self.client
+            .token
+            .lock()
+            .await
+            .unwrap()
+            .as_ref()
+            .map(|t| t.access_token.clone())
+            .filter(|t| !t.is_empty())
+            .ok_or(MusicError::NeedsReauth)
+    }
+
     /// Escolhe onde tocar. Com o Spotify logado no PC E no celular ao mesmo
     /// tempo, pegar só "o device ativo" fazia o som sair no PC. Aqui a gente
     /// **prefere o próprio aparelho** (celular/tablet/automóvel = o head unit) e
@@ -154,9 +183,14 @@ impl SpotifySource {
     async fn escolher_device(&self) -> Result<String, MusicError> {
         use rspotify::model::DeviceType;
 
-        fn pontos(tipo: &DeviceType, ativo: bool) -> i32 {
+        fn pontos(nome: &str, tipo: &DeviceType, ativo: bool) -> i32 {
+            // O próprio Eclipse, via Web Playback SDK, é o alvo preferido: o som
+            // sai aqui dentro, sem depender do app oficial do Spotify.
+            if nome == NOME_DEVICE {
+                return 100 + if ativo { 1 } else { 0 };
+            }
             let base = match tipo {
-                // O celular / head unit onde o Eclipse roda — o alvo desejado.
+                // Depois dele, o aparelho onde o Eclipse roda (head unit/celular).
                 DeviceType::Smartphone | DeviceType::Tablet | DeviceType::Automobile => 10,
                 // O PC é justamente o que se quer evitar aqui.
                 DeviceType::Computer => 0,
@@ -177,7 +211,7 @@ impl SpotifySource {
         devices
             .into_iter()
             .filter(|d| d.id.is_some())
-            .max_by_key(|d| pontos(&d._type, d.is_active))
+            .max_by_key(|d| pontos(&d.name, &d._type, d.is_active))
             .and_then(|d| d.id)
             .ok_or(MusicError::NoActiveDevice)
     }

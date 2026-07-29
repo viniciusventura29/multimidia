@@ -186,6 +186,27 @@ fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
         .or_else(|| embutida(option_env!("ECLIPSE_MAPS_MAP_ID")))
 }
 
+/// Um access token fresco do Spotify, para o Web Playback SDK.
+///
+/// É o que permite o Eclipse **tocar o áudio ele mesmo**, dentro do WebView, em
+/// vez de comandar o app oficial do Spotify no aparelho. O token é curto (~1h) e
+/// o SDK pede outro pelo callback dele quando vence — por isso um comando, e não
+/// um valor no estado do módulo.
+#[tauri::command]
+async fn spotify_access_token(app: tauri::AppHandle, id: Uuid) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("sem diretório de dados: {e}"))?;
+    let client_id = client_id(&dir).ok_or("falta o Client ID do Spotify")?;
+    let cofre = app.state::<Cofre>().0.clone();
+
+    let fonte = eclipse_music::SpotifySource::conectar(&client_id, id, cofre)
+        .await
+        .map_err(|e| e.to_string())?;
+    fonte.access_token().await.map_err(|e| e.to_string())
+}
+
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
 /// e guarda o refresh token.
 #[tauri::command]
@@ -371,6 +392,7 @@ pub fn run() {
             select_profile,
             delete_profile,
             connect_spotify,
+            spotify_access_token,
             open_notification_settings,
             push_location,
             push_location_error,

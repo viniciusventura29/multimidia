@@ -2,6 +2,7 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
+import { ativarAudio, useStatusPlayer } from "./spotifyPlayer";
 import {
   defineTile,
   type AnyTileSpec,
@@ -16,6 +17,7 @@ function Controles({ tocando }: { tocando: boolean }) {
   // senão apertar "play" abriria a tela cheia junto.
   const acionar = (event: MouseEvent, acao: string) => {
     event.stopPropagation();
+    void ativarAudio();
     dispatchAction(MUSIC, { acao });
   };
 
@@ -104,6 +106,20 @@ function Compacto({ data, status, reason }: TileView<MusicState>) {
 }
 
 /** Tela cheia: busca, resultados, playlists e o que toca. É o Caminho A. */
+/** Diz se o Eclipse já virou device do Spotify — sem isto "não toca" é mudo. */
+function StatusDevice() {
+  const status = useStatusPlayer();
+  const texto = {
+    off: null,
+    carregando: "preparando o player…",
+    pronto: "tocando pelo Eclipse",
+    erro: "player indisponível (precisa de Premium)",
+  }[status];
+
+  if (!texto) return null;
+  return <span className={`spotify-device spotify-device--${status}`}>{texto}</span>;
+}
+
 function Completa({ data, status, reason }: TileView<MusicState>) {
   const [termo, setTermo] = useState("");
   const logado = !precisaLogin(status, reason);
@@ -127,13 +143,18 @@ function Completa({ data, status, reason }: TileView<MusicState>) {
     if (q) dispatchAction(MUSIC, { acao: "buscar", termo: q });
   };
 
+  // `ativarAudio` antes de mandar tocar: em navegador mobile o áudio só toca se
+  // liberado dentro de um gesto do usuário. Sem isto a faixa é transferida para
+  // o Eclipse mas fica pausada.
   const tocarFaixa = (event: MouseEvent, uri: string) => {
     event.stopPropagation();
+    void ativarAudio();
     dispatchAction(MUSIC, { acao: "tocar", uri });
   };
 
   const tocarPlaylist = (event: MouseEvent, uri: string) => {
     event.stopPropagation();
+    void ativarAudio();
     dispatchAction(MUSIC, { acao: "tocar_playlist", uri });
   };
 
@@ -157,6 +178,8 @@ function Completa({ data, status, reason }: TileView<MusicState>) {
           buscar
         </button>
       </form>
+
+      <StatusDevice />
 
       <div className="spotify-lista">
         {mostrarPlaylists

@@ -601,6 +601,22 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Estado do player embutido: verde quando o Eclipse já é o device do Spotify. */
+.spotify-device {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  text-transform: lowercase;
+  color: var(--muted);
+}
+
+.spotify-device--pronto {
+  color: var(--accent);
+}
+
+.spotify-device--erro {
+  color: var(--warn);
+}
+
 .spotify-tocando {
   flex: 0 0 auto;
   display: flex;
