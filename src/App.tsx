@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { diagnosticarDrm } from "./core/diagDrm";
 import { useModuleStates } from "./core/useModuleStates";
 import { useSpotifyPlayer } from "./modules/spotifyPlayer";
 import { useProfiles, useTema } from "./core/useProfiles";
@@ -17,11 +16,6 @@ export default function App() {
   const [trocando, setTrocando] = useState(false);
 
   useTema(perfis.active);
-  // TEMP_DIAG_DRM: prova se a WebView tem DRM antes de investir no Web Playback
-  // SDK. Remover depois de decidir o caminho.
-  useEffect(() => {
-    void diagnosticarDrm();
-  }, []);
   // Mora aqui, e não dentro do tile do mapa, porque o tile monta duas vezes
   // (grid + tela expandida) — abrir dois `watchPosition` ao mesmo tempo seria
   // desperdício. Aqui só existe uma instância do App.
