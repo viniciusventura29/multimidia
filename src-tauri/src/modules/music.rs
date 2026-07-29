@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_music::{DemoSource, MusicError, MusicSource, SpotifySource, TokenStore};
+use eclipse_music::{DemoSource, MusicError, MusicSource, MusicState, SpotifySource, TokenStore};
 use uuid::Uuid;
 
 pub const MUSIC: ModuleId = ModuleId::new("music");
@@ -87,6 +87,9 @@ impl Module for MusicModule {
     async fn run(&mut self, mut ctx: ModuleCtx) -> ModuleResult {
         let mut perfil: Option<Uuid> = None;
         let mut fonte: Option<Box<dyn MusicSource>> = None;
+        // Acumula o que toca + resultados de busca + playlists. Persiste entre
+        // os polls (o now_playing muda a cada 3s, mas busca/playlists ficam).
+        let mut estado = MusicState::default();
         let mut espera = INTERVALO_DEGRADADO;
 
         ctx.degraded("aguardando o perfil");
@@ -101,29 +104,54 @@ impl Module for MusicModule {
                     Some(ModuleCommand::ProfileChanged(novo)) => {
                         perfil = Some(novo.id);
                         fonte = None;
+                        estado = MusicState::default();
                         ctx.loading();
                         espera = AGORA;
                     }
 
                     Some(ModuleCommand::Action { payload, .. }) => {
                         let Some(atual) = fonte.as_mut() else { continue };
+                        let acao = payload.get("acao").and_then(|v| v.as_str());
+                        let texto = |chave| payload.get(chave).and_then(|v| v.as_str());
 
-                        let resultado = match payload.get("acao").and_then(|v| v.as_str()) {
-                            Some("toggle") => atual.toggle().await,
-                            Some("next") => atual.next().await,
-                            Some("prev") => atual.previous().await,
+                        // Duas famílias de ação: as de transporte (tocar algo,
+                        // pular) mandam reler o now_playing; busca/playlists
+                        // devolvem listas que entram no estado publicado.
+                        let resultado: Result<(), MusicError> = match acao {
+                            Some("toggle") => atual.toggle().await.map(|_| espera = AGORA),
+                            Some("next") => atual.next().await.map(|_| espera = AGORA),
+                            Some("prev") => atual.previous().await.map(|_| espera = AGORA),
+                            Some("tocar") => match texto("uri") {
+                                Some(uri) => atual.tocar(uri).await.map(|_| espera = AGORA),
+                                None => continue,
+                            },
+                            Some("tocar_playlist") => match texto("uri") {
+                                Some(uri) => atual.tocar_playlist(uri).await.map(|_| espera = AGORA),
+                                None => continue,
+                            },
+                            Some("buscar") => match atual.buscar(texto("termo").unwrap_or("")).await {
+                                Ok(faixas) => {
+                                    estado.resultados = faixas;
+                                    ctx.ready(&estado);
+                                    Ok(())
+                                }
+                                Err(err) => Err(err),
+                            },
+                            Some("playlists") => match atual.playlists().await {
+                                Ok(pls) => {
+                                    estado.playlists = pls;
+                                    ctx.ready(&estado);
+                                    Ok(())
+                                }
+                                Err(err) => Err(err),
+                            },
                             _ => continue,
                         };
 
-                        match resultado {
-                            // Não pinta o efeito do toque: relê o estado real,
-                            // porque outro aparelho pode ter mexido na fila.
-                            Ok(()) => espera = AGORA,
-                            Err(err) => {
-                                ctx.degraded(err.to_string());
-                                fonte = None;
-                                espera = INTERVALO_DEGRADADO;
-                            }
+                        if let Err(err) = resultado {
+                            ctx.degraded(err.to_string());
+                            fonte = None;
+                            espera = INTERVALO_DEGRADADO;
                         }
                     }
                 },
@@ -136,7 +164,10 @@ impl Module for MusicModule {
 
                     if fonte.is_none() {
                         match self.conector.conectar(perfil).await {
-                            Ok(nova) => fonte = Some(nova),
+                            Ok(nova) => {
+                                fonte = Some(nova);
+                                estado = MusicState::default();
+                            }
                             Err(err) => {
                                 ctx.degraded(err.to_string());
                                 espera = INTERVALO_DEGRADADO;
@@ -146,14 +177,13 @@ impl Module for MusicModule {
                     }
 
                     match fonte.as_mut().expect("acabou de conectar").now_playing().await {
-                        Ok(Some(tocando)) => {
-                            ctx.ready(&tocando);
-                            espera = INTERVALO;
-                        }
-                        // Conectado, mas não há device tocando em lugar nenhum.
-                        // A Web API comanda um device; ela não cria um.
-                        Ok(None) => {
-                            ctx.degraded("nenhum dispositivo Spotify ativo");
+                        // Conectado é sempre `ready`, mesmo sem nada tocando: o
+                        // painel continua útil (busca e playlists funcionam), e
+                        // "nada tocando" é estado normal, não erro. Antes isto
+                        // era `degraded`, o que apagava a tela de busca.
+                        Ok(tocando) => {
+                            estado.now_playing = tocando;
+                            ctx.ready(&estado);
                             espera = INTERVALO;
                         }
                         Err(err) => {
@@ -172,7 +202,7 @@ impl Module for MusicModule {
 mod tests {
     use super::*;
     use eclipse_core::{factory, Profile, StateEnvelope, Status, Supervisor};
-    use eclipse_music::NowPlaying;
+    use eclipse_music::{MusicState, NowPlaying};
     use serde_json::json;
     use tokio::sync::broadcast::Receiver;
 
@@ -265,8 +295,8 @@ mod tests {
         ))));
 
         let parado = proximo(&mut rx, |e| e.status == Status::Ready).await;
-        let tocando: NowPlaying = serde_json::from_value(parado.data.unwrap()).unwrap();
-        assert!(!tocando.is_playing);
+        let estado: MusicState = serde_json::from_value(parado.data.unwrap()).unwrap();
+        assert!(!estado.now_playing.unwrap().is_playing);
 
         supervisor.dispatch(ModuleCommand::Action {
             target: MUSIC,
@@ -277,7 +307,8 @@ mod tests {
             e.status == Status::Ready
                 && e.data
                     .as_ref()
-                    .and_then(|d| d.get("isPlaying"))
+                    .and_then(|d| d.get("nowPlaying"))
+                    .and_then(|n| n.get("isPlaying"))
                     .and_then(|v| v.as_bool())
                     == Some(true)
         })
@@ -286,10 +317,11 @@ mod tests {
         assert!(depois.seq > parado.seq);
     }
 
-    /// Sem device ativo o módulo fica degradado, mas segue conectado — insistir
-    /// aqui é normal, o usuário pode abrir o Spotify no celular a qualquer momento.
+    /// Nada tocando NÃO é erro: conectado, o módulo publica `ready` com
+    /// `nowPlaying` vazio — a tela de busca/playlists continua útil. (Antes isto
+    /// era `degraded`, o que apagava a busca a cada 3s sem nada tocando.)
     #[tokio::test(start_paused = true)]
-    async fn sem_dispositivo_ativo_o_tile_diz_isso() {
+    async fn nada_tocando_segue_ready() {
         struct SemDevice;
 
         #[async_trait]
@@ -317,11 +349,8 @@ mod tests {
             "Vinicius", "#3ddc97",
         ))));
 
-        let envelope = proximo(&mut rx, |e| {
-            e.reason.as_deref() == Some("nenhum dispositivo Spotify ativo")
-        })
-        .await;
-
-        assert_eq!(envelope.status, Status::Degraded);
+        let envelope = proximo(&mut rx, |e| e.status == Status::Ready).await;
+        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        assert!(estado.now_playing.is_none());
     }
 }

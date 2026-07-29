@@ -30,6 +30,16 @@ function interpolarRumo(de: number, para: number, t: number): number {
   return (de + delta * t + 360) % 360;
 }
 
+/** Distância aproximada em metros entre dois pontos (equirretangular — a
+ *  precisão sobra para distinguir jitter de GPS de movimento real). */
+function metros(a: Fix, b: Fix): number {
+  const R = 6_371_000;
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLon = (b.lon - a.lon) * rad * Math.cos(((a.lat + b.lat) / 2) * rad);
+  return R * Math.hypot(dLat, dLon);
+}
+
 /**
  * Faz o mapa seguir o carro.
  *
@@ -55,8 +65,14 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
   useEffect(() => {
     if (!fix) return;
 
+    // Zona morta: parado, o GPS oscila alguns metros a cada leitura. Sem isto,
+    // cada oscilação abre um trecho novo e a câmera fica indo e voltando sob o
+    // carro — o "samba". Só reposiciona a partir de ~6 m, que é movimento real.
+    const anterior = trecho.current?.para;
+    if (anterior && metros(anterior, fix) < 6) return;
+
     trecho.current = {
-      de: trecho.current?.para ?? fix,
+      de: anterior ?? fix,
       para: fix,
       inicio: performance.now(),
     };

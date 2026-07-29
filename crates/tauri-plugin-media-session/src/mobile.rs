@@ -42,9 +42,15 @@ pub struct MediaSession<R: Runtime>(PluginHandle<R>);
 impl<R: Runtime> MediaSession<R> {
     /// A sessão de mídia ativa agora, ou vazio se nada estiver tocando em
     /// lugar nenhum.
+    ///
+    /// O `resolve(null)` do Kotlin não chega como `null`: a ponte entrega `{}`,
+    /// que com o `serde(default)` vira um `AndroidNowPlaying` todo vazio. O
+    /// `packageName` distingue os casos — o Kotlin sempre o preenche quando
+    /// existe sessão de verdade.
     pub fn now_playing(&self) -> Result<Option<AndroidNowPlaying>> {
         self.0
-            .run_mobile_plugin("now_playing", ())
+            .run_mobile_plugin::<Option<AndroidNowPlaying>>("now_playing", ())
+            .map(|sessao| sessao.filter(|s| s.package_name.is_some()))
             .map_err(Into::into)
     }
 

@@ -13,6 +13,7 @@ use eclipse_core::{
 use eclipse_music::TokenStore;
 use serde_json::Value;
 use tauri::{Emitter, Manager};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
@@ -141,6 +142,12 @@ fn anunciar_perfil(app: &tauri::AppHandle, supervisor: &Supervisor, profile: Opt
 /// O cofre de refresh tokens, compartilhado com o módulo de música.
 struct Cofre(Arc<Mutex<TokenStore>>);
 
+/// Login do Spotify em curso: o cliente PKCE (com o `code_verifier`) e o perfil
+/// que iniciou, esperando o `code` chegar pelo deep link. Só existe no mobile,
+/// onde o callback vem por `eclipseos://callback` em vez de servidor loopback.
+#[cfg(mobile)]
+struct SpotifyPendingAuth(Mutex<Option<(Uuid, eclipse_music::spotify::PkcePendente)>>);
+
 /// Lê uma credencial.
 ///
 /// Variável de ambiente para desenvolver, arquivo para a head unit — lá não há
@@ -155,15 +162,49 @@ fn credencial(dir_dados: &std::path::Path, env: &str, arquivo: &str) -> Option<S
 
 fn client_id(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_SPOTIFY_CLIENT_ID")))
+}
+
+/// Fallback embutido em tempo de compilação, para builds de teste em aparelho
+/// físico: sem root não há como criar o arquivo no diretório de dados, e não há
+/// shell para exportar variável. A chave do Maps já é pública por natureza (vai
+/// ao WebView de qualquer jeito — ver `modules/nav.rs`); a proteção é a cota.
+fn embutida(valor: Option<&'static str>) -> Option<String> {
+    valor
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_MAPS_API_KEY", "maps_api_key.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_MAPS_API_KEY")))
 }
 
 /// Sem Map ID o mapa é raster, e raster ignora inclinação e rotação.
 fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
     credencial(dir_dados, "ECLIPSE_MAPS_MAP_ID", "maps_map_id.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_MAPS_MAP_ID")))
+}
+
+/// Um access token fresco do Spotify, para o Web Playback SDK.
+///
+/// É o que permite o Eclipse **tocar o áudio ele mesmo**, dentro do WebView, em
+/// vez de comandar o app oficial do Spotify no aparelho. O token é curto (~1h) e
+/// o SDK pede outro pelo callback dele quando vence — por isso um comando, e não
+/// um valor no estado do módulo.
+#[tauri::command]
+async fn spotify_access_token(app: tauri::AppHandle, id: Uuid) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("sem diretório de dados: {e}"))?;
+    let client_id = client_id(&dir).ok_or("falta o Client ID do Spotify")?;
+    let cofre = app.state::<Cofre>().0.clone();
+
+    let fonte = eclipse_music::SpotifySource::conectar(&client_id, id, cofre)
+        .await
+        .map_err(|e| e.to_string())?;
+    fonte.access_token().await.map_err(|e| e.to_string())
 }
 
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
@@ -184,15 +225,54 @@ async fn connect_spotify(
             .to_string()
     })?;
 
-    let (client, url) =
+    let (pendente, url) =
         eclipse_music::spotify::iniciar_autorizacao(&client_id).map_err(|e| e.to_string())?;
 
-    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())?;
+    // `app.opener().open_url` (método do manager), NÃO a função livre
+    // `tauri_plugin_opener::open_url`: a função livre cai no crate `open`, que
+    // tenta *exec* de um helper (estilo xdg-open) — o Android nega com EACCES
+    // ("Permission denied, os error 13") e o navegador nem abre. O método do
+    // manager tem o branch `#[cfg(mobile)]` que dispara um ACTION_VIEW nativo.
 
-    let autorizacao = eclipse_music::spotify::concluir_autorizacao(client)
-        .await
-        .map_err(|e| e.to_string())?;
+    // No mobile o `code` volta por deep link (`eclipseos://callback`), não por
+    // servidor loopback (o Android congela o app em segundo plano e o servidor
+    // trava). Guarda o cliente PKCE — que carrega o `code_verifier` — e deixa o
+    // handler `on_open_url` concluir quando o sistema entregar o deep link.
+    #[cfg(mobile)]
+    {
+        *app.state::<SpotifyPendingAuth>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((id, pendente));
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
 
+    // No desktop o loopback funciona: abre o navegador e espera o redirect.
+    #[cfg(not(mobile))]
+    {
+        app.opener()
+            .open_url(url, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        let autorizacao = eclipse_music::spotify::concluir_autorizacao(pendente)
+            .await
+            .map_err(|e| e.to_string())?;
+        finalizar_spotify(&app, id, autorizacao)?;
+        Ok(())
+    }
+}
+
+/// Guarda o refresh token no cofre e faz o módulo reconectar na hora.
+///
+/// Compartilhado pelos dois caminhos de login: o loopback (desktop, inline) e o
+/// deep link (mobile, pelo `on_open_url`).
+fn finalizar_spotify(
+    app: &tauri::AppHandle,
+    id: Uuid,
+    autorizacao: eclipse_music::spotify::Autorizacao,
+) -> Result<(), String> {
     {
         let cofre = app.state::<Cofre>();
         let mut cofre = cofre.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -301,6 +381,7 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_media_session::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
@@ -311,6 +392,7 @@ pub fn run() {
             select_profile,
             delete_profile,
             connect_spotify,
+            spotify_access_token,
             open_notification_settings,
             push_location,
             push_location_error,
@@ -332,18 +414,13 @@ pub fn run() {
             // passe mais por eles.
             let cofre = Arc::new(Mutex::new(TokenStore::load(dir.join("spotify_tokens.json"))));
 
-            // No Android, a fonte é a sessão de mídia do sistema — o Spotify
-            // (ou qualquer player) de verdade, rodando na head unit. É a troca
-            // por perder conta-por-perfil: o Android guarda uma conta só por
-            // app, ao contrário do token que cada perfil tinha no Spotify Web
-            // API. No Mac, para desenvolver, o caminho antigo continua.
-            #[cfg(target_os = "android")]
-            let conector: Arc<dyn modules::music::Conector> =
-                Arc::new(modules::music::AndroidConector {
-                    app: handle.clone(),
-                });
-
-            #[cfg(not(target_os = "android"))]
+            // Spotify pela Web API nas DUAS plataformas: é o que dá busca,
+            // playlists e "escolher a música dentro do Eclipse" sem abrir o app
+            // do Spotify. No Android o app oficial do Spotify serve só de device
+            // (Spotify Connect) em segundo plano — a UI é toda aqui. Isso
+            // abandona o caminho da sessão de mídia (`AndroidConector`), que só
+            // controlava o que já estivesse tocando e não sabia iniciar nada.
+            let _ = &handle; // ainda usado por outros módulos
             let conector: Arc<dyn modules::music::Conector> =
                 Arc::new(modules::music::SpotifyConector {
                     client_id: client_id(&dir),
@@ -396,6 +473,53 @@ pub fn run() {
             app.manage(Localizacao(emissor_local));
             app.manage(Perfis(Mutex::new(store)));
             app.manage(Cofre(cofre));
+
+            // Login do Spotify no mobile: o `code` chega por deep link
+            // (`eclipseos://callback?code=...`). O `connect_spotify` guardou o
+            // cliente PKCE aqui; ao chegar o deep link, troca o code pelo token,
+            // finaliza no cofre e faz o módulo reconectar.
+            #[cfg(mobile)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                app.manage(SpotifyPendingAuth(Mutex::new(None)));
+                let alvo = app.handle().clone();
+                app.deep_link().on_open_url(move |evento| {
+                    for url in evento.urls() {
+                        println!("[eclipse] deep link recebido: {}", url.as_str());
+                        let Some(codigo) =
+                            eclipse_music::spotify::codigo_de_url(url.as_str())
+                        else {
+                            println!("[eclipse] deep link sem code, ignorando");
+                            continue;
+                        };
+                        let pendente = alvo
+                            .state::<SpotifyPendingAuth>()
+                            .0
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .take();
+                        let Some((id, pkce)) = pendente else {
+                            println!("[eclipse] deep link com code, mas sem login pendente");
+                            continue;
+                        };
+                        println!("[eclipse] code recebido, trocando pelo token…");
+                        let app = alvo.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match eclipse_music::spotify::trocar_codigo(pkce, &codigo).await {
+                                Ok(autorizacao) => {
+                                    println!("[eclipse] Spotify conectado com sucesso");
+                                    if let Err(err) = finalizar_spotify(&app, id, autorizacao) {
+                                        eprintln!("[eclipse] falha ao finalizar login do Spotify: {err}");
+                                    }
+                                }
+                                Err(err) => {
+                                    eprintln!("[eclipse] troca do code do Spotify falhou: {err}");
+                                }
+                            }
+                        });
+                    }
+                });
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

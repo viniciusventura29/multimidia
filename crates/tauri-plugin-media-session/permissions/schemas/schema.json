@@ -377,6 +377,12 @@
           "type": "string",
           "const": "deny-request-notification-access",
           "markdownDescription": "Denies the request_notification_access command without any pre-configured scope."
+        },
+        {
+          "description": "Permite ler a sessão de mídia ativa e comandá-la (play/pause/faixa), mais a\nchecagem e o pedido de acesso às notificações — que é como o Android entrega\n`MediaSessionManager.getActiveSessions()`.\n\n#### This default permission set includes:\n\n- `allow-now-playing`\n- `allow-play`\n- `allow-pause`\n- `allow-next`\n- `allow-previous`\n- `allow-has-notification-access`\n- `allow-request-notification-access`",
+          "type": "string",
+          "const": "default",
+          "markdownDescription": "Permite ler a sessão de mídia ativa e comandá-la (play/pause/faixa), mais a\nchecagem e o pedido de acesso às notificações — que é como o Android entrega\n`MediaSessionManager.getActiveSessions()`.\n\n#### This default permission set includes:\n\n- `allow-now-playing`\n- `allow-play`\n- `allow-pause`\n- `allow-next`\n- `allow-previous`\n- `allow-has-notification-access`\n- `allow-request-notification-access`"
         }
       ]
     }

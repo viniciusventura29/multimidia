@@ -1,32 +1,29 @@
-import { useState, type MouseEvent } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
+import { ativarAudio, useStatusPlayer } from "./spotifyPlayer";
 import {
   defineTile,
   type AnyTileSpec,
-  type NowPlaying,
+  type MusicState,
   type TileView,
 } from "../core/types";
 
 const MUSIC = "music";
 
 function Controles({ tocando }: { tocando: boolean }) {
-  // O tile inteiro expande ao toque, então os botões precisam segurar o clique
-  // deles — senão apertar "play" abriria a tela cheia junto.
+  // O tile compacto expande ao toque, então os botões seguram o clique deles —
+  // senão apertar "play" abriria a tela cheia junto.
   const acionar = (event: MouseEvent, acao: string) => {
     event.stopPropagation();
+    void ativarAudio();
     dispatchAction(MUSIC, { acao });
   };
 
   return (
     <div className="controles">
-      <button
-        className="controles__botao"
-        onClick={(e) => acionar(e, "prev")}
-        aria-label="Faixa anterior"
-      >
+      <button className="controles__botao" onClick={(e) => acionar(e, "prev")} aria-label="Faixa anterior">
         <SkipBack size="1em" fill="currentColor" />
       </button>
       <button
@@ -34,17 +31,9 @@ function Controles({ tocando }: { tocando: boolean }) {
         onClick={(e) => acionar(e, "toggle")}
         aria-label={tocando ? "Pausar" : "Tocar"}
       >
-        {tocando ? (
-          <Pause size="1em" fill="currentColor" />
-        ) : (
-          <Play size="1em" fill="currentColor" />
-        )}
+        {tocando ? <Pause size="1em" fill="currentColor" /> : <Play size="1em" fill="currentColor" />}
       </button>
-      <button
-        className="controles__botao"
-        onClick={(e) => acionar(e, "next")}
-        aria-label="Próxima faixa"
-      >
+      <button className="controles__botao" onClick={(e) => acionar(e, "next")} aria-label="Próxima faixa">
         <SkipForward size="1em" fill="currentColor" />
       </button>
     </div>
@@ -52,11 +41,11 @@ function Controles({ tocando }: { tocando: boolean }) {
 }
 
 /**
- * O caminho de reconexão.
+ * O login (e a reconexão).
  *
  * O Spotify expira o refresh token em 6 meses, contados do login original — não
- * dá para evitar. Então reconectar é um estado previsto do painel, com um toque
- * só, e não uma tela de erro.
+ * dá para evitar. Então (re)conectar é um estado previsto do painel, com um
+ * toque só, e não uma tela de erro.
  */
 function Conectar() {
   const [conectando, setConectando] = useState(false);
@@ -81,60 +70,19 @@ function Conectar() {
 }
 
 /**
- * O caminho de permissão, no Android.
- *
- * A sessão de mídia do sistema exige "acesso a notificações" concedido em
- * Ajustes — não dá para pedir isso num diálogo comum, só abrir a tela certa.
- * No Mac o comando existe mas não faz nada (ver `desktop.rs` do plugin).
- */
-function PedirPermissao() {
-  const [abrindo, setAbrindo] = useState(false);
-
-  const abrir = async (event: MouseEvent) => {
-    event.stopPropagation();
-    setAbrindo(true);
-    try {
-      await invoke("open_notification_settings");
-    } catch (err) {
-      console.error("[eclipse] não consegui abrir Ajustes", err);
-    } finally {
-      setAbrindo(false);
-    }
-  };
-
-  return (
-    <button className="musica__conectar" onClick={abrir} disabled={abrindo}>
-      conceder acesso a notificações
-    </button>
-  );
-}
-
-/**
- * Só estes três motivos se resolvem com login. "Nenhum dispositivo ativo" não:
- * ali a sessão está de pé e oferecer "conectar" mandaria o usuário refazer um
- * login que já funcionou.
- *
- * Casar com o texto é frágil — o certo seria o Rust mandar a natureza da falha
- * junto do motivo, e não a tela adivinhar pela prosa.
+ * Precisa logar? "reconectar"/"conectou o Spotify"/"Client ID" são os motivos
+ * que se resolvem com login. Casar por texto é frágil, mas é o que o barramento
+ * entrega hoje (o motivo é só uma frase).
  */
 const PRECISA_LOGIN = /reconectar|conectou o Spotify|Client ID/i;
-const PRECISA_PERMISSAO = /acesso a notificações/i;
 
-function Faixa({
-  data,
-  status,
-  reason,
-  grande,
-}: TileView<NowPlaying> & { grande?: boolean }) {
-  if (status === "degraded" && PRECISA_PERMISSAO.test(reason ?? "")) {
-    return (
-      <div className="musica">
-        <PedirPermissao />
-      </div>
-    );
-  }
+function precisaLogin(status: string, reason: string | null): boolean {
+  return status === "degraded" && PRECISA_LOGIN.test(reason ?? "");
+}
 
-  if (status === "degraded" && PRECISA_LOGIN.test(reason ?? "")) {
+/** Compacto: o que toca + controles, ou o botão de conectar. */
+function Compacto({ data, status, reason }: TileView<MusicState>) {
+  if (precisaLogin(status, reason)) {
     return (
       <div className="musica">
         <Conectar />
@@ -142,31 +90,141 @@ function Faixa({
     );
   }
 
-  if (!data) {
-    // Nada tocando em lugar nenhum — no Android, o próprio aparelho; via
-    // Web API, algum dispositivo Spotify Connect. Ela não cria reprodução,
-    // só controla o que já existe.
-    return <p className="musica__vazio">nada tocando — abra o Spotify e dê play</p>;
+  const np = data?.nowPlaying ?? null;
+  if (!np) {
+    return <p className="musica__vazio">toque para buscar e tocar</p>;
   }
 
   return (
-    <div className={`musica${grande ? " musica--grande" : ""}`}>
-      {grande && data.albumArt && (
-        <img className="musica__capa" src={data.albumArt} alt="" />
-      )}
-      <p className="musica__track">{data.track}</p>
-      <p className="musica__artist">{data.artist}</p>
-      <Controles tocando={data.isPlaying} />
+    <div className="musica">
+      {np.albumArt && <img className="musica__capa" src={np.albumArt} alt="" />}
+      <p className="musica__track">{np.track}</p>
+      <p className="musica__artist">{np.artist}</p>
+      <Controles tocando={np.isPlaying} />
     </div>
   );
 }
 
-export const musicTile: AnyTileSpec = defineTile<NowPlaying>({
+/** Tela cheia: busca, resultados, playlists e o que toca. É o Caminho A. */
+/** Diz se o Eclipse já virou device do Spotify — sem isto "não toca" é mudo. */
+function StatusDevice() {
+  const status = useStatusPlayer();
+  const texto = {
+    off: null,
+    carregando: "preparando o player…",
+    pronto: "tocando pelo Eclipse",
+    erro: "player indisponível (precisa de Premium)",
+  }[status];
+
+  if (!texto) return null;
+  return <span className={`spotify-device spotify-device--${status}`}>{texto}</span>;
+}
+
+function Completa({ data, status, reason }: TileView<MusicState>) {
+  const [termo, setTermo] = useState("");
+  const logado = !precisaLogin(status, reason);
+
+  // Ao abrir a tela cheia, já carrega as playlists do usuário.
+  useEffect(() => {
+    if (logado) dispatchAction(MUSIC, { acao: "playlists" });
+  }, [logado]);
+
+  if (!logado) {
+    return (
+      <div className="musica">
+        <Conectar />
+      </div>
+    );
+  }
+
+  const submeter = (event: React.FormEvent) => {
+    event.preventDefault();
+    const q = termo.trim();
+    if (q) dispatchAction(MUSIC, { acao: "buscar", termo: q });
+  };
+
+  // `ativarAudio` antes de mandar tocar: em navegador mobile o áudio só toca se
+  // liberado dentro de um gesto do usuário. Sem isto a faixa é transferida para
+  // o Eclipse mas fica pausada.
+  const tocarFaixa = (event: MouseEvent, uri: string) => {
+    event.stopPropagation();
+    void ativarAudio();
+    dispatchAction(MUSIC, { acao: "tocar", uri });
+  };
+
+  const tocarPlaylist = (event: MouseEvent, uri: string) => {
+    event.stopPropagation();
+    void ativarAudio();
+    dispatchAction(MUSIC, { acao: "tocar_playlist", uri });
+  };
+
+  const np = data?.nowPlaying ?? null;
+  const resultados = data?.resultados ?? [];
+  const playlists = data?.playlists ?? [];
+  // Sem busca ativa, mostra as playlists; com resultados, mostra a busca.
+  const mostrarPlaylists = resultados.length === 0;
+
+  return (
+    <div className="spotify-full" onClick={(e) => e.stopPropagation()}>
+      <form className="spotify-busca" onSubmit={submeter}>
+        <input
+          className="spotify-busca__campo"
+          value={termo}
+          onChange={(e) => setTermo(e.target.value)}
+          placeholder="buscar música ou artista…"
+          aria-label="Buscar no Spotify"
+        />
+        <button className="spotify-busca__botao" type="submit">
+          buscar
+        </button>
+      </form>
+
+      <StatusDevice />
+
+      <div className="spotify-lista">
+        {mostrarPlaylists
+          ? playlists.map((p) => (
+              <button key={p.uri} className="spotify-item" onClick={(e) => tocarPlaylist(e, p.uri)}>
+                {p.albumArt && <img className="spotify-item__capa" src={p.albumArt} alt="" />}
+                <span className="spotify-item__texto">
+                  <span className="spotify-item__track">{p.nome}</span>
+                  <span className="spotify-item__artist">playlist</span>
+                </span>
+              </button>
+            ))
+          : resultados.map((f) => (
+              <button key={f.uri} className="spotify-item" onClick={(e) => tocarFaixa(e, f.uri)}>
+                {f.albumArt && <img className="spotify-item__capa" src={f.albumArt} alt="" />}
+                <span className="spotify-item__texto">
+                  <span className="spotify-item__track">{f.track}</span>
+                  <span className="spotify-item__artist">{f.artist}</span>
+                </span>
+              </button>
+            ))}
+        {mostrarPlaylists && playlists.length === 0 && (
+          <p className="musica__vazio">busque uma música acima 👆</p>
+        )}
+      </div>
+
+      {np && (
+        <div className="spotify-tocando">
+          <span className="spotify-item__texto">
+            <span className="musica__track">{np.track}</span>
+            <span className="musica__artist">{np.artist}</span>
+          </span>
+          <Controles tocando={np.isPlaying} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const musicTile: AnyTileSpec = defineTile<MusicState>({
   id: "musica",
   module: MUSIC,
   title: "Spotify",
   area: "spotify",
   icon: <Music size="1em" />,
-  Compact: (view) => <Faixa {...view} />,
-  Expanded: (view) => <Faixa {...view} grande />,
+  Compact: (view) => <Compacto {...view} />,
+  Expanded: (view) => <Completa {...view} />,
 });

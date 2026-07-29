@@ -202,6 +202,10 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  /* Recorta o que não cabe: sem isto, um tile baixo (WhatsApp) com a lista mais
+     alta que a célula deixava o texto escapar por cima e cair sobre o mapa
+     vizinho. Nada aqui depende de conteúdo transbordando a borda. */
+  overflow: hidden;
 }
 
 .tile__reason {
@@ -331,11 +335,11 @@ body {
 }
 
 .velo__medidor .gauge__value {
-  font-size: clamp(2.6rem, 7vw, 4.8rem);
+  font-size: clamp(1.8rem, 4vw, 3rem);
 }
 
 .velo__medidor .gauge__icone {
-  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-size: clamp(1.1rem, 2.4vw, 1.7rem);
 }
 
 /* RPM e temperatura moram encaixados no rodapé do quadro da velocidade. */
@@ -493,6 +497,134 @@ body {
   min-width: 4rem;
   min-height: 4rem;
   font-size: 1.5rem;
+}
+
+/* --- Spotify em tela cheia: busca + resultados + playlists + tocando --- */
+
+.spotify-full {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  height: 100%;
+  min-height: 0;
+}
+
+.spotify-busca {
+  display: flex;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.spotify-busca__campo {
+  flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.spotify-busca__campo:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.spotify-busca__botao {
+  flex: 0 0 auto;
+  padding: 0 1.1rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+/* A lista rola; o resto (busca em cima, tocando embaixo) fica fixo. */
+.spotify-lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.spotify-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.5rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.spotify-item:hover,
+.spotify-item:focus-visible {
+  background: var(--panel);
+  outline: none;
+}
+
+.spotify-item__capa {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.35rem;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.spotify-item__texto {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.spotify-item__track {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-item__artist {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Estado do player embutido: verde quando o Eclipse já é o device do Spotify. */
+.spotify-device {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  text-transform: lowercase;
+  color: var(--muted);
+}
+
+.spotify-device--pronto {
+  color: var(--accent);
+}
+
+.spotify-device--erro {
+  color: var(--warn);
+}
+
+.spotify-tocando {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
 }
 
 /* ------------------------------------------------------------------ */

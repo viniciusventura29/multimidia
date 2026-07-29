@@ -30,15 +30,45 @@ use uuid::Uuid;
 use crate::source::{MusicError, MusicSource, NowPlaying};
 use crate::tokens::TokenStore;
 
-/// O Spotify exige a URI de redirect cadastrada no painel do app.
-/// Esta precisa estar lá exatamente igual.
+/// A URI de redirect cadastrada no painel do Spotify. Difere por plataforma:
+///
+/// - No **mobile**, um servidor loopback não funciona: o Android congela o app
+///   assim que ele vai pro fundo (enquanto o navegador aprova), então o
+///   `127.0.0.1:8888` fica sem ninguém para responder e o navegador trava
+///   carregando. O caminho robusto é um **deep link** de scheme próprio, que o
+///   sistema entrega de volta ao app (e ainda o traz pra frente sozinho).
+/// - No **desktop** o loopback funciona bem e não exige registrar scheme no SO.
+///
+/// AMBAS precisam estar cadastradas idênticas no painel do app Spotify.
+///
+/// ⚠️ Aqui é `target_os = "android"`, NÃO `mobile`: o cfg `mobile` é emitido
+/// pelo `tauri_build` só para o crate `src-tauri`, não para dependências como
+/// este `eclipse-music` — usar `mobile` aqui daria sempre o ramo desktop e a
+/// URL sairia com `127.0.0.1` no Android (o bug que fazia o navegador travar).
+#[cfg(target_os = "android")]
+pub const REDIRECT_URI: &str = "eclipseos://callback";
+#[cfg(not(target_os = "android"))]
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
+
+/// O nome com que o Eclipse se registra como device do Spotify (via Web Playback
+/// SDK). Compartilhado entre o JS que cria o player e o Rust que escolhe onde
+/// tocar — se divergirem, o Rust não acha o player e o som sai em outro aparelho.
+pub const NOME_DEVICE: &str = "Eclipse OS";
 
 pub fn escopos() -> HashSet<String> {
     scopes!(
         "user-read-playback-state",
         "user-modify-playback-state",
-        "user-read-currently-playing"
+        "user-read-currently-playing",
+        // Para listar e abrir as playlists do usuário dentro do Eclipse.
+        "playlist-read-private",
+        "playlist-read-collaborative",
+        // `streaming` é o que permite o Web Playback SDK tocar o áudio DENTRO do
+        // Eclipse — é o que dispensa o app oficial do Spotify no aparelho. Os
+        // dois `user-read-*` são exigidos pelo SDK para identificar a conta.
+        "streaming",
+        "user-read-email",
+        "user-read-private"
     )
 }
 
@@ -127,6 +157,65 @@ impl SpotifySource {
         Ok(Self { client })
     }
 
+    /// O access token vigente, para o Web Playback SDK usar no WebView.
+    ///
+    /// O SDK precisa do token cru (ele fala com o Spotify direto do JS para
+    /// tocar o áudio aqui dentro, em vez de comandar outro aparelho). Curto —
+    /// vence em ~1h — então o SDK pede de novo pelo callback dele.
+    pub async fn access_token(&self) -> Result<String, MusicError> {
+        self.client.auto_reauth().await.map_err(traduzir)?;
+        self.client
+            .token
+            .lock()
+            .await
+            .unwrap()
+            .as_ref()
+            .map(|t| t.access_token.clone())
+            .filter(|t| !t.is_empty())
+            .ok_or(MusicError::NeedsReauth)
+    }
+
+    /// Escolhe onde tocar. Com o Spotify logado no PC E no celular ao mesmo
+    /// tempo, pegar só "o device ativo" fazia o som sair no PC. Aqui a gente
+    /// **prefere o próprio aparelho** (celular/tablet/automóvel = o head unit) e
+    /// evita o PC; `is_active` só desempata. Vazio = ninguém para comandar (abrir
+    /// o Spotify no aparelho uma vez para ele aparecer na lista).
+    async fn escolher_device(&self) -> Result<String, MusicError> {
+        use rspotify::model::DeviceType;
+
+        fn pontos(nome: &str, tipo: &DeviceType, ativo: bool) -> i32 {
+            // O próprio Eclipse, via Web Playback SDK, é o alvo preferido: o som
+            // sai aqui dentro, sem depender do app oficial do Spotify.
+            if nome == NOME_DEVICE {
+                return 100 + if ativo { 1 } else { 0 };
+            }
+            let base = match tipo {
+                // Depois dele, o aparelho onde o Eclipse roda (head unit/celular).
+                DeviceType::Smartphone | DeviceType::Tablet | DeviceType::Automobile => 10,
+                // O PC é justamente o que se quer evitar aqui.
+                DeviceType::Computer => 0,
+                _ => 5,
+            };
+            base + if ativo { 1 } else { 0 }
+        }
+
+        let devices = self.client.device().await.map_err(traduzir)?;
+        println!(
+            "[eclipse] devices Spotify: {:?}",
+            devices
+                .iter()
+                .map(|d| format!("{} ({:?}, ativo={})", d.name, d._type, d.is_active))
+                .collect::<Vec<_>>()
+        );
+
+        devices
+            .into_iter()
+            .filter(|d| d.id.is_some())
+            .max_by_key(|d| pontos(&d.name, &d._type, d.is_active))
+            .and_then(|d| d.id)
+            .ok_or(MusicError::NoActiveDevice)
+    }
+
     async fn tocando_agora(&self) -> Result<Option<NowPlaying>, MusicError> {
         let contexto = self
             .client
@@ -189,6 +278,91 @@ impl MusicSource for SpotifySource {
     async fn previous(&mut self) -> Result<(), MusicError> {
         self.client.previous_track(None).await.map_err(traduzir)
     }
+
+    async fn buscar(&mut self, termo: &str) -> Result<Vec<crate::source::Faixa>, MusicError> {
+        use rspotify::model::{Id, SearchResult, SearchType};
+
+        let resultado = self
+            .client
+            .search(termo, SearchType::Track, None, None, Some(20), None)
+            .await
+            .map_err(traduzir)?;
+
+        let SearchResult::Tracks(pagina) = resultado else {
+            return Ok(Vec::new());
+        };
+
+        Ok(pagina
+            .items
+            .into_iter()
+            .filter_map(|faixa| {
+                Some(crate::source::Faixa {
+                    uri: faixa.id?.uri(),
+                    track: faixa.name,
+                    artist: faixa
+                        .artists
+                        .into_iter()
+                        .map(|a| a.name)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    album_art: faixa.album.images.into_iter().next().map(|i| i.url),
+                })
+            })
+            .collect())
+    }
+
+    async fn tocar(&mut self, uri: &str) -> Result<(), MusicError> {
+        use rspotify::model::{PlayableId, TrackId};
+
+        let device = self.escolher_device().await?;
+        let faixa = TrackId::from_uri(uri)
+            .map_err(|e| MusicError::Network(format!("URI de faixa inválida: {e}")))?
+            .into_static();
+
+        self.client
+            .start_uris_playback(
+                std::iter::once(PlayableId::Track(faixa)),
+                Some(&device),
+                None,
+                None,
+            )
+            .await
+            .map_err(traduzir)
+    }
+
+    async fn playlists(&mut self) -> Result<Vec<crate::source::Playlist>, MusicError> {
+        use rspotify::model::Id;
+
+        let pagina = self
+            .client
+            .current_user_playlists_manual(Some(50), Some(0))
+            .await
+            .map_err(traduzir)?;
+
+        Ok(pagina
+            .items
+            .into_iter()
+            .map(|p| crate::source::Playlist {
+                uri: p.id.uri(),
+                nome: p.name,
+                album_art: p.images.into_iter().next().map(|i| i.url),
+            })
+            .collect())
+    }
+
+    async fn tocar_playlist(&mut self, uri: &str) -> Result<(), MusicError> {
+        use rspotify::model::{PlayContextId, PlaylistId};
+
+        let device = self.escolher_device().await?;
+        let contexto = PlaylistId::from_uri(uri)
+            .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
+            .into_static();
+
+        self.client
+            .start_context_playback(PlayContextId::Playlist(contexto), Some(&device), None, None)
+            .await
+            .map_err(traduzir)
+    }
 }
 
 /// Resultado de uma autorização nova.
@@ -197,11 +371,17 @@ pub struct Autorizacao {
     pub quando: chrono::DateTime<Utc>,
 }
 
+/// Cliente PKCE no meio de uma autorização, carregando o `code_verifier`.
+///
+/// Opaco de propósito: o `src-tauri` precisa guardá-lo entre montar a URL e
+/// receber o `code` (pelo deep link, no mobile) sem depender do rspotify.
+pub struct PkcePendente(AuthCodePkceSpotify);
+
 /// Monta a URL de autorização e o cliente que vai trocar o código por token.
 ///
 /// Devolve o cliente junto porque o PKCE exige que o mesmo `code_verifier`
 /// gerado aqui seja usado na troca — um cliente novo não conseguiria completar.
-pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, String), MusicError> {
+pub fn iniciar_autorizacao(client_id: &str) -> Result<(PkcePendente, String), MusicError> {
     let mut client = AuthCodePkceSpotify::new(
         Credentials::new_pkce(client_id),
         OAuth {
@@ -212,7 +392,7 @@ pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, Stri
     );
 
     let url = client.get_authorize_url(None).map_err(traduzir)?;
-    Ok((client, url))
+    Ok((PkcePendente(client), url))
 }
 
 /// Espera o Spotify redirecionar de volta e troca o código pelo refresh token.
@@ -221,11 +401,22 @@ pub fn iniciar_autorizacao(client_id: &str) -> Result<(AuthCodePkceSpotify, Stri
 /// para app desktop: o navegador abre, o usuário aprova, e o Spotify devolve o
 /// código para o próprio aparelho — sem servidor na internet no meio.
 pub async fn concluir_autorizacao(
-    client: AuthCodePkceSpotify,
+    pendente: PkcePendente,
 ) -> Result<Autorizacao, MusicError> {
     let codigo = esperar_codigo().await?;
+    trocar_codigo(pendente, &codigo).await
+}
 
-    client.request_token(&codigo).await.map_err(traduzir)?;
+/// Troca o `code` pelo refresh token. É a metade final do PKCE, isolada porque
+/// no mobile o `code` não vem de um servidor loopback e sim de um deep link —
+/// o `connect_spotify` guarda o `client` (que carrega o `code_verifier`) e
+/// chama isto quando o deep link chega.
+pub async fn trocar_codigo(
+    pendente: PkcePendente,
+    codigo: &str,
+) -> Result<Autorizacao, MusicError> {
+    let client = pendente.0;
+    client.request_token(codigo).await.map_err(traduzir)?;
 
     let token = client
         .token
@@ -243,6 +434,12 @@ pub async fn concluir_autorizacao(
         refresh_token,
         quando: Utc::now(),
     })
+}
+
+/// Extrai o `code` de uma URL de callback (deep link `eclipseos://callback?...`
+/// ou loopback). Reaproveita o parser da linha de requisição fingindo uma.
+pub fn codigo_de_url(url: &str) -> Option<String> {
+    extrair_codigo(&format!("GET {url} HTTP/1.1"))
 }
 
 /// Servidor de uma requisição só, o suficiente para capturar o `code`.

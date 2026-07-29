@@ -43,6 +43,27 @@ export interface NowPlaying {
   durationMs: number | null;
 }
 
+/** Uma faixa achada na busca. `uri` é o que se manda para tocar. */
+export interface Faixa {
+  uri: string;
+  track: string;
+  artist: string;
+  albumArt: string | null;
+}
+
+export interface Playlist {
+  uri: string;
+  nome: string;
+  albumArt: string | null;
+}
+
+/** O estado do módulo de música: o que toca + busca + playlists. */
+export interface MusicState {
+  nowPlaying: NowPlaying | null;
+  resultados: Faixa[];
+  playlists: Playlist[];
+}
+
 /* ------------------------------------------------------------------ */
 /* Perfis                                                              */
 /* ------------------------------------------------------------------ */

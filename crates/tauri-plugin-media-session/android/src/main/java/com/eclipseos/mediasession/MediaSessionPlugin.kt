@@ -40,9 +40,27 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
      */
     private fun sessaoAtiva(): MediaController? {
         val sessoes = gerenciador.getActiveSessions(componenteListener)
+        // Diagnóstico: se isto vier 0 com o Spotify tocando, o bind do listener
+        // é que falhou (ver o exported=true no manifest) — não a Web API.
+        android.util.Log.i(
+            "EclipseMedia",
+            "getActiveSessions -> ${sessoes.size}: ${sessoes.map { it.packageName }}",
+        )
         return sessoes.find { it.packageName == PACOTE_SPOTIFY }
             ?: sessoes.find { it.playbackState?.state == PlaybackState.STATE_PLAYING }
             ?: sessoes.firstOrNull()
+    }
+
+    /** Controla a sessão ativa, ou falha explícito se não há nenhuma — sem o
+     *  `?.` que antes engolia o clique e devolvia sucesso com o player parado. */
+    private fun controlar(invoke: Invoke, acao: (MediaController) -> Unit) {
+        val sessao = sessaoAtiva()
+        if (sessao == null) {
+            invoke.reject("sem sessão de mídia ativa")
+            return
+        }
+        acao(sessao)
+        invoke.resolve()
     }
 
     @Command
@@ -79,28 +97,16 @@ class MediaSessionPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
-    fun play(invoke: Invoke) {
-        sessaoAtiva()?.transportControls?.play()
-        invoke.resolve()
-    }
+    fun play(invoke: Invoke) = controlar(invoke) { it.transportControls.play() }
 
     @Command
-    fun pause(invoke: Invoke) {
-        sessaoAtiva()?.transportControls?.pause()
-        invoke.resolve()
-    }
+    fun pause(invoke: Invoke) = controlar(invoke) { it.transportControls.pause() }
 
     @Command
-    fun next(invoke: Invoke) {
-        sessaoAtiva()?.transportControls?.skipToNext()
-        invoke.resolve()
-    }
+    fun next(invoke: Invoke) = controlar(invoke) { it.transportControls.skipToNext() }
 
     @Command
-    fun previous(invoke: Invoke) {
-        sessaoAtiva()?.transportControls?.skipToPrevious()
-        invoke.resolve()
-    }
+    fun previous(invoke: Invoke) = controlar(invoke) { it.transportControls.skipToPrevious() }
 
     @Command
     fun has_notification_access(invoke: Invoke) {
