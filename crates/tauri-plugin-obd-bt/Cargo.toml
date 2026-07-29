@@ -1,0 +1,17 @@
+[package]
+name = "tauri-plugin-obd-bt"
+version.workspace = true
+edition.workspace = true
+description = "Bluetooth clássico (SPP) para o ELM327 no Android"
+# Necessário para o `build.rs` publicar os metadados que a tauri-cli lê para
+# descobrir o projeto Android deste plugin e injetá-lo no build do app.
+links = "tauri-plugin-obd-bt"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

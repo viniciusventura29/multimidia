@@ -4,6 +4,7 @@
 //! na janela do Tauri. O Rust é dono do estado; a UI é uma projeção dele.
 
 mod modules;
+mod obd_bt;
 
 use std::sync::{Arc, Mutex};
 
@@ -368,6 +369,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_obd_bt::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             dispatch_action,
@@ -391,6 +393,9 @@ pub fn run() {
             let ativo = store.active().cloned();
 
             let handle = app.handle().clone();
+            // O módulo OBD precisa do handle para alcançar o plugin de Bluetooth,
+            // e o supervisor o reconstrói a cada reconexão — daí um clone à parte.
+            let handle_obd = app.handle().clone();
 
             // O cofre de tokens continua existindo nas duas plataformas — o
             // comando `connect_spotify` e a Web API seguem úteis mesmo no
@@ -427,7 +432,9 @@ pub fn run() {
                 let mut supervisor = Supervisor::new();
                 forward_states(handle, &supervisor);
 
-                supervisor.spawn(factory(modules::obd::OBD, modules::obd::ObdModule::default));
+                supervisor.spawn(factory(modules::obd::OBD, move || {
+                    modules::obd::ObdModule::new(handle_obd.clone())
+                }));
                 supervisor.spawn(factory(modules::music::MUSIC, move || {
                     modules::music::MusicModule::new(Arc::clone(&conector))
                 }));
