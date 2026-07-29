@@ -8,6 +8,7 @@ import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothSocket
+import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -41,6 +42,10 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
     companion object {
         // UUID padrão do Serial Port Profile (SPP) — é o que o ELM327 fala.
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+        // Filtre o logcat por esta tag para ver a conversa com o adaptador:
+        //   adb logcat -s EclipseObdBt
+        private const val TAG = "EclipseObdBt"
     }
 
     // Toda a I/O do socket roda nesta única thread. Dois motivos: o ELM327 é um
@@ -67,6 +72,7 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                 }
                 val arr = JSArray()
                 for (device in adapter.bondedDevices) {
+                    Log.i(TAG, "pareado: \"${device.name ?: ""}\" (${device.address})")
                     val obj = JSObject()
                     obj.put("name", device.name ?: "")
                     obj.put("address", device.address)
@@ -97,11 +103,25 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                 val device = adapter.getRemoteDevice(args.address)
                 // Descoberta ativa deixa o handshake do RFCOMM lento e instável.
                 adapter.cancelDiscovery()
-                val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                s.connect() // bloqueia até conectar ou estourar
+                Log.i(TAG, "conectando em ${args.address} via SPP")
+                val s = try {
+                    val spp = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                    spp.connect() // bloqueia até conectar ou estourar
+                    spp
+                } catch (e: Exception) {
+                    // Clones de ELM327 às vezes não anunciam o service record
+                    // direito; o caminho clássico é cair para o canal RFCOMM 1
+                    // por reflexão (o mesmo que os apps de scanner fazem).
+                    Log.w(TAG, "SPP por service record falhou (${e.message}); tentando canal 1")
+                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    val canal1 = m.invoke(device, 1) as BluetoothSocket
+                    canal1.connect()
+                    canal1
+                }
                 socket = s
                 input = s.inputStream
                 output = s.outputStream
+                Log.i(TAG, "conectado em ${args.address}")
                 invoke.resolve()
             } catch (e: SecurityException) {
                 closeQuietly()
@@ -153,11 +173,14 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                 }
 
                 if (!achouPrompt && sb.isEmpty()) {
+                    Log.w(TAG, "sem resposta para ${args.cmd} em ${args.timeoutMs}ms")
                     invoke.reject("adaptador não respondeu (timeout)")
                     return@execute
                 }
+                val resposta = sb.toString().trim()
+                Log.d(TAG, "${args.cmd} -> ${resposta.replace("\r", "|")}")
                 val ret = JSObject()
-                ret.put("response", sb.toString().trim())
+                ret.put("response", resposta)
                 invoke.resolve(ret)
             } catch (e: Exception) {
                 invoke.reject("falha ao falar com o adaptador: ${e.message}")

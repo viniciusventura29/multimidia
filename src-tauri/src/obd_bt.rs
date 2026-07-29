@@ -18,14 +18,22 @@ use async_trait::async_trait;
 use eclipse_obd::{Elm327Source, Elm327Transport, ObdError};
 use tauri_plugin_obd_bt::{BtDevice, ObdBtExt};
 
-/// Teto por comando. Folgado de propósito: o `ATZ` do handshake pode levar ~1 s,
-/// e o barramento ISO 9141-2 do carro é lento. Só estoura quando o adaptador
-/// realmente ficou mudo (soltou do conector) — e aí vira erro de barramento.
-const TIMEOUT_MS: u32 = 5000;
-
 /// Nomes comuns de adaptadores ELM327/OBD, para achar o certo entre os pareados
-/// quando o usuário não fixa um por `ECLIPSE_OBD_DEVICE`.
-const PADROES_NOME: [&str; 6] = ["OBD", "ELM", "VLINK", "VIECAR", "OBDII", "KONNWEI"];
+/// quando o usuário não fixa um por `ECLIPSE_OBD_DEVICE`. Comparados contra o
+/// nome já [normalizado](normalizar) — "V-LINK" vira "VLINK" e casa.
+const PADROES_NOME: [&str; 7] = ["OBD", "ELM", "VLINK", "VIECAR", "KONNWEI", "VGATE", "ICAR"];
+
+/// O nome reduzido ao que importa: só letras e dígitos, em maiúscula.
+///
+/// Foi um hífen que quebrou no carro de verdade: o adaptador se anuncia como
+/// "V-LINK" e o padrão "VLINK" não era substring. Pontuação e espaço variam por
+/// clone; letra e dígito não.
+fn normalizar(nome: &str) -> String {
+    nome.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_uppercase()
+}
 
 /// Um comando falhou na ponte do plugin. Qualquer falha de socket vira
 /// [`ObdError::Bus`]: sobe pelo poller e faz o supervisor reconectar. (O carro
@@ -42,12 +50,14 @@ pub struct AndroidBtTransport {
 
 #[async_trait]
 impl Elm327Transport for AndroidBtTransport {
-    async fn command(&mut self, cmd: &str) -> Result<String, ObdError> {
+    async fn command(&mut self, cmd: &str, timeout_ms: u32) -> Result<String, ObdError> {
         let app = self.app.clone();
         let cmd = cmd.to_string();
-        tokio::task::spawn_blocking(move || app.obd_bt().command(&cmd, TIMEOUT_MS).map_err(erro))
-            .await
-            .map_err(|e| ObdError::Bus(format!("task de leitura falhou: {e}")))?
+        tokio::task::spawn_blocking(move || {
+            app.obd_bt().command(&cmd, timeout_ms).map_err(erro)
+        })
+        .await
+        .map_err(|e| ObdError::Bus(format!("task de leitura falhou: {e}")))?
     }
 }
 
@@ -57,13 +67,14 @@ impl Elm327Transport for AndroidBtTransport {
 /// cujo nome pareça de um ELM327.
 fn escolher<'a>(pareados: &'a [BtDevice], alvo: Option<&str>) -> Option<&'a BtDevice> {
     if let Some(alvo) = alvo {
-        let alvo_up = alvo.to_uppercase();
+        let alvo_norm = normalizar(alvo);
         return pareados.iter().find(|d| {
-            d.address.eq_ignore_ascii_case(alvo) || d.name.to_uppercase().contains(&alvo_up)
+            d.address.eq_ignore_ascii_case(alvo)
+                || (!alvo_norm.is_empty() && normalizar(&d.name).contains(&alvo_norm))
         });
     }
     pareados.iter().find(|d| {
-        let nome = d.name.to_uppercase();
+        let nome = normalizar(&d.name);
         PADROES_NOME.iter().any(|p| nome.contains(p))
     })
 }
@@ -106,4 +117,52 @@ pub async fn conectar(app: &tauri::AppHandle) -> Result<Elm327Source<AndroidBtTr
     let rotulo = preparar(app).await?;
     tracing::info!(adaptador = %rotulo, "conectado; iniciando handshake do ELM327");
     Elm327Source::conectar(AndroidBtTransport { app: app.clone() }).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dev(name: &str) -> BtDevice {
+        BtDevice {
+            name: name.to_string(),
+            address: "AA:BB:CC:DD:EE:FF".to_string(),
+        }
+    }
+
+    #[test]
+    fn acha_o_adaptador_apesar_de_hifens_e_espacos_no_nome() {
+        // O caso que falhou no carro: o adaptador se chama "V-LINK" e o padrão
+        // "VLINK" não é substring por causa do hífen. O fone do usuário também
+        // fica na lista — não pode ser escolhido no lugar.
+        let pareados = [dev("Galaxy Buds"), dev("V-LINK")];
+        let escolhido = escolher(&pareados, None).expect("tinha que achar o V-LINK");
+        assert_eq!(escolhido.name, "V-LINK");
+
+        // Variações reais dos clones: espaços e caixa baixa.
+        for nome in ["v-link", "OBD II", "Vgate iCar Pro", "elm 327"] {
+            let pareados = [dev("JBL Flip"), dev(nome)];
+            assert!(
+                escolher(&pareados, None).is_some(),
+                "não achou o adaptador chamado {nome:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn alvo_explicito_vence_e_tambem_ignora_pontuacao() {
+        let pareados = [dev("V-LINK"), dev("OBDII")];
+        // Por MAC, ignorando caixa.
+        let por_mac = escolher(&pareados, Some("aa:bb:cc:dd:ee:ff")).unwrap();
+        assert_eq!(por_mac.name, "V-LINK");
+        // Por nome, mesmo digitado sem o hífen.
+        let por_nome = escolher(&pareados, Some("vlink")).unwrap();
+        assert_eq!(por_nome.name, "V-LINK");
+    }
+
+    #[test]
+    fn sem_adaptador_na_lista_nao_escolhe_nada() {
+        let pareados = [dev("Galaxy Buds"), dev("JBL Flip"), dev("")];
+        assert!(escolher(&pareados, None).is_none());
+    }
 }

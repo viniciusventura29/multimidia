@@ -19,12 +19,29 @@ use crate::source::{ObdError, ObdSource};
 /// Carrega um comando até o adaptador e devolve a resposta crua — o texto entre
 /// o comando e o prompt `>`, já sem o eco.
 ///
-/// É só isto que o Bluetooth precisa saber fazer. O que mandar e como ler de
-/// volta é do protocolo, e o protocolo se testa com um transporte de mentira.
+/// É só isto que o Bluetooth precisa saber fazer. O que mandar, quanto esperar
+/// e como ler de volta é do protocolo, e o protocolo se testa com um transporte
+/// de mentira. O `timeout_ms` vem do protocolo porque só ele sabe quais comandos
+/// são lentos: a negociação de protocolo do carro leva vários segundos; um PID
+/// já negociado, centenas de ms.
 #[async_trait]
 pub trait Elm327Transport: Send {
-    async fn command(&mut self, cmd: &str) -> Result<String, ObdError>;
+    async fn command(&mut self, cmd: &str, timeout_ms: u32) -> Result<String, ObdError>;
 }
+
+/// Teto para comandos comuns (AT do handshake, PIDs já negociados). Folgado: o
+/// barramento ISO 9141-2 responde em centenas de ms; só estoura com o adaptador
+/// mudo de verdade.
+const TIMEOUT_COMANDO_MS: u32 = 5_000;
+
+/// Teto para o `0100` de aquecimento, quando o adaptador ainda está descobrindo
+/// o protocolo do carro (`SEARCHING...`). O slow init do ISO 9141-2 mais a busca
+/// pelos outros protocolos pode passar fácil de 10 s — e interromper a busca
+/// mandando outro comando faz ela recomeçar do zero.
+const TIMEOUT_BUSCA_MS: u32 = 30_000;
+
+/// Quantas vezes repetir o `0100` se a busca de protocolo ainda não terminou.
+const TENTATIVAS_BUSCA: usize = 3;
 
 /// Uma fonte OBD falando com um ELM327 de verdade por um transporte qualquer.
 pub struct Elm327Source<T> {
@@ -39,6 +56,12 @@ impl<T: Elm327Transport> Elm327Source<T> {
     ///   frente e o parser teria de adivinhar onde ele acaba.
     /// - `ATL0` tira os `\n`, `ATS0` tira os espaços: a resposta fica hex puro.
     /// - `ATSP0` deixa o adaptador descobrir sozinho o protocolo do carro.
+    /// - `0100` de aquecimento: com `ATSP0`, a negociação com o carro só acontece
+    ///   no primeiro pedido de modo 01 — e ela pode levar muitos segundos (slow
+    ///   init do ISO 9141-2). Melhor pagar essa espera aqui, uma vez, com timeout
+    ///   folgado, do que estourar na primeira leitura do painel e derrubar a
+    ///   conexão inteira (o reconectar reseta o adaptador e a busca recomeçaria
+    ///   do zero, para sempre).
     ///
     /// Se qualquer um não voltar (timeout/barramento), falha aqui: é melhor o
     /// supervisor reconectar do que entregar lixo ao painel.
@@ -47,9 +70,26 @@ impl<T: Elm327Transport> Elm327Source<T> {
             // O conteúdo da resposta ao handshake não importa (versão de firmware,
             // "OK", eco do power-on); o que importa é o adaptador ter respondido
             // sem erro de transporte, que o `?` propaga.
-            transport.command(cmd).await?;
+            transport.command(cmd, TIMEOUT_COMANDO_MS).await?;
         }
-        Ok(Self { transport })
+
+        for _ in 0..TENTATIVAS_BUSCA {
+            match transport.command("0100", TIMEOUT_BUSCA_MS).await {
+                // Negociou: o carro respondeu o quadro do `0100` (`41 00 ...`).
+                Ok(bruto) if hex_limpo(&bruto).contains("4100") => {
+                    return Ok(Self { transport })
+                }
+                // `SEARCHING`/`STOPPED`/`NO DATA`/timeout: a busca não terminou
+                // (ou foi interrompida) — vale insistir.
+                Ok(bruto) => match classificar_erro(&bruto) {
+                    ObdError::Timeout | ObdError::Unsupported => {}
+                    e => return Err(e),
+                },
+                Err(ObdError::Timeout) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Err(ObdError::Timeout)
     }
 }
 
@@ -82,7 +122,10 @@ fn prefixo_resposta(pid: Pid) -> &'static str {
 #[async_trait]
 impl<T: Elm327Transport> ObdSource for Elm327Source<T> {
     async fn read(&mut self, pid: Pid) -> Result<f32, ObdError> {
-        let bruto = self.transport.command(comando_de(pid)).await?;
+        let bruto = self
+            .transport
+            .command(comando_de(pid), TIMEOUT_COMANDO_MS)
+            .await?;
         interpretar(pid, &bruto)
     }
 }
@@ -244,46 +287,97 @@ mod tests {
         ));
     }
 
-    /// Um adaptador de mentira: responde cada comando com um texto pré-combinado.
+    /// Um adaptador de mentira: responde cada comando com a fila de textos
+    /// pré-combinada (uma resposta por chamada; a última se repete).
     struct FakeElm {
-        respostas: HashMap<String, String>,
-        handshake_visto: Vec<String>,
+        respostas: HashMap<String, Vec<String>>,
+        visto: Vec<(String, u32)>,
+    }
+
+    impl FakeElm {
+        fn new<const N: usize>(respostas: [(&str, &[&str]); N]) -> Self {
+            Self {
+                respostas: respostas
+                    .into_iter()
+                    .map(|(cmd, rs)| {
+                        (cmd.to_string(), rs.iter().map(|r| r.to_string()).collect())
+                    })
+                    .collect(),
+                visto: Vec::new(),
+            }
+        }
     }
 
     #[async_trait]
     impl Elm327Transport for FakeElm {
-        async fn command(&mut self, cmd: &str) -> Result<String, ObdError> {
-            if cmd.starts_with("AT") && cmd != "ATRV" {
-                self.handshake_visto.push(cmd.to_string());
-            }
-            Ok(self
-                .respostas
-                .get(cmd)
-                .cloned()
-                .unwrap_or_else(|| "OK".to_string()))
+        async fn command(&mut self, cmd: &str, timeout_ms: u32) -> Result<String, ObdError> {
+            self.visto.push((cmd.to_string(), timeout_ms));
+            Ok(match self.respostas.get_mut(cmd) {
+                Some(fila) if fila.len() > 1 => fila.remove(0),
+                Some(fila) => fila[0].clone(),
+                None => "OK".to_string(),
+            })
         }
     }
 
     #[tokio::test]
-    async fn conectar_faz_o_handshake_e_le() {
-        let respostas = HashMap::from([
-            ("ATZ".to_string(), "ELM327 v1.5".to_string()),
-            ("010C".to_string(), "410C1AF8".to_string()),
-            ("010D".to_string(), "410D3C".to_string()),
-            ("ATRV".to_string(), "13.9V".to_string()),
+    async fn conectar_faz_o_handshake_aquece_o_protocolo_e_le() {
+        let fake = FakeElm::new([
+            ("ATZ", &["ELM327 v1.5"] as &[&str]),
+            // O clássico do primeiro pedido: a negociação colada no quadro bom.
+            ("0100", &["SEARCHING...4100BE3EB811"]),
+            ("010C", &["410C1AF8"]),
+            ("010D", &["410D3C"]),
+            ("ATRV", &["13.9V"]),
         ]);
-        let fake = FakeElm {
-            respostas,
-            handshake_visto: Vec::new(),
-        };
 
         let mut fonte = Elm327Source::conectar(fake).await.expect("handshake");
         assert_eq!(fonte.read(Pid::Rpm).await.unwrap(), 1726.0);
         assert_eq!(fonte.read(Pid::Speed).await.unwrap(), 60.0);
         assert_eq!(fonte.read(Pid::Voltage).await.unwrap(), 13.9);
 
+        let comandos: Vec<&str> = fonte
+            .transport
+            .visto
+            .iter()
+            .map(|(c, _)| c.as_str())
+            .collect();
         // O eco tem que ser desligado, senão o parser lê o comando de volta como dado.
-        assert!(fonte.transport.handshake_visto.contains(&"ATE0".to_string()));
+        assert!(comandos.contains(&"ATE0"));
+        // O aquecimento vem depois do ATSP0 e antes de qualquer PID do painel.
+        let pos = |c| comandos.iter().position(|x| *x == c).unwrap();
+        assert!(pos("ATSP0") < pos("0100") && pos("0100") < pos("010C"));
+
+        // A busca de protocolo pode levar >10 s; o 0100 tem que esperar bem mais
+        // que um PID comum, senão volta o bug do estouro na primeira leitura.
+        let timeout_do_0100 = fonte
+            .transport
+            .visto
+            .iter()
+            .find(|(c, _)| c == "0100")
+            .unwrap()
+            .1;
+        assert!(timeout_do_0100 >= 30_000, "timeout {timeout_do_0100}");
+    }
+
+    #[tokio::test]
+    async fn busca_lenta_insiste_no_0100_ate_negociar() {
+        // Primeira tentativa devolve só SEARCHING (estourou o teto no meio da
+        // busca); a segunda vem com o quadro. Não pode desistir na primeira.
+        let fake = FakeElm::new([("0100", &["SEARCHING...", "4100BE3EB811"] as &[&str])]);
+        let fonte = Elm327Source::conectar(fake).await;
+        assert!(fonte.is_ok(), "tinha que negociar na segunda tentativa");
+    }
+
+    #[tokio::test]
+    async fn carro_desligado_falha_o_conectar() {
+        // UNABLE TO CONNECT = ignição desligada/sem carro: falha firme, o
+        // supervisor fica reconectando com backoff até o carro ligar.
+        let fake = FakeElm::new([("0100", &["UNABLE TO CONNECT"] as &[&str])]);
+        assert!(matches!(
+            Elm327Source::conectar(fake).await,
+            Err(ObdError::Bus(_))
+        ));
     }
 
     #[tokio::test]
@@ -291,7 +385,7 @@ mod tests {
         struct Morto;
         #[async_trait]
         impl Elm327Transport for Morto {
-            async fn command(&mut self, _cmd: &str) -> Result<String, ObdError> {
+            async fn command(&mut self, _cmd: &str, _t: u32) -> Result<String, ObdError> {
                 Err(ObdError::Timeout)
             }
         }
