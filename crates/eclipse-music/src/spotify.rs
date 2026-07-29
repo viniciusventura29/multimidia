@@ -146,15 +146,38 @@ impl SpotifySource {
         Ok(Self { client })
     }
 
-    /// Escolhe onde tocar: o device ativo, senão o primeiro com id — que na
-    /// head unit é o app do Spotify em segundo plano. Vazio = ninguém pra
-    /// comandar (o usuário precisa abrir o Spotify uma vez para ele aparecer).
+    /// Escolhe onde tocar. Com o Spotify logado no PC E no celular ao mesmo
+    /// tempo, pegar só "o device ativo" fazia o som sair no PC. Aqui a gente
+    /// **prefere o próprio aparelho** (celular/tablet/automóvel = o head unit) e
+    /// evita o PC; `is_active` só desempata. Vazio = ninguém para comandar (abrir
+    /// o Spotify no aparelho uma vez para ele aparecer na lista).
     async fn escolher_device(&self) -> Result<String, MusicError> {
+        use rspotify::model::DeviceType;
+
+        fn pontos(tipo: &DeviceType, ativo: bool) -> i32 {
+            let base = match tipo {
+                // O celular / head unit onde o Eclipse roda — o alvo desejado.
+                DeviceType::Smartphone | DeviceType::Tablet | DeviceType::Automobile => 10,
+                // O PC é justamente o que se quer evitar aqui.
+                DeviceType::Computer => 0,
+                _ => 5,
+            };
+            base + if ativo { 1 } else { 0 }
+        }
+
         let devices = self.client.device().await.map_err(traduzir)?;
+        println!(
+            "[eclipse] devices Spotify: {:?}",
+            devices
+                .iter()
+                .map(|d| format!("{} ({:?}, ativo={})", d.name, d._type, d.is_active))
+                .collect::<Vec<_>>()
+        );
+
         devices
             .into_iter()
             .filter(|d| d.id.is_some())
-            .max_by_key(|d| d.is_active)
+            .max_by_key(|d| pontos(&d._type, d.is_active))
             .and_then(|d| d.id)
             .ok_or(MusicError::NoActiveDevice)
     }
