@@ -35,14 +35,78 @@ pub struct Playlist {
     pub album_art: Option<String>,
 }
 
-/// Estado publicado do módulo de música: o que toca agora + os resultados da
-/// última busca + as playlists do usuário. Um tipo só para o React ler tudo.
+/// Um álbum, para poder abrir e escolher a faixa dentro dele.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub uri: String,
+    pub nome: String,
+    pub artist: String,
+    pub album_art: Option<String>,
+}
+
+/// O que a busca devolve: faixas e álbuns, para o painel oferecer os dois.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Busca {
+    pub faixas: Vec<Faixa>,
+    pub albuns: Vec<Album>,
+}
+
+/// Uma playlist ou álbum **aberto**, com as faixas dentro.
+///
+/// É o que faltava para escolher a música: antes tocar numa playlist já mandava
+/// tocar a playlist inteira, sem deixar ver o que tinha dentro.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Contexto {
+    /// URI da playlist/álbum — serve para o botão "tocar tudo".
+    pub uri: String,
+    pub nome: String,
+    /// "playlist" ou o nome do artista, dependendo do que foi aberto.
+    pub subtitulo: String,
+    pub album_art: Option<String>,
+    pub faixas: Vec<Faixa>,
+}
+
+/// O que está errado, de forma que a tela saiba o que oferecer.
+///
+/// Antes a tela adivinhava isso por **regex no texto do erro** — e dois casos
+/// não casavam ("nenhum dispositivo ativo" e "exige Premium"), então o painel
+/// mostrava "sem sinal" e não oferecia saída nenhuma. Tipado, não tem como
+/// esquecer um caso.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TipoProblema {
+    /// Precisa (re)fazer o login do Spotify.
+    PrecisaLogin,
+    /// Conta sem Premium — login não resolve, o Spotify não permite.
+    PrecisaPremium,
+    /// Ninguém para tocar. Normalmente o player do Eclipse ainda está subindo.
+    SemDispositivo,
+    /// Falha transitória: vale tentar de novo, sozinho.
+    Rede,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Problema {
+    pub tipo: TipoProblema,
+    /// Texto para mostrar ao usuário.
+    pub detalhe: String,
+}
+
+/// Estado publicado do módulo de música: o que toca agora, a última busca, as
+/// playlists do usuário, o que estiver aberto e o que estiver errado.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicState {
     pub now_playing: Option<NowPlaying>,
-    pub resultados: Vec<Faixa>,
+    pub busca: Busca,
     pub playlists: Vec<Playlist>,
+    pub contexto: Option<Contexto>,
+    /// `None` = tudo bem.
+    pub problema: Option<Problema>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -71,24 +135,24 @@ pub enum MusicError {
 
     #[error("falha ao falar com o Spotify: {0}")]
     Network(String),
-
-    /// O Android exige a permissão manual "acesso a notificações" para ler a
-    /// sessão de mídia — não é login, é um toggle em Ajustes. A UI oferece um
-    /// botão que abre a tela certa em vez de repetir o erro do sistema.
-    #[error("falta conceder acesso a notificações ao Eclipse OS")]
-    PermissionRequired,
 }
 
 impl MusicError {
-    /// Se reconectar é a única saída, a UI mostra um toque para reautenticar em
-    /// vez de sugerir que foi um erro passageiro.
-    pub fn exige_reautenticacao(&self) -> bool {
-        matches!(self, Self::NeedsReauth | Self::NotConnected)
-    }
-
-    /// Se o caminho é abrir uma tela de permissão do sistema, não refazer login.
-    pub fn exige_permissao(&self) -> bool {
-        matches!(self, Self::PermissionRequired)
+    /// Traduz o erro no que a tela deve oferecer. Substitui a regex que a UI
+    /// fazia sobre o texto — e que deixava dois casos sem saída.
+    pub fn problema(&self) -> Problema {
+        let tipo = match self {
+            Self::NeedsReauth | Self::NotConnected | Self::NotConfigured => {
+                TipoProblema::PrecisaLogin
+            }
+            Self::PremiumRequired => TipoProblema::PrecisaPremium,
+            Self::NoActiveDevice => TipoProblema::SemDispositivo,
+            Self::Network(_) => TipoProblema::Rede,
+        };
+        Problema {
+            tipo,
+            detalhe: self.to_string(),
+        }
     }
 }
 
@@ -103,10 +167,16 @@ pub trait MusicSource: Send {
     async fn next(&mut self) -> Result<(), MusicError>;
     async fn previous(&mut self) -> Result<(), MusicError>;
 
-    /// Busca faixas por texto. Default vazio: fontes que não são a Web API
-    /// (demo, sessão de mídia) não têm busca.
-    async fn buscar(&mut self, _termo: &str) -> Result<Vec<Faixa>, MusicError> {
-        Ok(Vec::new())
+    /// Busca faixas e álbuns por texto. Default vazio: fontes que não são a Web
+    /// API (demo) não têm busca.
+    async fn buscar(&mut self, _termo: &str) -> Result<Busca, MusicError> {
+        Ok(Busca::default())
+    }
+
+    /// Abre uma playlist ou álbum e devolve as faixas de dentro. Decide pelo
+    /// próprio URI (`spotify:playlist:...` vs `spotify:album:...`).
+    async fn abrir(&mut self, _uri: &str) -> Result<Contexto, MusicError> {
+        Err(MusicError::NotConfigured)
     }
 
     /// Toca uma faixa (URI do Spotify) no device ativo — o app do Spotify em

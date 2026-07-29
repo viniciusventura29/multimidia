@@ -293,20 +293,6 @@ fn finalizar_spotify(
     Ok(())
 }
 
-/// Abre a tela de Ajustes onde o usuário concede "acesso a notificações".
-///
-/// É a permissão que a sessão de mídia do Android exige — não dá para conceder
-/// programaticamente, só apontar o caminho. No Mac isto não faz nada: o
-/// `MediaSession` do desktop é um objeto vazio de propósito, ver
-/// `tauri-plugin-media-session/src/desktop.rs`.
-#[tauri::command]
-fn open_notification_settings(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_media_session::MediaSessionExt;
-    app.media_session()
-        .request_notification_access()
-        .map_err(|e| e.to_string())
-}
-
 /* ------------------------------------------------------------------ */
 /* Localização                                                         */
 /* ------------------------------------------------------------------ */
@@ -382,7 +368,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_media_session::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             dispatch_action,
@@ -393,7 +378,6 @@ pub fn run() {
             delete_profile,
             connect_spotify,
             spotify_access_token,
-            open_notification_settings,
             push_location,
             push_location_error,
         ])
@@ -420,7 +404,6 @@ pub fn run() {
             // (Spotify Connect) em segundo plano — a UI é toda aqui. Isso
             // abandona o caminho da sessão de mídia (`AndroidConector`), que só
             // controlava o que já estivesse tocando e não sabia iniciar nada.
-            let _ = &handle; // ainda usado por outros módulos
             let conector: Arc<dyn modules::music::Conector> =
                 Arc::new(modules::music::SpotifyConector {
                     client_id: client_id(&dir),

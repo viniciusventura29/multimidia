@@ -22,10 +22,15 @@ export default function App() {
   useLocalizacaoReal();
   // O Eclipse como device do Spotify — é o que faz o áudio sair aqui dentro sem
   // o app oficial. Mora aqui pelo mesmo motivo do GPS: uma instância só.
-  // `music.status !== "degraded"` é a leitura de "tem login" que o tile já usa.
+  // Só a falta de login derruba o player. Antes isto era `status === "ready"`, e
+  // aí QUALQUER degradação o desmontava — inclusive o erro "nenhum dispositivo
+  // ativo", que assim desligava justamente o dispositivo, num círculo vicioso.
+  const problemaMusica = (
+    states["music"]?.data as { problema?: { tipo?: string } } | null
+  )?.problema;
   useSpotifyPlayer(
     perfis.active?.id ?? null,
-    states["music"]?.status === "ready",
+    Boolean(perfis.active) && problemaMusica?.tipo !== "precisaLogin",
   );
 
   if (perfis.carregando) {

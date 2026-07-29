@@ -21,6 +21,26 @@ const INTERVALO: Duration = Duration::from_secs(3);
 const INTERVALO_DEGRADADO: Duration = Duration::from_secs(20);
 /// "Faça na próxima volta do laço", sem esperar o intervalo.
 const AGORA: Duration = Duration::from_millis(1);
+/// Depois de mandar um comando, espera a propagação antes de reler.
+///
+/// O `currently-playing` do Spotify é eventualmente consistente: relendo 1ms
+/// depois de pausar ele ainda devolve o estado ANTIGO, o painel republicava
+/// "tocando" e o toque parecia não ter funcionado — o usuário tocava de novo e
+/// a música voltava. Meio segundo é o suficiente para ler a verdade.
+const PROPAGACAO: Duration = Duration::from_millis(600);
+
+/// Espera antes de tentar reconectar, crescendo a cada falha seguida.
+///
+/// 20s fixos puniam um piscar de rede tanto quanto uma queda real; começar em 1s
+/// faz o painel voltar sozinho quase na hora no caso comum.
+fn recuo(falhas: u32) -> Duration {
+    match falhas {
+        0 | 1 => Duration::from_secs(1),
+        2 => Duration::from_secs(3),
+        3 => Duration::from_secs(8),
+        _ => INTERVALO_DEGRADADO,
+    }
+}
 
 /// Abre uma sessão de música para um perfil.
 #[async_trait]
@@ -54,24 +74,6 @@ impl Conector for SpotifyConector {
     }
 }
 
-/// O player que já está tocando no aparelho, via sessão de mídia do Android.
-///
-/// Ignora o perfil de propósito: o Android guarda uma conta só por app, ao
-/// contrário do Spotify por token que cada perfil tinha antes. É a troca feita
-/// ao escolher "o Spotify de verdade" em vez de embarcar um cliente próprio.
-pub struct AndroidConector {
-    pub app: tauri::AppHandle,
-}
-
-#[async_trait]
-impl Conector for AndroidConector {
-    async fn conectar(&self, _perfil: Uuid) -> Result<Box<dyn MusicSource>, MusicError> {
-        Ok(Box::new(crate::modules::android_media::AndroidMediaSource::new(
-            self.app.clone(),
-        )))
-    }
-}
-
 pub struct MusicModule {
     conector: Arc<dyn Conector>,
 }
@@ -90,7 +92,13 @@ impl Module for MusicModule {
         // Acumula o que toca + resultados de busca + playlists. Persiste entre
         // os polls (o now_playing muda a cada 3s, mas busca/playlists ficam).
         let mut estado = MusicState::default();
-        let mut espera = INTERVALO_DEGRADADO;
+        // Um PRAZO, não uma duração: `select!` reconstrói o futuro a cada volta,
+        // então `sleep(espera)` era reiniciado por qualquer comando que chegasse.
+        // Degradado, cada toque do usuário zerava a contagem e a reconexão nunca
+        // acontecia — era o que obrigava a fechar e reabrir o app.
+        let mut proximo = tokio::time::Instant::now() + INTERVALO_DEGRADADO;
+        let mut falhas: u32 = 0;
+        let agenda = |d: Duration| tokio::time::Instant::now() + d;
 
         ctx.degraded("aguardando o perfil");
 
@@ -106,11 +114,17 @@ impl Module for MusicModule {
                         fonte = None;
                         estado = MusicState::default();
                         ctx.loading();
-                        espera = AGORA;
+                        proximo = agenda(AGORA);
                     }
 
                     Some(ModuleCommand::Action { payload, .. }) => {
-                        let Some(atual) = fonte.as_mut() else { continue };
+                        // Sem fonte, o toque do usuário é o melhor sinal de
+                        // "voltei do background": reconecta já, em vez de engolir
+                        // a ação em silêncio e esperar o próximo tick.
+                        let Some(atual) = fonte.as_mut() else {
+                            proximo = agenda(AGORA);
+                            continue;
+                        };
                         let acao = payload.get("acao").and_then(|v| v.as_str());
                         let texto = |chave| payload.get(chave).and_then(|v| v.as_str());
 
@@ -118,20 +132,23 @@ impl Module for MusicModule {
                         // pular) mandam reler o now_playing; busca/playlists
                         // devolvem listas que entram no estado publicado.
                         let resultado: Result<(), MusicError> = match acao {
-                            Some("toggle") => atual.toggle().await.map(|_| espera = AGORA),
-                            Some("next") => atual.next().await.map(|_| espera = AGORA),
-                            Some("prev") => atual.previous().await.map(|_| espera = AGORA),
+                            Some("toggle") => atual.toggle().await.map(|_| proximo = agenda(PROPAGACAO)),
+                            Some("next") => atual.next().await.map(|_| proximo = agenda(PROPAGACAO)),
+                            Some("prev") => atual.previous().await.map(|_| proximo = agenda(PROPAGACAO)),
                             Some("tocar") => match texto("uri") {
-                                Some(uri) => atual.tocar(uri).await.map(|_| espera = AGORA),
+                                Some(uri) => atual.tocar(uri).await.map(|_| proximo = agenda(PROPAGACAO)),
                                 None => continue,
                             },
                             Some("tocar_playlist") => match texto("uri") {
-                                Some(uri) => atual.tocar_playlist(uri).await.map(|_| espera = AGORA),
+                                Some(uri) => atual.tocar_playlist(uri).await.map(|_| proximo = agenda(PROPAGACAO)),
                                 None => continue,
                             },
                             Some("buscar") => match atual.buscar(texto("termo").unwrap_or("")).await {
-                                Ok(faixas) => {
-                                    estado.resultados = faixas;
+                                Ok(busca) => {
+                                    estado.busca = busca;
+                                    // Sai do que estiver aberto: o resultado da
+                                    // busca é a tela nova.
+                                    estado.contexto = None;
                                     ctx.ready(&estado);
                                     Ok(())
                                 }
@@ -145,20 +162,50 @@ impl Module for MusicModule {
                                 }
                                 Err(err) => Err(err),
                             },
+                            // Abrir é entrar na playlist/álbum para escolher a
+                            // faixa — antes tocar num deles já saía tocando tudo.
+                            Some("abrir") => match texto("uri") {
+                                Some(uri) => match atual.abrir(uri).await {
+                                    Ok(contexto) => {
+                                        estado.contexto = Some(contexto);
+                                        ctx.ready(&estado);
+                                        Ok(())
+                                    }
+                                    Err(err) => Err(err),
+                                },
+                                None => continue,
+                            },
+                            Some("fechar") => {
+                                estado.contexto = None;
+                                ctx.ready(&estado);
+                                Ok(())
+                            }
+                            Some("limpar_busca") => {
+                                estado.busca = Default::default();
+                                ctx.ready(&estado);
+                                Ok(())
+                            }
                             _ => continue,
                         };
 
                         if let Err(err) = resultado {
-                            ctx.degraded(err.to_string());
+                            // Publica `ready` com o problema em vez de `degraded`:
+                            // degradar apagava a tela inteira (e o App desmontava
+                            // o player justo quando o erro era "sem dispositivo",
+                            // desligando o próprio device). Aqui a busca e as
+                            // playlists continuam na mão do usuário.
+                            estado.problema = Some(err.problema());
+                            ctx.ready(&estado);
                             fonte = None;
-                            espera = INTERVALO_DEGRADADO;
+                            falhas += 1;
+                            proximo = agenda(recuo(falhas));
                         }
                     }
                 },
 
-                _ = tokio::time::sleep(espera) => {
+                _ = tokio::time::sleep_until(proximo) => {
                     let Some(perfil) = perfil else {
-                        espera = INTERVALO_DEGRADADO;
+                        proximo = agenda(INTERVALO_DEGRADADO);
                         continue;
                     };
 
@@ -169,8 +216,10 @@ impl Module for MusicModule {
                                 estado = MusicState::default();
                             }
                             Err(err) => {
-                                ctx.degraded(err.to_string());
-                                espera = INTERVALO_DEGRADADO;
+                                estado.problema = Some(err.problema());
+                                ctx.ready(&estado);
+                                falhas += 1;
+                                proximo = agenda(recuo(falhas));
                                 continue;
                             }
                         }
@@ -183,13 +232,17 @@ impl Module for MusicModule {
                         // era `degraded`, o que apagava a tela de busca.
                         Ok(tocando) => {
                             estado.now_playing = tocando;
+                            estado.problema = None;
+                            falhas = 0;
                             ctx.ready(&estado);
-                            espera = INTERVALO;
+                            proximo = agenda(INTERVALO);
                         }
                         Err(err) => {
-                            ctx.degraded(err.to_string());
+                            estado.problema = Some(err.problema());
+                            ctx.ready(&estado);
                             fonte = None;
-                            espera = INTERVALO_DEGRADADO;
+                            falhas += 1;
+                            proximo = agenda(recuo(falhas));
                         }
                     }
                 }
@@ -202,7 +255,7 @@ impl Module for MusicModule {
 mod tests {
     use super::*;
     use eclipse_core::{factory, Profile, StateEnvelope, Status, Supervisor};
-    use eclipse_music::{MusicState, NowPlaying};
+    use eclipse_music::{MusicState, NowPlaying, TipoProblema};
     use serde_json::json;
     use tokio::sync::broadcast::Receiver;
 
@@ -256,13 +309,18 @@ mod tests {
             "Vinicius", "#3ddc97",
         ))));
 
+        // Publica `ready` com o problema tipado, não `degraded`: a tela precisa
+        // continuar utilizável (busca/playlists) e saber QUE ação oferecer.
         let envelope = proximo(&mut rx, |e| {
-            e.status == Status::Degraded && e.reason.as_deref() != Some("aguardando o perfil")
+            e.data.as_ref().is_some_and(|d| !d["problema"].is_null())
         })
         .await;
 
+        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        let problema = estado.problema.expect("problema publicado");
+        assert_eq!(problema.tipo, TipoProblema::PrecisaLogin);
         assert!(
-            envelope.reason.unwrap().contains("Client ID"),
+            problema.detalhe.contains("Client ID"),
             "o motivo precisa dizer o que fazer, não só que falhou"
         );
     }
@@ -276,11 +334,15 @@ mod tests {
         ))));
 
         let envelope = proximo(&mut rx, |e| {
-            e.status == Status::Degraded && e.reason.as_deref() != Some("aguardando o perfil")
+            e.data.as_ref().is_some_and(|d| !d["problema"].is_null())
         })
         .await;
 
-        assert!(envelope.reason.unwrap().contains("reconectar"));
+        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        let problema = estado.problema.expect("problema publicado");
+        // Token vencido é login, não erro passageiro — a tela oferece reconectar.
+        assert_eq!(problema.tipo, TipoProblema::PrecisaLogin);
+        assert!(problema.detalhe.contains("reconectar"));
     }
 
     #[tokio::test(start_paused = true)]
