@@ -452,43 +452,15 @@ body {
 /* Música                                                              */
 /* ------------------------------------------------------------------ */
 
-/*
- * Deitado, não empilhado: capa à esquerda, nome/artista no meio, controles à
- * direita. Empilhado, isto exigia mais altura do que a linha do grid tem num
- * celular deitado — e o que sobrava eram os controles cortados, justamente o que
- * o motorista precisa alcançar. Na horizontal usa a largura, que é o que sobra.
- */
+/* Estados sem música (conectar / vazio): uma caixa centrada simples. */
 .musica {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    "capa track controles"
-    "capa artist controles";
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0 0.7rem;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 100%;
   min-width: 0;
-}
-
-.musica__track {
-  grid-area: track;
-  align-self: end;
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.musica__artist {
-  grid-area: artist;
-  align-self: start;
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .musica__vazio {
@@ -502,37 +474,136 @@ body {
   gap: 0.35rem;
 }
 
-/* Dentro do card compacto os controles moram na coluna da direita do grid. */
-.musica .controles {
-  grid-area: controles;
+/*
+ * "Tocando agora": a capa preenche o quadro e derrete (fade) num painel escuro
+ * embaixo, onde ficam nome, artista, progresso e controles — sobrepostos na
+ * imagem, como uma placa de vinil.
+ */
+.player {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
-/*
- * Quando o quadro tem altura sobrando (o caso normal: o card do Spotify ocupa
- * duas linhas do grid), os controles descem para uma faixa própria e o nome da
- * música ganha a largura inteira — deitado, o texto era truncado em
- * "Weightle…" sem necessidade. Em quadro baixo, o padrão deitado acima vale.
- */
-@container (min-height: 7.5rem) {
-  .musica {
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas:
-      "capa track"
-      "capa artist"
-      "controles controles";
-    align-content: center;
-    gap: 0.15rem 0.7rem;
-  }
+.player__capa {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
-  .musica__capa {
-    width: 4.2rem;
-    height: 4.2rem;
-  }
+.player__capa--vazia {
+  background: linear-gradient(135deg, var(--tile-alto), var(--tile));
+}
 
-  .musica .controles {
-    justify-content: center;
-    margin-top: 0.7rem;
-  }
+/* Esconde a base da capa e dá contraste ao texto sobreposto. */
+.player__fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 25%,
+    rgba(6, 8, 11, 0.5) 58%,
+    var(--tile) 100%
+  );
+}
+
+.player__info {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem;
+}
+
+.player__texto {
+  min-width: 0;
+}
+
+.player__track {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player__artist {
+  margin: 0;
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sobre a capa, os controles ficam centralizados. */
+.player .controles {
+  justify-content: center;
+}
+
+/* Progresso: tempos nas pontas e um trilho arrastável (seek) no meio. */
+.progresso {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progresso__tempo {
+  flex: none;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* Trilho "gordo" para o dedo pegar; a linha fina fica no meio. */
+.progresso__trilho {
+  position: relative;
+  flex: 1;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.progresso__trilho::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.progresso__feito {
+  position: absolute;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.progresso__knob {
+  position: absolute;
+  top: 50%;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .controles__botao {
@@ -567,11 +638,19 @@ body {
 
 /* --- Spotify em tela cheia: busca, playlists, e entrar em playlist/álbum --- */
 
+/*
+ * Preenche o corpo do overlay como filho flex — não por `height: 100%`. A
+ * percentagem sobre um item flex não firmava a altura na WebView do Android, e
+ * sem altura firme aqui a `.sp-lista` não tinha contra o que rolar: a lista
+ * transbordava o painel e o scroll morria. Como filho flex (`flex: 1`), a altura
+ * é concreta e a rolagem volta.
+ */
 .sp {
+  flex: 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
-  height: 100%;
   min-height: 0;
 }
 
@@ -659,6 +738,8 @@ body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Rolagem por gesto com inércia na WebView do Android. */
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -1152,16 +1233,6 @@ body {
   border-color: var(--line);
   color: var(--muted);
   cursor: default;
-}
-
-/* Quadrada e pequena: 12rem aqui era da tela cheia antiga e sozinha estourava a
-   altura do tile compacto, empurrando os controles para fora. */
-.musica__capa {
-  grid-area: capa;
-  width: 3.2rem;
-  height: 3.2rem;
-  border-radius: 0.5rem;
-  object-fit: cover;
 }
 
 /* O mapa vivo preenche o tile inteiro; o container só recorta os cantos. */

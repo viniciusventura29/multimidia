@@ -135,12 +135,25 @@ impl Module for MusicModule {
                             Some("toggle") => atual.toggle().await.map(|_| proximo = agenda(PROPAGACAO)),
                             Some("next") => atual.next().await.map(|_| proximo = agenda(PROPAGACAO)),
                             Some("prev") => atual.previous().await.map(|_| proximo = agenda(PROPAGACAO)),
-                            Some("tocar") => match texto("uri") {
-                                Some(uri) => atual.tocar(uri).await.map(|_| proximo = agenda(PROPAGACAO)),
-                                None => continue,
-                            },
-                            Some("tocar_playlist") => match texto("uri") {
-                                Some(uri) => atual.tocar_playlist(uri).await.map(|_| proximo = agenda(PROPAGACAO)),
+                            Some("tocar") => {
+                                // `uri` é a faixa; `contexto` é a playlist/álbum de
+                                // onde ela veio. Tocar dentro do contexto monta a
+                                // fila — é o que faz "próxima/anterior" andarem.
+                                let faixa = texto("uri");
+                                let contexto = texto("contexto");
+                                if faixa.is_none() && contexto.is_none() {
+                                    continue;
+                                }
+                                atual
+                                    .tocar(faixa, contexto)
+                                    .await
+                                    .map(|_| proximo = agenda(PROPAGACAO))
+                            }
+                            Some("seek") => match payload.get("posicaoMs").and_then(|v| v.as_u64()) {
+                                Some(ms) => atual
+                                    .seek(ms as u32)
+                                    .await
+                                    .map(|_| proximo = agenda(PROPAGACAO)),
                                 None => continue,
                             },
                             Some("buscar") => match atual.buscar(texto("termo").unwrap_or("")).await {
