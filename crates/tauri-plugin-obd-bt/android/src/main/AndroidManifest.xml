@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 12+ (API 31+): permissões de runtime, pedidas pelo diálogo.
+         CONNECT para abrir o socket com o adaptador pareado; SCAN porque até o
+         cancelDiscovery() defensivo antes de conectar exige ela (visto no carro:
+         SecurityException "Need BLUETOOTH_SCAN ... cancelDiscovery()"). O
+         neverForLocation dispensa a permissão de localização. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <!-- Android 11 e abaixo: instaladas junto, sem diálogo. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+</manifest>

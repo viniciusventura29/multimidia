@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "O plugin não expõe comandos ao JS; é chamado só pelo Rust (módulo OBD)."
+permissions = []
