@@ -13,12 +13,22 @@
 //! por PID. Não dá 10 Hz — dá cerca de 1 a 3 leituras por segundo no total. Todo
 //! o desenho daqui parte disso.
 
+pub mod capacidades;
+pub mod consumo;
 pub mod elm327;
+pub mod painel;
 pub mod pid;
 pub mod poller;
+pub mod sim;
 pub mod source;
+pub mod veiculo;
 
+pub use capacidades::Capacidades;
 pub use elm327::{Elm327Source, Elm327Transport};
+pub use painel::{Acao, Painel, Telemetria};
+pub use consumo::{Consumo, Medidor, MetodoFluxo, Tanque, Viagem};
 pub use pid::{Pid, Readings};
-pub use poller::{Poller, SCHEDULE};
+pub use poller::{Plano, Poller};
+pub use sim::SimulatedSource;
 pub use source::{ObdError, ObdSource};
+pub use veiculo::{Arquivo, EstadoTanque, Trecho, Veiculo};
