@@ -12,6 +12,19 @@ export const AMARELO = "#f5c542";
 export const LARANJA = "#f5a524";
 export const VERMELHO = "#e5484d";
 
+/** Fundo de escala dos mostradores do motor. É escala de display, não limiar. */
+export const RPM_MAX = 6500;
+export const TEMP_MAX = 120;
+
+/**
+ * Acima disto o carro está andando.
+ *
+ * Serve para duas coisas: km/l só existe em movimento (abaixo disso o Rust manda
+ * `null` e a tela mostra L/h), e ajustar um stepper com o carro rodando merece mais
+ * tempo de dedo.
+ */
+export const ANDANDO_KMH = 5;
+
 /** Faixa plausível de tensão de um carro: 11,8 V (fraca) → 14,4 V (carregando). */
 export const V_VAZIO = 11.8;
 export const V_CHEIO = 14.4;

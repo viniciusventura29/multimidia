@@ -13,6 +13,7 @@
 
 use async_trait::async_trait;
 
+use crate::capacidades::Capacidades;
 use crate::pid::Pid;
 use crate::source::{ObdError, ObdSource};
 
@@ -46,6 +47,9 @@ const TENTATIVAS_BUSCA: usize = 3;
 /// Uma fonte OBD falando com um ELM327 de verdade por um transporte qualquer.
 pub struct Elm327Source<T> {
     transport: T,
+    capacidades: Capacidades,
+    /// O protocolo que o adaptador negociou, como ele mesmo descreve (`ATDP`).
+    protocolo: Option<String>,
 }
 
 impl<T: Elm327Transport> Elm327Source<T> {
@@ -77,7 +81,47 @@ impl<T: Elm327Transport> Elm327Source<T> {
             match transport.command("0100", TIMEOUT_BUSCA_MS).await {
                 // Negociou: o carro respondeu o quadro do `0100` (`41 00 ...`).
                 Ok(bruto) if hex_limpo(&bruto).contains("4100") => {
-                    return Ok(Self { transport })
+                    let mut capacidades = Capacidades::otimista();
+                    // A máscara vinha sendo jogada fora: são estes quatro bytes que
+                    // dizem quais PIDs vale a pena pedir num barramento lento.
+                    if let Some(bytes) = bytes_apos(&hex_limpo(&bruto), "4100", 4) {
+                        capacidades.juntar(0x00, &bytes);
+                    }
+                    // O nível de combustível (`2F`) mora no segundo bloco e a vazão
+                    // (`5E`) no terceiro, então sem estes pedidos não há como saber
+                    // se o tanque é legível nem se o carro já calcula o consumo. O
+                    // PID `20` de um bloco é quem anuncia que o próximo existe.
+                    for (base, pedido, prefixo) in
+                        [(0x20, "0120", "4120"), (0x40, "0140", "4140")]
+                    {
+                        if !capacidades.suporta(base) {
+                            break;
+                        }
+                        match transport.command(pedido, TIMEOUT_COMANDO_MS).await {
+                            Ok(bruto) => match bytes_apos(&hex_limpo(&bruto), prefixo, 4) {
+                                Some(bytes) => capacidades.juntar(base, &bytes),
+                                // Sem quadro: este bloco fica sem resposta, e um
+                                // bloco sem resposta continua valendo como "talvez".
+                                None => break,
+                            },
+                            Err(_) => break,
+                        }
+                    }
+
+                    // Qual protocolo o adaptador achou. Só para o diagnóstico saber
+                    // dizer "ISO 9141-2" em vez de "sei lá": não muda o fluxo.
+                    let protocolo = transport
+                        .command("ATDP", TIMEOUT_COMANDO_MS)
+                        .await
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty());
+
+                    return Ok(Self {
+                        transport,
+                        capacidades,
+                        protocolo,
+                    });
                 }
                 // `SEARCHING`/`STOPPED`/`NO DATA`/timeout: a busca não terminou
                 // (ou foi interrompida) — vale insistir.
@@ -90,6 +134,16 @@ impl<T: Elm327Transport> Elm327Source<T> {
             }
         }
         Err(ObdError::Timeout)
+    }
+
+    /// O que este carro anunciou responder.
+    pub fn capacidades(&self) -> Capacidades {
+        self.capacidades
+    }
+
+    /// O protocolo negociado, como o adaptador o descreve.
+    pub fn protocolo(&self) -> Option<&str> {
+        self.protocolo.as_deref()
     }
 }
 
@@ -104,6 +158,11 @@ fn comando_de(pid: Pid) -> &'static str {
         Pid::Coolant => "0105",
         Pid::Fuel => "012F",
         Pid::Voltage => "ATRV",
+        Pid::Maf => "0110",
+        Pid::Carga => "0104",
+        Pid::Map => "010B",
+        Pid::Iat => "010F",
+        Pid::VazaoComb => "015E",
     }
 }
 
@@ -116,6 +175,24 @@ fn prefixo_resposta(pid: Pid) -> &'static str {
         Pid::Coolant => "4105",
         Pid::Fuel => "412F",
         Pid::Voltage => "", // voltagem não é modo 01; ver `interpretar`
+        Pid::Maf => "4110",
+        Pid::Carga => "4104",
+        Pid::Map => "410B",
+        Pid::Iat => "410F",
+        Pid::VazaoComb => "415E",
+    }
+}
+
+/// Quantos bytes de dados o PID traz.
+///
+/// Precisa ser exato: quando mais de uma ECU responde o mesmo PID, os quadros vêm
+/// concatenados (`410C1AF8410C1AF8`) e ler "todo o hex depois do prefixo" engoliria
+/// o quadro da segunda ECU como bytes extras do primeiro.
+fn bytes_do_pid(pid: Pid) -> usize {
+    match pid {
+        Pid::Speed | Pid::Coolant | Pid::Fuel | Pid::Carga | Pid::Map | Pid::Iat => 1,
+        Pid::Rpm | Pid::Maf | Pid::VazaoComb => 2,
+        Pid::Voltage => 0,
     }
 }
 
@@ -142,20 +219,26 @@ fn interpretar(pid: Pid, bruto: &str) -> Result<f32, ObdError> {
     }
 
     let hex = hex_limpo(bruto);
-    let Some(bytes) = bytes_apos(&hex, prefixo_resposta(pid)) else {
+    let Some(dados) = apos_prefixo(&hex, prefixo_resposta(pid)) else {
         // Sem quadro de dados: agora sim, que erro é este?
         return Err(classificar_erro(bruto));
     };
 
-    let a = *bytes.first().ok_or(ObdError::Unsupported)? as f32;
+    // Achou o quadro mas ele veio curto: é um PID ruim, não um barramento ruim —
+    // `Unsupported` o Poller engole, `Bus` faria o supervisor reconectar à toa.
+    let bytes = bytes_de(dados, bytes_do_pid(pid)).ok_or(ObdError::Unsupported)?;
+    let a = bytes[0] as f32;
+    let b = || bytes.get(1).copied().unwrap_or(0) as f32;
     Ok(match pid {
-        Pid::Rpm => {
-            let b = *bytes.get(1).ok_or(ObdError::Unsupported)? as f32;
-            (a * 256.0 + b) / 4.0
-        }
+        Pid::Rpm => (a * 256.0 + b()) / 4.0,
         Pid::Speed => a,
         Pid::Coolant => a - 40.0,
         Pid::Fuel => a * 100.0 / 255.0,
+        Pid::Carga => a * 100.0 / 255.0,
+        Pid::Map => a,
+        Pid::Iat => a - 40.0,
+        Pid::Maf => (a * 256.0 + b()) / 100.0,
+        Pid::VazaoComb => (a * 256.0 + b()) / 20.0,
         Pid::Voltage => unreachable!("voltagem tratada acima"),
     })
 }
@@ -187,20 +270,30 @@ fn hex_limpo(bruto: &str) -> String {
         .to_uppercase()
 }
 
-/// Os bytes que vêm logo depois do `prefixo` dentro do hex.
-///
-/// Acha a primeira ocorrência do prefixo (o começo do quadro de resposta) e lê os
-/// pares hex seguintes. Devolve `None` se o prefixo não aparece ou se sobra hex
-/// solto sem formar um byte inteiro.
-fn bytes_apos(hex: &str, prefixo: &str) -> Option<Vec<u8>> {
+/// O que vem depois da primeira ocorrência do `prefixo` — o começo do quadro de
+/// resposta. `None` quando o quadro não está ali.
+fn apos_prefixo<'h>(hex: &'h str, prefixo: &str) -> Option<&'h str> {
     let inicio = hex.find(prefixo)? + prefixo.len();
-    let dados = &hex[inicio..];
-    if dados.is_empty() || !dados.len().is_multiple_of(2) {
+    hex.get(inicio..)
+}
+
+/// Exatamente `quantos` bytes do começo do hex.
+///
+/// A contagem é exata de propósito: quando mais de uma ECU responde o mesmo PID os
+/// quadros vêm concatenados (`410C1AF8410C1AF8`), e ler "todo o hex" trataria o
+/// quadro da segunda ECU como bytes extras do primeiro.
+fn bytes_de(hex: &str, quantos: usize) -> Option<Vec<u8>> {
+    if hex.len() < quantos * 2 {
         return None;
     }
-    (0..dados.len() / 2)
-        .map(|i| u8::from_str_radix(&dados[i * 2..i * 2 + 2], 16).ok())
+    (0..quantos)
+        .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok())
         .collect()
+}
+
+/// Os `quantos` bytes que vêm logo depois do `prefixo` dentro do hex.
+fn bytes_apos(hex: &str, prefixo: &str, quantos: usize) -> Option<Vec<u8>> {
+    bytes_de(apos_prefixo(hex, prefixo)?, quantos)
 }
 
 /// Que erro do ELM327 é este texto.
@@ -244,6 +337,38 @@ mod tests {
         // 0x80 = 128 → 128*100/255 ≈ 50.196
         let fuel = interpretar(Pid::Fuel, "412F80").unwrap();
         assert!((fuel - 50.196).abs() < 0.01, "combustível {fuel}");
+    }
+
+    #[test]
+    fn os_pids_de_consumo() {
+        // 41 10 01 A0 → (0x01*256 + 0xA0)/100 = 4,16 g/s, uma marcha lenta plausível.
+        assert_eq!(interpretar(Pid::Maf, "411001A0").unwrap(), 4.16);
+        // Carga: 0x33 = 51 → 51*100/255 = 20%, também cara de marcha lenta.
+        assert_eq!(interpretar(Pid::Carga, "410433").unwrap(), 20.0);
+        assert_eq!(interpretar(Pid::Map, "410B1E").unwrap(), 30.0);
+        assert_eq!(interpretar(Pid::Iat, "410F41").unwrap(), 25.0); // 0x41-40
+        // Vazão de combustível: (0x00*256 + 0x28)/20 = 2,0 L/h.
+        assert_eq!(interpretar(Pid::VazaoComb, "415E0028").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn segunda_ecu_respondendo_o_mesmo_pid_nao_polui_a_leitura() {
+        // Dois quadros colados é o que se vê quando motor e câmbio respondem juntos.
+        // Ler "todo o hex depois do prefixo" daria 4 bytes e a conta erraria.
+        assert_eq!(
+            interpretar(Pid::Rpm, "410C1AF8410C1AF8").unwrap(),
+            1726.0
+        );
+    }
+
+    #[test]
+    fn quadro_truncado_e_unsupported_nao_falha_de_barramento() {
+        // Meio quadro não pode derrubar a varredura inteira: é um PID ruim, não um
+        // barramento ruim. Unsupported o Poller engole; Bus faria reconectar.
+        assert!(matches!(
+            interpretar(Pid::Rpm, "410C1A"),
+            Err(ObdError::Unsupported)
+        ));
     }
 
     #[test]
@@ -358,6 +483,45 @@ mod tests {
             .unwrap()
             .1;
         assert!(timeout_do_0100 >= 30_000, "timeout {timeout_do_0100}");
+    }
+
+    #[tokio::test]
+    async fn o_handshake_guarda_a_mascara_dos_dois_blocos() {
+        let fake = FakeElm::new([
+            // 0xBE 0x3E 0xB8 0x11: tem carga (04), temperatura (05), MAP (0B), RPM
+            // (0C), velocidade (0D), IAT (0F) — e não tem MAF (10).
+            ("0100", &["4100BE3EB811"] as &[&str]),
+            // Segundo bloco só com o bit do 2F: o nível de combustível existe.
+            ("0120", &["412000020000"]),
+            ("ATDP", &["ISO 9141-2"]),
+        ]);
+
+        let fonte = Elm327Source::conectar(fake).await.expect("handshake");
+        let c = fonte.capacidades();
+
+        assert!(c.descoberto());
+        assert!(c.suporta(Pid::Carga.codigo().unwrap()));
+        assert!(c.suporta(Pid::Rpm.codigo().unwrap()));
+        assert!(
+            !c.suporta(Pid::Maf.codigo().unwrap()),
+            "sem MAF, o consumo vai ter que ser estimado"
+        );
+        assert!(
+            c.suporta(Pid::Fuel.codigo().unwrap()),
+            "o 2F mora no segundo bloco — sem pedir 0120 ele passaria batido"
+        );
+        assert_eq!(fonte.protocolo(), Some("ISO 9141-2"));
+    }
+
+    #[tokio::test]
+    async fn sem_mascara_utilizavel_o_carro_e_perguntado_de_tudo() {
+        // Adaptador que responde o 0100 mas não entrega máscara legível. Não pode
+        // virar painel apagado: pergunta-se tudo e o NO DATA vai desmentindo.
+        let fake = FakeElm::new([("0100", &["4100"] as &[&str])]);
+        let fonte = Elm327Source::conectar(fake).await.expect("handshake");
+
+        assert!(!fonte.capacidades().descoberto());
+        assert!(fonte.capacidades().suporta(Pid::Maf.codigo().unwrap()));
     }
 
     #[tokio::test]

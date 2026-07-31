@@ -23,6 +23,7 @@ export function Header({ states, profile, aoTrocar }: Props) {
   const obd = states["obd"]?.data as ObdReadings | null | undefined;
   const voltage = obd?.voltage ?? null;
   const fuel = obd?.fuelPct ?? null;
+  const autonomia = obd?.tanque?.autonomiaKm ?? null;
 
   const hora = useHora();
 
@@ -36,9 +37,18 @@ export function Header({ states, profile, aoTrocar }: Props) {
           {voltage === null ? "--" : `${voltage.toFixed(1)}V`}
         </span>
 
+        {/* O desenho diz "quanto tem" e os dígitos dizem "até onde dá": o ícone
+            enche com a porcentagem medida, e o número é a autonomia — que é a
+            pergunta de verdade ("chego em casa?"). A cor continua vindo da
+            porcentagem, e não da estimativa: o vermelho de reserva não pode
+            depender de um número que o próprio dono calibra. */}
         <span className="topbar__item" style={tom(corFuel(fuel))}>
           <GasolinaIcon pct={fuel} className="topbar__icone" />
-          {fuel === null ? "--" : `${fuel.toFixed(0)}%`}
+          {autonomia !== null
+            ? `~${autonomia.toFixed(0)}km`
+            : fuel !== null
+              ? `${fuel.toFixed(0)}%`
+              : "--"}
         </span>
       </div>
 

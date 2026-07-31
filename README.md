@@ -39,13 +39,33 @@ Map ID que separa "um mapa na tela" de "modo navegação".
 `ECLIPSE_MUSIC_DEMO=1` troca o Spotify por faixas de mentira, para trabalhar no
 layout sem Client ID.
 
+## O carro
+
+Tamanho do tanque, cilindrada e o fator de calibração do consumo moram em
+`veiculo.json`, e o estado vivo do tanque em `tanque.json`, os dois no diretório de
+dados do app. **Não** são preferência de perfil: trocar de motorista não muda o
+tanque do carro. Os padrões são os do Eclipse GT 2000 (61 L, 3.0 V6), e tudo se
+ajusta com o dedo no rodapé da tela do carro — não há tela de Ajustes, e não há
+teclado do sistema em lugar nenhum.
+
+Consumo não é um dado do barramento: sai do fluxo de ar do motor, por uma cascata de
+fontes que depende do que o carro responde (vazão `015E` → MAF `0110` →
+coletor `010B`+`010F` → carga `0104`). Todo número derivado dessa conta chega na tela
+com `~` na frente. **A primeira ignição com o adaptador é o que decide qual fonte
+vale**: o log traz as capacidades do carro (`adb logcat -s EclipseObdBt`), e o fator de
+calibração se afere comparando um tanque inteiro com a bomba.
+
+No desktop o carro é simulado, com a mesma lentidão do barramento. `ECLIPSE_SIM_SEM=maf,nivel`
+faz o carro de mentira esconder PIDs — é assim que se vê no Mac como o painel se
+comporta quando o Eclipse não entrega o sensor de massa de ar ou o nível do tanque.
+
 ## Como está organizado
 
 ```
 crates/
   eclipse-core       contrato de módulo, barramento, supervisor, perfis
   eclipse-sim        o carro imaginário, lido pelo OBD e pelo GPS
-  eclipse-obd        cadência de varredura dos PIDs
+  eclipse-obd        varredura dos PIDs, consumo, tanque e autonomia
   eclipse-gps        posição, rumo e o traçado percorrido
   eclipse-music      cofre de tokens e a ponte com o Spotify
   eclipse-messaging  caixa de entrada e a fonte de mensagens
@@ -56,7 +76,7 @@ src                  React: grid, widgets, perfis
 O Rust é dono de todo o estado; a tela é uma projeção. Nenhuma regra de negócio
 no React.
 
-**Módulo e tile são coisas diferentes.** Os cinco mostradores leem todos do módulo
+**Módulo e tile são coisas diferentes.** Todos os mostradores do carro leem do módulo
 `obd`, porque é um ELM327 e um barramento — por isso caem juntos quando o
 adaptador solta, sem contaminar música e navegação.
 
@@ -84,7 +104,13 @@ Não são pendências — são o que a plataforma permite:
   do login original, e renovar o access token não estende. Reconectar é estado
   previsto do painel, com um toque.
 - **O carro entrega 1 a 3 leituras por segundo.** O Eclipse 2000 é ISO 9141-2 a
-  10.400 baud, não CAN. O simulador respeita essa lentidão de propósito.
+  10.400 baud, não CAN. O simulador respeita essa lentidão de propósito, e é por isso
+  que ler a fonte de ar do consumo custa velocidade e RPM: cada PID a mais no ciclo
+  atrasa todos os outros (~1,2 s nos rápidos em vez de ~0,9 s).
+- **Consumo é conta, não leitura.** Nenhum carro de 2000 informa km/l. Sai de massa de
+  ar ÷ proporção ar/combustível, e erra por baixo em aceleração forte (a injeção
+  enriquece a mistura e nenhum PID garantido conta isso). O fator de calibração é
+  quem paga essa conta.
 - **A câmera de ré não passa pelo app.** O chaveamento é feito em hardware pelo
   MCU da head unit, antes do Android.
 
@@ -94,6 +120,7 @@ Não são pendências — são o que a plataforma permite:
   mock. Depende da head unit comprada.
 - GPS real via `LocationManager` — hoje a posição vem de um traçado simulado
   pela Av. Paulista.
-- OBD real via ELM327 (comprar a variante **Bluetooth Clássico/SPP**, não BLE).
+- Aferir a telemetria no carro: qual fonte de consumo o Eclipse permite, e o fator de
+  calibração de um tanque inteiro contra a bomba.
 - Câmera lateral via USB/UVC.
 - APK, launcher, viagens, rádio.

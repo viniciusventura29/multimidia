@@ -396,6 +396,7 @@ pub fn run() {
             // O módulo OBD precisa do handle para alcançar o plugin de Bluetooth,
             // e o supervisor o reconstrói a cada reconexão — daí um clone à parte.
             let handle_obd = app.handle().clone();
+            let dir_obd = dir.clone();
 
             // O cofre de tokens continua existindo nas duas plataformas — o
             // comando `connect_spotify` e a Web API seguem úteis mesmo no
@@ -433,7 +434,10 @@ pub fn run() {
                 forward_states(handle, &supervisor);
 
                 supervisor.spawn(factory(modules::obd::OBD, move || {
-                    modules::obd::ObdModule::new(handle_obd.clone())
+                    // O diretório vai junto porque o tanque e a configuração do carro
+                    // moram em disco: o supervisor reconstrói este módulo a cada
+                    // reconexão do adaptador, e cada tentativa relê o que já se sabia.
+                    modules::obd::ObdModule::new(handle_obd.clone(), dir_obd.clone())
                 }));
                 supervisor.spawn(factory(modules::music::MUSIC, move || {
                     modules::music::MusicModule::new(Arc::clone(&conector))
