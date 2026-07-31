@@ -740,6 +740,10 @@ body {
   overflow-y: auto;
   /* Rolagem por gesto com inércia na WebView do Android. */
   -webkit-overflow-scrolling: touch;
+  /* Declara o gesto vertical pra WebView e segura o fling aqui dentro, em vez de
+     deixá-lo vazar pro `body` (que tem `overscroll-behavior: none`). */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -884,6 +888,14 @@ body {
   position: fixed;
   inset: 0;
   display: grid;
+  /*
+   * `minmax(0, 1fr)`, não a linha implícita `auto`. Linha `auto` é medida pelo
+   * conteúdo: com uma playlist longa a linha ficava mais alta que a tela, o
+   * painel transbordava a viewport e a lista lá dentro recebia altura infinita
+   * — nunca sobrava overflow pra rolar. O `minmax(0, …)` deixa a linha encolher
+   * abaixo do conteúdo, que é o que devolve o scroll pra quem tem overflow.
+   */
+  grid-template-rows: minmax(0, 1fr);
   place-items: stretch;
   /* Mesma safe-area do painel: sem isto o rodapé da tela cheia (a barra do
      "tocando agora", com os controles) ficava atrás da barra do Android. */
@@ -896,6 +908,12 @@ body {
 .overlay__painel {
   display: flex;
   flex-direction: column;
+  /* Item de grid nasce com `min-height: auto`, ou seja, se recusa a ficar menor
+     que o conteúdo. Sem este zero o painel volta a crescer pra fora da linha e
+     leva junto o scroll das listas filhas. */
+  min-height: 0;
+  /* Recorta no `border-radius` e impede que qualquer filho estique o painel. */
+  overflow: hidden;
   padding: 1.1rem 1.3rem;
   border: 1px solid var(--line);
   border-radius: 0.9rem;
@@ -1315,11 +1333,17 @@ body {
   text-align: center;
 }
 
+/* Mesma receita da `.sp-lista`: sem `flex: 1` + `min-height: 0` o thread crescia
+   com as conversas e o `overflow-y` não tinha contra o que rolar. */
 .msg__thread {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .msg__conversa {
