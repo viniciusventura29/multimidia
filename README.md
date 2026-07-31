@@ -24,6 +24,8 @@ diretório de dados do app (para a head unit, onde não há shell antes do launc
 | Client ID do Spotify | `ECLIPSE_SPOTIFY_CLIENT_ID` | `spotify_client_id.txt` |
 | Chave da Maps JavaScript API | `ECLIPSE_MAPS_API_KEY` | `maps_api_key.txt` |
 | Map ID vetorial | `ECLIPSE_MAPS_MAP_ID` | `maps_map_id.txt` |
+| Chave da API da Anthropic | `ECLIPSE_ANTHROPIC_API_KEY` | `anthropic_api_key.txt` |
+| Chave do OpenRouter (só imagem) | `ECLIPSE_OPENROUTER_API_KEY` | `openrouter_api_key.txt` |
 
 No macOS o diretório é `~/Library/Application Support/com.eclipseos.app`.
 
@@ -49,6 +51,8 @@ crates/
   eclipse-gps        posição, rumo e o traçado percorrido
   eclipse-music      cofre de tokens e a ponte com o Spotify
   eclipse-messaging  caixa de entrada e a fonte de mensagens
+  eclipse-mcp        o catálogo de ferramentas, no formato do MCP
+  eclipse-ia         o laço do agente e o quadro que ele pinta
 src-tauri            fiação: eventos, comandos, registro dos módulos
 src                  React: grid, widgets, perfis
 ```
@@ -70,6 +74,52 @@ ritmos diferentes (OBD a 300 ms, GPS a 1 s) ficam coerentes de graça.
 valor bom: o tile fica esmaecido mostrando o número velho em vez de sumir. Cada
 módulo roda na própria task; erro *ou pânico* viram degradação com backoff, e os
 vizinhos não percebem.
+
+## O assistente
+
+A coluna da esquerda é uma IA **proativa**: ninguém digita nem fala com ela, e é
+de propósito — quem está na frente dela está dirigindo. Ela é acionada por
+acontecimentos e escreve sozinha.
+
+| Gatilho | Quando | Modelo |
+|---|---|---|
+| ignição | o painel subiu | Haiku 4.5 |
+| rota definida | um destino novo foi traçado | Opus 4.8 |
+| alerta do carro | temperatura, combustível ou tensão cruzaram o limiar | Opus 4.8 |
+| periódico | viagem longa em curso, a cada 20 min | Haiku 4.5 |
+| chegada | chegamos | Opus 4.8 |
+
+**Tudo que ela sabe fazer é uma ferramenta MCP.** Carro, mapa, música,
+mensagens, relógio, foto de lugar, geração de imagem e a própria escrita no
+quadro entram todas pelo mesmo catálogo (`eclipse-mcp`), com o mesmo formato do
+`tools/list` e `tools/call`. Um `Registro` respondendo por `protocolo::atender`
+já **é** um servidor MCP; falta só um transporte para um cliente externo se
+conectar.
+
+**Os dados do carro não passam pelo conector de MCP da Anthropic**, e isso não é
+escolha: aquele conector alcança servidores remotos por HTTP, porque quem conecta
+é a Anthropic. Uma head unit atrás do 4G do celular não tem endereço público.
+Então o carro é ferramenta local, executada aqui, e o conector fica para os
+servidores remotos que você quiser plugar em `mcp_servers.json`.
+
+**A única saída é `pintar_quadro`.** Texto solto na resposta do modelo é
+ignorado; a tela desenha cartões tipados (texto, métrica, gráfico, imagem,
+lista). É o que evita duas maneiras de dizer a mesma coisa.
+
+**Sem novidade, a coluna vira o carro.** As rodas giram na velocidade que o OBD
+está relatando, a carroceria mergulha quando o carro freia de verdade e a luz de
+freio acende junto. Parado, ele fica em marcha lenta soltando fumaça. Essa parte
+funciona sem credencial nenhuma.
+
+Ajustes ficam em `assistente.json` no diretório de dados — teto de chamadas por
+dia (padrão 40), teto de imagens (4), o modelo de imagem do OpenRouter, e a lista
+de servidores MCP remotos. O gasto é contado em `assistente_uso.json`, que
+sobrevive ao desligamento: numa head unit o app morre junto com o carro, e teto
+diário que vivesse só na memória não seria teto nenhum.
+
+`ECLIPSE_IA_DEMO=1` pinta cartões de mentira sem tocar na API, e
+`ECLIPSE_IA_GATILHO=rota` (ou `ignicao`, `periodico`, `chegada`, `alerta`) força
+um gatilho na subida — dá para trabalhar no layout sem sair dirigindo.
 
 ## Limites que o desenho respeita
 

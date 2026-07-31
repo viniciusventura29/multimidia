@@ -11,6 +11,7 @@ function viewDe(states: ModuleStates, spec: AnyTileSpec): TileView<unknown> {
     data: envelope?.data ?? null,
     status: envelope?.status ?? (spec.estatico ? "ready" : "loading"),
     reason: envelope?.reason ?? null,
+    painel: states,
   };
 }
 

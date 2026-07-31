@@ -1,9 +1,10 @@
 //! Os módulos do painel.
 //!
-//! Aqui eles ainda são de mentira — a Fase 2 é sobre a tela. Cada um vira uma
-//! crate própria na fase em que ganha lógica de verdade (`eclipse-obd` na 4,
-//! `eclipse-music` na 5), e o `src-tauri` volta a ser só fiação.
+//! Cada um roda na própria task, publica o próprio estado e não sabe dos
+//! vizinhos — com uma exceção declarada: o `assistente` lê o painel inteiro,
+//! porque a graça dele é justamente cruzar carro, mapa e música numa frase só.
 
+pub mod assistente;
 pub mod messaging;
 pub mod music;
 pub mod nav;

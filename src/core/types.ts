@@ -130,6 +130,19 @@ export interface TileView<T> {
   data: T | null;
   status: Status;
   reason: string | null;
+  /**
+   * O painel inteiro.
+   *
+   * Quase todo tile ignora isto, e é de propósito: cada um lê só do próprio
+   * módulo, e é essa separação que faz o OBD cair sem levar música e navegação
+   * junto. A exceção declarada é o assistente — a animação dele reage à
+   * telemetria de verdade (acelera com o RPM, freia junto com o carro), e isso
+   * exige ler o módulo do vizinho.
+   *
+   * Um tile que passar a usar isto por conveniência estará desfazendo o
+   * isolamento que o resto do desenho protege.
+   */
+  painel: ModuleStates;
 }
 
 /**

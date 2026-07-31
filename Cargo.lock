@@ -944,6 +944,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "eclipse-ia"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "eclipse-mcp",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "eclipse-mcp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "eclipse-messaging"
 version = "0.1.0"
 dependencies = [
@@ -987,9 +1012,12 @@ dependencies = [
  "chrono",
  "eclipse-core",
  "eclipse-gps",
+ "eclipse-ia",
+ "eclipse-mcp",
  "eclipse-messaging",
  "eclipse-music",
  "eclipse-obd",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
