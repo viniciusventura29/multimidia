@@ -712,38 +712,66 @@ body {
   opacity: 0.08;
 }
 
+/* Forma cheia, e não contorno fino: linha fina lê como desenho técnico, corpo
+   preenchido lê como ilustração. O traço grosso e arredondado por cima é o que
+   dá o acabamento de adesivo. */
 .carrinho__lata {
-  fill: var(--tile-alto);
+  fill: color-mix(in srgb, var(--accent) 24%, var(--tile-alto));
   stroke: var(--accent);
-  stroke-width: 1.6;
+  stroke-width: 3;
   stroke-linejoin: round;
 }
 
 .carrinho__vidro {
-  fill: var(--bg);
+  fill: color-mix(in srgb, var(--accent) 12%, var(--bg));
   stroke: var(--accent);
-  stroke-width: 1;
-  opacity: 0.75;
+  stroke-width: 2;
+  stroke-linejoin: round;
 }
 
-.carrinho__vinco,
-.carrinho__porta,
+.carrinho__pilar {
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+.carrinho__brilho {
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.3;
+}
+
 .carrinho__retrovisor,
 .carrinho__raio {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1;
+  stroke-width: 2;
   stroke-linecap: round;
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
+/* O olho do bicho. O `ia-piscar` é o que mais rende carisma por linha de CSS:
+   de tempos em tempos ele fecha por um instante, e o carro parece vivo. */
 .carrinho__farol {
   fill: var(--warn);
-  opacity: 0.85;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ia-piscar 6.5s ease-in-out infinite;
 }
 
+.carrinho__farol-luz {
+  fill: #fff;
+  opacity: 0.75;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ia-piscar 6.5s ease-in-out infinite;
+}
+
+/* Lanterna apagada continua sendo vermelha, só escura — é o que a faz parecer
+   lanterna em vez de um furo na lataria. */
 .carrinho__lanterna {
-  fill: var(--line);
+  fill: #5c2327;
 }
 
 /* A luz de freio: a opacidade vem da desaceleração medida. */
@@ -753,17 +781,18 @@ body {
   transition: opacity 180ms linear;
 }
 
+/* Rodas grossas e escuras: é o contraste delas com o corpo claro que dá o ar
+   de carrinho de brinquedo. */
 .carrinho__pneu {
-  fill: var(--bg);
-  stroke: var(--line);
-  stroke-width: 3;
+  fill: #0d1016;
+  stroke: var(--accent);
+  stroke-width: 2.5;
 }
 
 .carrinho__aro {
-  fill: none;
+  fill: color-mix(in srgb, var(--accent) 30%, #0d1016);
   stroke: var(--accent);
-  stroke-width: 1.2;
-  opacity: 0.6;
+  stroke-width: 2;
 }
 
 /* A carroceria mergulha e inclina; as rodas não — elas giram. É por isso que os
@@ -835,6 +864,19 @@ body {
   }
 }
 
+/* A piscada. Fica fechada por um instante só, e o resto do ciclo aberta —
+   é a proporção que faz parecer piscar em vez de pulsar. */
+@keyframes ia-piscar {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
 @keyframes ia-marcha-lenta {
   0%,
   100% {
@@ -897,6 +939,8 @@ body {
   .carrinho__eixo,
   .carrinho__fumaca circle,
   .carrinho__cachorro,
+  .carrinho__farol,
+  .carrinho__farol-luz,
   .ia__brilho,
   .ia__pulso,
   .ia-cartao {

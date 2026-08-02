@@ -164,64 +164,77 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
           {/* Fumaça do escapamento: só existe com o motor em marcha lenta. */}
           {parado && (
             <g className="carrinho__fumaca">
-              <circle cx="15" cy="65" r="4" />
-              <circle cx="15" cy="65" r="3" style={{ animationDelay: "0.9s" }} />
+              {/* Logo abaixo do para-choque: na altura do corpo ela virava um
+                  pontinho solto boiando ao lado do carro. */}
+              <circle cx="17" cy="67" r="4" />
+              <circle cx="17" cy="67" r="3" style={{ animationDelay: "0.9s" }} />
             </g>
           )}
 
           <g className="carrinho__corpo">
             {/*
-              O perfil é de coupé, não de sedã: teto curto entre os pilares,
-              vidro traseiro deitado e para-brisa dianteiro bem inclinado
-              descendo até um nariz baixo. É o desenho do Eclipse 2G, e é o que
-              separa "um carro" de "este carro".
+              Proporção de brinquedo, não de fotografia. Três coisas fazem o
+              carisma, e as três são deliberadas:
+
+              1. Rodas grandes demais para o corpo (raio 15 num carro de 46 de
+                 altura). Roda em escala real deixa o desenho sério.
+              2. Corpo preenchido, e não contorno fino. Linha fina lê como
+                 desenho técnico; forma cheia lê como ilustração.
+              3. Um farol grande e redondo na frente — o olho lê como olho, e é
+                 daí que vem a impressão de que o carro tem cara.
             */}
             <path
               className="carrinho__lata"
-              d="M 14,62 L 14,54 C 14,49 17,46 23,45 L 44,42
-                 C 54,30 74,25 98,25 L 116,25
-                 C 136,27 150,33 164,44 L 186,50
-                 C 191,51 193,55 193,59 L 193,62 Z"
+              d="M 20,64
+                 C 20,52 23,46 33,43
+                 L 52,40
+                 C 60,22 78,16 100,16
+                 L 118,16
+                 C 140,18 153,26 163,40
+                 L 172,44
+                 C 179,47 181,54 181,64
+                 Z"
             />
 
-            {/* Vidros, com o pilar B entre os dois. */}
+            {/* Um vidro só, grande e arredondado — dois vidrinhos separados
+                puxam o desenho de volta para o realismo. */}
             <path
               className="carrinho__vidro"
-              d="M 52,41 C 60,31 76,28 96,28 L 100,28 L 100,41 Z"
+              d="M 60,39 C 67,26 82,21 100,21 L 116,21 C 134,23 145,29 153,39 Z"
             />
-            <path
-              className="carrinho__vidro"
-              d="M 104,28 L 114,28 C 132,30 145,35 156,41 L 104,41 Z"
-            />
+            <path className="carrinho__pilar" d="M 106,22 L 106,39" />
+            {/* O brilhinho no vidro: truque velho de ilustração, custa uma linha. */}
+            <path className="carrinho__brilho" d="M 72,36 L 84,25" />
 
-            <path className="carrinho__vinco" d="M 24,53 L 182,53" />
-            <path className="carrinho__porta" d="M 101,42 L 99,61" />
-            <path className="carrinho__retrovisor" d="M 158,40 L 165,38" />
+            <path className="carrinho__retrovisor" d="M 156,36 L 164,33" />
 
-            {/* Faróis. O de trás acende com a freada. */}
-            <ellipse className="carrinho__farol" cx="187" cy="54" rx="5" ry="2.8" />
-            <rect className="carrinho__lanterna" x="14.5" y="48" width="5" height="6" rx="1.5" />
-            <rect className="carrinho__freio" x="14.5" y="48" width="5" height="6" rx="1.5" />
+            {/* O farol. Grande e redondo de propósito — é o olho do bicho. */}
+            <circle className="carrinho__farol" cx="170" cy="52" r="6.5" />
+            <circle className="carrinho__farol-luz" cx="172" cy="50" r="2" />
+
+            {/* A lanterna fica para dentro da borda: em cima dela, o traço
+                grosso da carroceria a engolia. */}
+            <rect className="carrinho__lanterna" x="24" y="47" width="7" height="8" rx="3.5" />
+            <rect className="carrinho__freio" x="24" y="47" width="7" height="8" rx="3.5" />
           </g>
 
           {/* Rodas fora do grupo da carroceria: elas giram, ele mergulha. */}
           <g className="carrinho__eixo">
-            <circle className="carrinho__pneu" cx="54" cy="64" r="12" />
-            <g className="carrinho__roda" style={{ transformOrigin: "54px 64px" }}>
-              <circle className="carrinho__aro" cx="54" cy="64" r="6.5" />
-              {/* Três raios: com dois, cruzados, a roda vira uma mira. */}
+            <circle className="carrinho__pneu" cx="58" cy="64" r="15" />
+            <g className="carrinho__roda" style={{ transformOrigin: "58px 64px" }}>
+              <circle className="carrinho__aro" cx="58" cy="64" r="7" />
               <path
                 className="carrinho__raio"
-                d="M54,64 L54,57.5 M54,64 L59.6,67.3 M54,64 L48.4,67.3"
+                d="M58,64 L58,56 M58,64 L64.9,68 M58,64 L51.1,68"
               />
             </g>
 
-            <circle className="carrinho__pneu" cx="150" cy="64" r="12" />
-            <g className="carrinho__roda" style={{ transformOrigin: "150px 64px" }}>
-              <circle className="carrinho__aro" cx="150" cy="64" r="6.5" />
+            <circle className="carrinho__pneu" cx="146" cy="64" r="15" />
+            <g className="carrinho__roda" style={{ transformOrigin: "146px 64px" }}>
+              <circle className="carrinho__aro" cx="146" cy="64" r="7" />
               <path
                 className="carrinho__raio"
-                d="M150,64 L150,57.5 M150,64 L155.6,67.3 M150,64 L144.4,67.3"
+                d="M146,64 L146,56 M146,64 L152.9,68 M146,64 L139.1,68"
               />
             </g>
           </g>
