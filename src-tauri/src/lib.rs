@@ -3,6 +3,7 @@
 //! Não tem regra de negócio aqui: este crate liga o supervisor do `eclipse-core`
 //! na janela do Tauri. O Rust é dono do estado; a UI é uma projeção dele.
 
+mod assistente;
 mod modules;
 mod obd_bt;
 
@@ -187,6 +188,31 @@ fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
         .or_else(|| embutida(option_env!("ECLIPSE_MAPS_MAP_ID")))
 }
 
+/// A chave da API da Anthropic, que move o assistente.
+///
+/// ⚠️ Diferente da chave do Maps, esta **não** é pública por natureza: quem a
+/// tiver gasta dinheiro em nome do dono. O fallback embutido existe porque a
+/// head unit não tem root para criar o arquivo nem shell para exportar variável —
+/// mas ele grava a chave no APK. Só compile com `anthropic_api_key.txt` presente
+/// se o APK for ficar com você. A defesa real é o teto de gasto no console da
+/// Anthropic, não o segredo.
+fn anthropic_api_key(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(dir_dados, "ECLIPSE_ANTHROPIC_API_KEY", "anthropic_api_key.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_ANTHROPIC_API_KEY")))
+}
+
+/// A chave do OpenRouter, usada só para gerar imagem — a Anthropic não gera.
+///
+/// Vale a mesma ressalva de `anthropic_api_key`: é chave que gasta.
+fn openrouter_api_key(dir_dados: &std::path::Path) -> Option<String> {
+    credencial(
+        dir_dados,
+        "ECLIPSE_OPENROUTER_API_KEY",
+        "openrouter_api_key.txt",
+    )
+    .or_else(|| embutida(option_env!("ECLIPSE_OPENROUTER_API_KEY")))
+}
+
 /// Um access token fresco do Spotify, para o Web Playback SDK.
 ///
 /// É o que permite o Eclipse **tocar o áudio ele mesmo**, dentro do WebView, em
@@ -295,6 +321,77 @@ fn finalizar_spotify(
 }
 
 /* ------------------------------------------------------------------ */
+/* Assistente                                                          */
+/* ------------------------------------------------------------------ */
+
+/// Aceita um nome de arquivo, e só isso.
+///
+/// O nome chega até aqui vindo do **modelo**, que é entrada não confiável por
+/// definição: ele inventa o conteúdo do cartão, e o cartão carrega o nome. Um
+/// `../../` aí dentro leria qualquer arquivo do diretório do app — inclusive
+/// `spotify_tokens.json` e as chaves de API — e devolveria os bytes para o
+/// WebView.
+///
+/// A checagem é comparar o nome com o próprio `file_name()`: se sobrou barra ou
+/// `..`, os dois diferem.
+fn nome_de_imagem_seguro(nome: &str) -> Option<&str> {
+    std::path::Path::new(nome)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| *n == nome)
+}
+
+/// Os bytes de uma imagem que o assistente baixou ou gerou.
+///
+/// Um comando, e não o protocolo de asset do Tauri: assim funciona igual no Mac
+/// e no Android sem mexer em capability nenhuma. A tela monta um object URL com
+/// o que vier.
+#[tauri::command]
+fn imagem_ia(app: tauri::AppHandle, nome: String) -> Result<Vec<u8>, String> {
+    let seguro = nome_de_imagem_seguro(&nome).ok_or("nome de imagem inválido")?;
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("sem diretório de dados: {e}"))?;
+
+    std::fs::read(dir.join("ia_imagens").join(seguro)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests_imagem {
+    use super::nome_de_imagem_seguro;
+
+    #[test]
+    fn nome_simples_passa() {
+        assert_eq!(nome_de_imagem_seguro("abc.png"), Some("abc.png"));
+        assert_eq!(nome_de_imagem_seguro("demonstracao.svg"), Some("demonstracao.svg"));
+    }
+
+    /// O diretório de dados guarda `spotify_tokens.json` e as chaves de API. Um
+    /// nome com caminho não pode chegar perto deles.
+    #[test]
+    fn caminho_e_travessia_sao_recusados() {
+        for tentativa in [
+            "../spotify_tokens.json",
+            "../../anthropic_api_key.txt",
+            "sub/abc.png",
+            "/etc/passwd",
+            "..",
+            ".",
+            "",
+            "./abc.png",
+        ] {
+            assert_eq!(
+                nome_de_imagem_seguro(tentativa),
+                None,
+                "`{tentativa}` passou pelo filtro"
+            );
+        }
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Localização                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -365,7 +462,31 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Liga o `tracing`.
+///
+/// Sem isto, **todo** `tracing::info!`/`warn!`/`error!` do Eclipse cai no vazio —
+/// os do supervisor quando um módulo entra em pânico, os do OBD quando o
+/// adaptador solta, e os do assistente com o consumo de token de cada turno.
+/// O `tracing` só escreve em algum lugar depois que alguém instala um
+/// subscriber, e ninguém instalava.
+///
+/// O padrão mostra os nossos crates em `info` e cala o barulho das
+/// dependências. `RUST_LOG` sobrepõe quando se quer investigar algo:
+/// `RUST_LOG=debug npm run tauri dev`.
+fn ligar_log() {
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let filtro = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("warn,eclipse_os_lib=info,eclipse_ia=info,eclipse_core=info,eclipse_music=info,eclipse_obd=info,eclipse_gps=info"));
+
+    // `try_init` e não `init`: entrar em pânico por causa do log seria pior que
+    // ficar sem log — e num teste que chame `run()` duas vezes o segundo falha.
+    let _ = fmt().with_env_filter(filtro).with_target(true).try_init();
+}
+
 pub fn run() {
+    ligar_log();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -382,6 +503,7 @@ pub fn run() {
             spotify_access_token,
             push_location,
             push_location_error,
+            imagem_ia,
         ])
         .setup(|app| {
             let dir = app
@@ -397,6 +519,9 @@ pub fn run() {
             // e o supervisor o reconstrói a cada reconexão — daí um clone à parte.
             let handle_obd = app.handle().clone();
             let dir_obd = dir.clone();
+            // O assistente lê o painel inteiro e grava imagens no diretório de
+            // dados, então precisa do handle pelos mesmos motivos.
+            let handle_ia = app.handle().clone();
 
             // O cofre de tokens continua existindo nas duas plataformas — o
             // comando `connect_spotify` e a Web API seguem úteis mesmo no
@@ -452,6 +577,9 @@ pub fn run() {
                         id_mapa.clone(),
                         Box::new(eclipse_gps::PushedLocation::nova(receptor_local.clone())),
                     )
+                }));
+                supervisor.spawn(factory(modules::assistente::ASSISTENTE, move || {
+                    modules::assistente::AssistenteModule::new(handle_ia.clone())
                 }));
 
                 supervisor

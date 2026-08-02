@@ -7,6 +7,8 @@ fn main() {
         ("maps_api_key.txt", "ECLIPSE_MAPS_API_KEY"),
         ("maps_map_id.txt", "ECLIPSE_MAPS_MAP_ID"),
         ("spotify_client_id.txt", "ECLIPSE_SPOTIFY_CLIENT_ID"),
+        ("anthropic_api_key.txt", "ECLIPSE_ANTHROPIC_API_KEY"),
+        ("openrouter_api_key.txt", "ECLIPSE_OPENROUTER_API_KEY"),
     ] {
         println!("cargo:rerun-if-changed={arquivo}");
         if let Ok(valor) = std::fs::read_to_string(arquivo) {

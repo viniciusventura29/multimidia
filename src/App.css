@@ -782,26 +782,28 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
-/* Assistente (IA — reservado)                                         */
+/* Assistente                                                          */
 /* ------------------------------------------------------------------ */
 
 .ia {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-height: 0;
+}
+
+.ia--pensando {
+  align-items: center;
   justify-content: center;
+  text-align: center;
 }
 
 .ia__brilho {
   font-size: 1.8rem;
   color: var(--accent);
-}
-
-.ia__titulo {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 500;
+  animation: ia-respira 2.4s ease-in-out infinite;
 }
 
 .ia__texto {
@@ -809,6 +811,548 @@ body {
   font-size: 0.82rem;
   line-height: 1.4;
   color: var(--muted);
+}
+
+.ia__nota {
+  margin: 0;
+  font-size: 0.62rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Ela achou algo novo enquanto o quadro anterior ainda está na tela. */
+.ia__pulso {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ia-respira 1.6s ease-in-out infinite;
+}
+
+.ia__cartoes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  /* A coluna é alta, mas finita: quadro cheio rola em vez de vazar. */
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: none;
+}
+
+.ia__cartoes::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- Cartões ---- */
+
+.ia-cartao {
+  --tom: var(--accent);
+  /* Num flex column com `overflow`, os itens encolhem por padrão para caber —
+     e o que encolhe é a altura. Com o quadro cheio, o cartão de imagem virava
+     uma tirinha de uns 20 px. Aqui os cartões mantêm o tamanho e a coluna rola,
+     que é o comportamento que `overflow-y: auto` promete. */
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.4rem;
+  border-left: 2px solid var(--tom);
+  background: var(--tile-alto);
+  animation: ia-entra 260ms ease-out both;
+}
+
+.ia-cartao__titulo {
+  margin: 0 0 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ia-cartao__corpo {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.ia-cartao--metrica {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.ia-cartao__numero {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--tom);
+  font-variant-numeric: tabular-nums;
+}
+
+.ia-cartao__unidade {
+  margin-left: 0.12rem;
+  font-size: 0.55em;
+  color: var(--muted);
+}
+
+.ia-cartao__rotulo {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.ia-cartao__itens {
+  margin: 0;
+  padding-left: 0.85rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.ia-cartao--imagem {
+  padding: 0;
+  overflow: hidden;
+  border-left: none;
+}
+
+.ia-cartao__img {
+  display: block;
+  width: 100%;
+  /* Recorte largo: a coluna é estreita e a foto inteira comeria a tela. */
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.ia-cartao__legenda {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.66rem;
+  color: var(--muted);
+}
+
+/* ---- Gráficos ---- */
+
+.grf {
+  --tom: var(--accent);
+  height: 3.4rem;
+  margin-top: 0.25rem;
+}
+
+.grf__rotulo {
+  font-size: 0.55rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.grf--barras {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.22rem;
+}
+
+.grf__col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.grf__trilho {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  min-height: 0;
+}
+
+.grf__barra {
+  width: 100%;
+  border-radius: 0.12rem 0.12rem 0 0;
+  background: var(--tom);
+  /* Mesma transição longa da barra do Gauge: sem ela o gráfico trocaria em
+     degraus quando o quadro é repintado. */
+  transition: height 600ms ease-out;
+}
+
+.grf--linha {
+  display: flex;
+  flex-direction: column;
+}
+
+.grf__svg {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+.grf__traco {
+  fill: none;
+  stroke: var(--tom);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.grf__eixo {
+  display: flex;
+  justify-content: space-between;
+}
+
+/* ---- Tela cheia ---- */
+
+.ia-completa {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  height: 100%;
+}
+
+.ia-completa__cartoes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.6rem;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.ia-completa--vazia {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.ia-completa--vazia .carrinho {
+  /* Em tela cheia a caixa é larga; sem teto de altura a cena esticaria para a
+     tela inteira e o carro ficaria do tamanho de um ônibus. */
+  max-height: 60vh;
+}
+
+/* ------------------------------------------------------------------ */
+/* O carrinho                                                          */
+/* ------------------------------------------------------------------ */
+
+.carrinho {
+  --giro: 1s;
+  --pista: 1s;
+  --tremor: 0;
+  --mergulho: 0deg;
+  --inclina: 0px;
+  --freio: 0;
+
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A cena é em retrato justamente para encher a coluna. O `preserveAspectRatio`
+   padrão do SVG (`xMidYMid meet`) já centra o que sobrar quando a caixa é mais
+   larga que alta — que é o caso da tela cheia. */
+.carrinho__svg {
+  width: 100%;
+  height: 100%;
+}
+
+.carrinho__horizonte {
+  stroke: var(--accent);
+  stroke-width: 1;
+  opacity: 0.3;
+}
+
+/* Na cor do perfil, e não em `--line`: `--line` (#232a35) fica a um passo do
+   fundo do tile (#12161d) e os morros simplesmente sumiam. */
+.carrinho__morro {
+  fill: var(--accent);
+  opacity: 0.16;
+}
+
+.carrinho__morro--fundo {
+  opacity: 0.08;
+}
+
+/* Forma cheia, e não contorno fino: linha fina lê como desenho técnico, corpo
+   preenchido lê como ilustração. O traço grosso e arredondado por cima é o que
+   dá o acabamento de adesivo. */
+.carrinho__lata {
+  fill: color-mix(in srgb, var(--accent) 24%, var(--tile-alto));
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.carrinho__vidro {
+  fill: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.carrinho__pilar {
+  stroke: var(--accent);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+/* A asa. Traço grosso e arredondado para ler como uma peça sólida em cima da
+   tampa, e não como um risco solto no ar. */
+.carrinho__asa {
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.carrinho__asa-pe {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* O para-lama traseiro estufado. */
+.carrinho__anca {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.carrinho__admissao {
+  fill: #0d1016;
+  opacity: 0.8;
+}
+
+.carrinho__tanque {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+
+.carrinho__brilho {
+  stroke: #fff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.3;
+}
+
+.carrinho__retrovisor,
+.carrinho__raio {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+/* O olho do bicho. O `ia-piscar` é o que mais rende carisma por linha de CSS:
+   de tempos em tempos ele fecha por um instante, e o carro parece vivo. */
+.carrinho__farol {
+  fill: var(--warn);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ia-piscar 6.5s ease-in-out infinite;
+}
+
+/* O reflexo dentro do farol — agora é traço, e não bolinha, porque o farol
+   virou uma amêndoa deitada. */
+.carrinho__farol-luz {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.7;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ia-piscar 6.5s ease-in-out infinite;
+}
+
+/* Lanterna apagada continua sendo vermelha, só escura — é o que a faz parecer
+   lanterna em vez de um furo na lataria. */
+.carrinho__lanterna {
+  fill: #5c2327;
+}
+
+/* A luz de freio: a opacidade vem da desaceleração medida. */
+.carrinho__freio {
+  fill: #e5484d;
+  opacity: var(--freio);
+  transition: opacity 180ms linear;
+}
+
+/* Rodas grossas e escuras: é o contraste delas com o corpo claro que dá o ar
+   de carrinho de brinquedo. */
+.carrinho__pneu {
+  fill: #0d1016;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.carrinho__aro {
+  fill: color-mix(in srgb, var(--accent) 30%, #0d1016);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* A carroceria mergulha e inclina; as rodas não — elas giram. É por isso que os
+   dois grupos são separados no SVG. */
+.carrinho__corpo {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transform: translateX(var(--inclina)) rotate(var(--mergulho));
+  transition: transform 320ms ease-out;
+}
+
+.carrinho__roda {
+  transform-box: fill-box;
+}
+
+/* `--line` some no fundo do tile: a pista é o que dá a sensação de movimento,
+   então ela precisa ser vista. */
+.carrinho__pista {
+  stroke: var(--muted);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  opacity: 0.4;
+}
+
+.carrinho--andando .carrinho__roda {
+  animation: ia-girar var(--giro) linear infinite;
+}
+
+.carrinho--andando .carrinho__pista {
+  animation: ia-pista var(--pista) linear infinite;
+}
+
+/* Parado, o que se vê é o motor em marcha lenta — e a amplitude vem do RPM. */
+.carrinho--parado .carrinho__corpo,
+.carrinho--parado .carrinho__eixo {
+  animation: ia-marcha-lenta 0.42s ease-in-out infinite;
+}
+
+.carrinho__fumaca circle {
+  fill: var(--muted);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ia-fumaca 2.6s ease-out infinite;
+}
+
+.carrinho__cachorro {
+  fill: var(--muted);
+  opacity: 0.55;
+  animation: ia-cachorro 17s linear infinite;
+}
+
+.carrinho__rabo,
+.carrinho__patas {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+@keyframes ia-girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ia-pista {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+/* A piscada. Fica fechada por um instante só, e o resto do ciclo aberta —
+   é a proporção que faz parecer piscar em vez de pulsar. */
+@keyframes ia-piscar {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+@keyframes ia-marcha-lenta {
+  0%,
+  100% {
+    transform: translateY(calc(var(--tremor) * 0.35px + 0.15px));
+  }
+  50% {
+    transform: translateY(calc(var(--tremor) * -0.35px - 0.15px));
+  }
+}
+
+@keyframes ia-fumaca {
+  0% {
+    opacity: 0.5;
+    transform: translate(0, 0) scale(0.4);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-14px, -16px) scale(2.2);
+  }
+}
+
+/* O cachorro fica fora da tela a maior parte do tempo: passar sempre cansaria. */
+@keyframes ia-cachorro {
+  0%,
+  62% {
+    transform: translateX(210px);
+  }
+  100% {
+    transform: translateX(-30px);
+  }
+}
+
+@keyframes ia-respira {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ia-entra {
+  from {
+    opacity: 0;
+    transform: translateY(0.3rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Dirigir já é estímulo bastante: quem pediu menos movimento recebe o desenho
+   parado, sem perder informação nenhuma. */
+@media (prefers-reduced-motion: reduce) {
+  .carrinho__roda,
+  .carrinho__pista,
+  .carrinho__corpo,
+  .carrinho__eixo,
+  .carrinho__fumaca circle,
+  .carrinho__cachorro,
+  .carrinho__farol,
+  .carrinho__farol-luz,
+  .ia__brilho,
+  .ia__pulso,
+  .ia-cartao {
+    animation: none;
+  }
+
+  .carrinho__cachorro {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */

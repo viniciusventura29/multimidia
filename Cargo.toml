@@ -23,11 +23,18 @@ eclipse-music = { path = "crates/eclipse-music" }
 eclipse-messaging = { path = "crates/eclipse-messaging" }
 eclipse-sim = { path = "crates/eclipse-sim" }
 eclipse-gps = { path = "crates/eclipse-gps" }
+eclipse-mcp = { path = "crates/eclipse-mcp" }
+eclipse-ia = { path = "crates/eclipse-ia" }
 
 async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Já vinha na árvore pelo rspotify; agora é dependência direta do `eclipse-ia`.
+# `rustls-tls` e não o TLS do sistema: o Android não tem OpenSSL para ligar.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
