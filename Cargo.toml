@@ -16,6 +16,21 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Release para a head unit: LTO fino e uma unidade de codegen compilam mais
+# devagar, mas o binário fica menor e mais rápido — e o strip é o maior corte
+# isolado de tamanho do .so no APK. `opt-level = 3` de propósito: telemetria em
+# tempo real (parser ELM327, guiagem, serde na cadência do OBD) vale mais que
+# os KB que "s" economizaria.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# DELIBERADO — NÃO trocar por "abort": o supervisor depende de pânico de módulo
+# virar JoinError para degradar e reiniciar só aquele módulo (module.rs). Com
+# "abort", qualquer pânico derrubaria o painel inteiro.
+panic = "unwind"
+
 [workspace.dependencies]
 eclipse-core = { path = "crates/eclipse-core" }
 eclipse-obd = { path = "crates/eclipse-obd" }

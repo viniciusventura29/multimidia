@@ -1,9 +1,17 @@
-import { memo, useCallback, useState } from "react";
+import { memo, Suspense, useCallback, useState } from "react";
 
 import { useModuleEnvelope } from "../core/moduleStore";
 import type { AnyTileSpec, Status } from "../core/types";
 import { TILES } from "./registry";
 import { Tile } from "./Tile";
+
+/**
+ * O corpo de um tile cujo chunk ainda não chegou. A moldura (título, ícone,
+ * área do grid) já está pintada — o metadado é eager —, então isto é só o miolo
+ * respirando por um instante, na mesma linguagem do estado `loading`, sem
+ * pulo de layout (as áreas do grid são fixas no CSS).
+ */
+const TileSkeleton = () => <div className="tile__skeleton" aria-hidden />;
 
 /**
  * Um quadro do painel, assinado direto no módulo do qual ele lê.
@@ -35,7 +43,9 @@ const TileHost = memo(function TileHost({
       reason={reason}
       onExpand={spec.Expanded ? () => aoExpandir(spec.id) : undefined}
     >
-      <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+      <Suspense fallback={<TileSkeleton />}>
+        <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+      </Suspense>
     </Tile>
   );
 });
@@ -74,7 +84,9 @@ function Expandido({
         </header>
 
         <div className="overlay__body">
-          <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+          <Suspense fallback={<TileSkeleton />}>
+            <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+          </Suspense>
         </div>
 
         {reason && <p className="tile__reason">{reason}</p>}

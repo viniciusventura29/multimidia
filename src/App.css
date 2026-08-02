@@ -249,6 +249,25 @@ body {
   color: var(--warn);
 }
 
+/* O miolo de um tile cujo chunk lazy ainda não chegou: um bloco respirando,
+   na linguagem do `loading` — nada de spinner. */
+.tile__skeleton {
+  flex: 1;
+  min-height: 3rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.05);
+  animation: tile-respira 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes tile-respira {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .tile--degraded {
   border-color: var(--warn);
 }

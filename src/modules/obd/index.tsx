@@ -1,3 +1,4 @@
+import { lazy } from "react";
 import { Fuel, Thermometer, Zap } from "lucide-react";
 
 import { AZUL, VERDE, corFuel, corTemp } from "../../core/telemetria";
@@ -5,7 +6,10 @@ import { defineTile, type AnyTileSpec, type ObdReadings } from "../../core/types
 import { Dado } from "../../shell/Dado";
 import { Gauge } from "../../shell/Gauge";
 import { GasolinaIcon } from "../../shell/indicadores";
-import { Carro } from "./carro";
+
+// A tela expandida (diagnóstico + ajustes de tanque) só existe quando alguém
+// toca no quadro — não precisa estar no chunk do primeiro paint.
+const Carro = lazy(() => import("./carro").then((m) => ({ default: m.Carro })));
 
 const OBD = "obd";
 
