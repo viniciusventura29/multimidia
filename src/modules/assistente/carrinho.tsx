@@ -237,16 +237,16 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
             {/* Vidro deitado, curto e recuado. */}
             <path
               className="carrinho__vidro"
-              d="M 49,43 C 57,37 66,34.5 79,35 C 95,35.5 108,39 121,45 Z"
+              d="M 49,46 C 57,38 66,34.5 79,35 C 95,35.5 108,40 121,48 Z"
             />
-            <path className="carrinho__pilar" d="M 88,35 L 88,44" />
-            <path className="carrinho__brilho" d="M 60,41 L 72,35" />
+            <path className="carrinho__pilar" d="M 88,35 L 88,47" />
+            <path className="carrinho__brilho" d="M 60,44 L 72,37" />
 
             {/* O para-lama traseiro estufado — a marca registrada do 3G. */}
             <path className="carrinho__anca" d="M 27,53 C 35,47 47,45 61,48" />
             {/* A tampa redonda do tanque, que aparece no blueprint. */}
             <circle className="carrinho__tanque" cx="37" cy="49" r="3" />
-            <path className="carrinho__porta" d="M 88,45 L 86,66" />
+            <path className="carrinho__porta" d="M 88,48 L 86,66" />
             <path className="carrinho__retrovisor" d="M 130,42 L 138,39" />
 
             {/* Farol repuxado para trás, não redondo: é ele que dá o olhar de
