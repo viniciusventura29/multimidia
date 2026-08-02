@@ -1,4 +1,18 @@
 fn main() {
+    // ⚠️ Se você acabou de CRIAR um dos .txt abaixo, rode `touch src/lib.rs`
+    // antes de compilar.
+    //
+    // Este script roda e emite os `rustc-env` certinho — dá para conferir em
+    // `target/<alvo>/debug/build/eclipse-os-*/output`. O que não acontece é o
+    // cargo marcar o crate como sujo por causa disso: sem nenhum fonte alterado
+    // ele não reinvoca o rustc, e o `option_env!` do `lib.rs` continua sendo o
+    // da compilação anterior, quando a variável não existia.
+    //
+    // O resultado é o pior tipo de falha: compila, empacota, não avisa nada, e
+    // o APK sai sem mapa, sem Spotify e sem assistente. Aconteceu em 02/08/2026
+    // e custou três builds até alguém olhar os bytes do `.so`.
+    //
+    // `touch build.rs` NÃO resolve — refaz o script, não o crate.
     // Credenciais de DEV embutidas no binário para aparelho físico sem root —
     // lidas de arquivos ao lado deste Cargo.toml (fora do git) e entregues ao
     // option_env! de src/lib.rs. Arquivo, e não variável de ambiente, porque o

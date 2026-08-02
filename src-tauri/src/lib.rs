@@ -461,7 +461,6 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
     });
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Liga o `tracing`.
 ///
 /// Sem isto, **todo** `tracing::info!`/`warn!`/`error!` do Eclipse cai no vazio —
@@ -484,6 +483,13 @@ fn ligar_log() {
     let _ = fmt().with_env_filter(filtro).with_target(true).try_init();
 }
 
+// ⚠️ Este atributo tem que ficar colado no `run()`. Ele gera o ponto de entrada
+// JNI do Android apontando para a função logo abaixo — se alguém enfiar outra
+// função entre os dois, o Android passa a chamar essa outra e o app inteiro
+// vira código morto que o linker descarta. No desktop o `cfg_attr(mobile)` não
+// faz nada, então teste de desktop nenhum pega isso: o APK compila, empacota,
+// instala, abre e não faz coisa alguma. Aconteceu em 02/08/2026.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     ligar_log();
 
