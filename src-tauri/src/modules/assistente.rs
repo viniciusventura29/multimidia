@@ -246,10 +246,16 @@ impl Module for AssistenteModule {
                             // instruído a não pintar quando não há novidade. O
                             // quadro anterior fica e envelhece sozinho, até a
                             // tela trocá-lo pela animação.
-                            if let Some(novo) = turno.quadro {
-                                painel.cartoes = novo.cartoes;
-                                painel.gerado_em = Some(Utc::now().to_rfc3339());
-                                painel.gatilho = Some(gatilho.como_texto().to_string());
+                            match turno.quadro {
+                                Some(novo) => {
+                                    painel.cartoes = novo.cartoes;
+                                    painel.gerado_em = Some(Utc::now().to_rfc3339());
+                                    painel.gatilho = Some(gatilho.como_texto().to_string());
+                                }
+                                None => tracing::info!(
+                                    gatilho = gatilho.como_texto(),
+                                    "o assistente não achou nada que valesse pintar"
+                                ),
                             }
                             ctx.ready(&painel);
                         }

@@ -487,6 +487,11 @@ body {
 
 .ia-cartao {
   --tom: var(--accent);
+  /* Num flex column com `overflow`, os itens encolhem por padrão para caber —
+     e o que encolhe é a altura. Com o quadro cheio, o cartão de imagem virava
+     uma tirinha de uns 20 px. Aqui os cartões mantêm o tamanho e a coluna rola,
+     que é o comportamento que `overflow-y: auto` promete. */
+  flex-shrink: 0;
   margin: 0;
   padding: 0.4rem 0.5rem;
   border-radius: 0.4rem;

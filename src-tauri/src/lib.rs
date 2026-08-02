@@ -462,7 +462,31 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Liga o `tracing`.
+///
+/// Sem isto, **todo** `tracing::info!`/`warn!`/`error!` do Eclipse cai no vazio —
+/// os do supervisor quando um módulo entra em pânico, os do OBD quando o
+/// adaptador solta, e os do assistente com o consumo de token de cada turno.
+/// O `tracing` só escreve em algum lugar depois que alguém instala um
+/// subscriber, e ninguém instalava.
+///
+/// O padrão mostra os nossos crates em `info` e cala o barulho das
+/// dependências. `RUST_LOG` sobrepõe quando se quer investigar algo:
+/// `RUST_LOG=debug npm run tauri dev`.
+fn ligar_log() {
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    let filtro = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("warn,eclipse_os_lib=info,eclipse_ia=info,eclipse_core=info,eclipse_music=info,eclipse_obd=info,eclipse_gps=info"));
+
+    // `try_init` e não `init`: entrar em pânico por causa do log seria pior que
+    // ficar sem log — e num teste que chame `run()` duas vezes o segundo falha.
+    let _ = fmt().with_env_filter(filtro).with_target(true).try_init();
+}
+
 pub fn run() {
+    ligar_log();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
