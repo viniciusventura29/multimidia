@@ -763,6 +763,13 @@ body {
   opacity: 0.8;
 }
 
+.carrinho__tanque {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.45;
+}
+
 .carrinho__brilho {
   stroke: #fff;
   stroke-width: 2.5;

@@ -147,29 +147,42 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
 
         {/* O carro e a pista, encaixados na faixa de baixo da cena. */}
         <g transform="translate(4, 245) scale(0.96)">
-          {/* Atrás do carro: o cachorro passa por trás, não por cima. */}
-          {parado && (
-            <g className="carrinho__cachorro">
-              <rect x="5" y="67" width="19" height="9" rx="4.5" />
-              <circle cx="26" cy="67" r="4.5" />
-              <path d="M23,64 L26,58.5 L29.5,64 Z" />
-              <path
-                className="carrinho__patas"
-                d="M8,76 L8,81 M13,76 L13,81 M18,76 L18,81 M22,76 L22,81"
-              />
-              <path className="carrinho__rabo" d="M5,69 L0,62" />
-            </g>
-          )}
-
           {/* Fumaça do escapamento: só existe com o motor em marcha lenta. */}
           {parado && (
             <g className="carrinho__fumaca">
-              {/* Logo abaixo do para-choque: na altura do corpo ela virava um
-                  pontinho solto boiando ao lado do carro. */}
-              <circle cx="17" cy="67" r="4" />
-              <circle cx="17" cy="67" r="3" style={{ animationDelay: "0.9s" }} />
+              <circle cx="15" cy="76" r="4" />
+              <circle cx="15" cy="76" r="3" style={{ animationDelay: "0.9s" }} />
             </g>
           )}
+
+          {/*
+            As rodas vêm ANTES da lataria de propósito. Com a soleira baixa que o
+            blueprint pede, metade da roda fica dentro do vão do para-lama — e é
+            a lataria por cima que recorta esse vão. Desenhando a roda depois,
+            ela ficaria colada por fora, como um adesivo.
+          */}
+          <g className="carrinho__eixo">
+            <circle className="carrinho__pneu" cx="48" cy="65" r="14.5" />
+            <g className="carrinho__roda" style={{ transformOrigin: "48px 65px" }}>
+              <circle className="carrinho__aro" cx="48" cy="65" r="8" />
+              {/* Cinco raios, como a roda do blueprint. */}
+              <path
+                className="carrinho__raio"
+                d="M48,65 L48,57 M48,65 L55.6,67.5 M48,65 L52.7,58.5
+                   M48,65 L43.3,58.5 M48,65 L40.4,67.5"
+              />
+            </g>
+
+            <circle className="carrinho__pneu" cx="151" cy="65" r="14.5" />
+            <g className="carrinho__roda" style={{ transformOrigin: "151px 65px" }}>
+              <circle className="carrinho__aro" cx="151" cy="65" r="8" />
+              <path
+                className="carrinho__raio"
+                d="M151,65 L151,57 M151,65 L158.6,67.5 M151,65 L155.7,58.5
+                   M151,65 L146.3,58.5 M151,65 L143.4,67.5"
+              />
+            </g>
+          </g>
 
           <g className="carrinho__corpo">
             {/*
@@ -189,75 +202,66 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
             <path className="carrinho__asa-pe" d="M 18,38 L 19,44 M 31,37 L 32,42" />
 
             {/*
-              A proporção que identifica o carro é a **cabine recuada**: capô
-              longo, vidro curto e empurrado para trás, rabeta curta. Uma versão
-              anterior espalhou o vidro por toda a distância entre eixos e o
-              desenho virou um sedã genérico na hora.
+              A silhueta saiu do blueprint, não do olho: entre-eixos em 58% do
+              comprimento, balanços de ~21% cada, altura em 27%. A cabine é
+              recuada — capô longo, vidro curto e empurrado para trás.
+
+              O que mais mudou em relação às tentativas anteriores foi a
+              **soleira**: ela desce quase até o chão (y 74 de 80). Antes estava
+              em 68, e o carro parecia levantado — era o que mais roubava a cara
+              de esportivo, mais que qualquer detalhe.
+
+              Os dois arcos no fim do traçado são os vãos de roda, e são arcos
+              de circunferência de verdade (`A`), centrados na roda e com raio
+              1,5 maior que ela. Feitos com Bézier antes, ficavam altos demais e
+              abriam um buraco por onde se via o fundo em cima do pneu.
             */}
             <path
               className="carrinho__lata"
-              d="M 12,68
-                 C 10,58 13,50 20,46
-                 L 30,43
-                 C 40,33 53,29 69,28
-                 L 84,28
-                 C 101,30 114,37 127,46
-                 L 150,49
-                 C 170,52 184,58 188,68
+              d="M 12,74
+                 C 10,66 10,56 13,50
+                 L 30,46
+                 L 43,44
+                 C 52,37 62,32 79,32
+                 C 98,32 113,37 128,45
+                 L 176,51
+                 C 183,53 188,57 188,62
+                 L 188,74
+                 L 164.2,74
+                 A 16 16 0 1 0 137.8,74
+                 L 61.2,74
+                 A 16 16 0 1 0 34.8,74
                  Z"
             />
 
             {/* Vidro deitado, curto e recuado. */}
             <path
               className="carrinho__vidro"
-              d="M 40,43 C 50,35 60,32 71,32 L 84,32 C 99,34 110,40 120,46 Z"
+              d="M 49,43 C 57,37 66,34.5 79,35 C 95,35.5 108,39 121,45 Z"
             />
-            <path className="carrinho__pilar" d="M 78,32 L 78,45" />
-            <path className="carrinho__brilho" d="M 52,40 L 64,33" />
+            <path className="carrinho__pilar" d="M 88,35 L 88,44" />
+            <path className="carrinho__brilho" d="M 60,41 L 72,35" />
 
             {/* O para-lama traseiro estufado — a marca registrada do 3G. */}
-            <path className="carrinho__anca" d="M 26,52 C 34,45 46,43 60,46" />
-            <path className="carrinho__porta" d="M 78,46 L 76,66" />
-            <path className="carrinho__retrovisor" d="M 129,43 L 137,40" />
+            <path className="carrinho__anca" d="M 27,53 C 35,47 47,45 61,48" />
+            {/* A tampa redonda do tanque, que aparece no blueprint. */}
+            <circle className="carrinho__tanque" cx="37" cy="49" r="3" />
+            <path className="carrinho__porta" d="M 88,45 L 86,66" />
+            <path className="carrinho__retrovisor" d="M 130,42 L 138,39" />
 
             {/* Farol repuxado para trás, não redondo: é ele que dá o olhar de
                 carro esportivo. Continua piscando. */}
             <path
               className="carrinho__farol"
-              d="M 157,52 C 165,51 174,54 180,58 C 172,60 163,58 156,56 Z"
+              d="M 169,52 C 176,52 183,55 187,60 C 179,61 172,58 168,56 Z"
             />
-            <path className="carrinho__farol-luz" d="M 162,53 C 168,53 173,55 177,57" />
+            <path className="carrinho__farol-luz" d="M 173,54 C 178,55 182,57 185,59" />
 
             {/* A entrada de ar embaixo do para-choque. */}
-            <rect className="carrinho__admissao" x="163" y="62" width="16" height="4" rx="2" />
+            <rect className="carrinho__admissao" x="171" y="64" width="15" height="5" rx="2" />
 
-            <rect className="carrinho__lanterna" x="13" y="49" width="10" height="6" rx="2.5" />
-            <rect className="carrinho__freio" x="13" y="49" width="10" height="6" rx="2.5" />
-          </g>
-
-          {/* Rodas fora do grupo da carroceria: elas giram, ele mergulha. */}
-          <g className="carrinho__eixo">
-            <circle className="carrinho__pneu" cx="48" cy="65" r="15" />
-            <g className="carrinho__roda" style={{ transformOrigin: "48px 65px" }}>
-              <circle className="carrinho__aro" cx="50" cy="65" r="8.5" />
-              {/* Cinco raios, e não três: a roda de muitos raios é metade do
-                  visual do carro nas fotos. */}
-              <path
-                className="carrinho__raio"
-                d="M48,65 L48,56.5 M48,65 L56.1,67.6 M48,65 L53,58.1
-                   M48,65 L43,58.1 M48,65 L39.9,67.6"
-              />
-            </g>
-
-            <circle className="carrinho__pneu" cx="150" cy="65" r="15" />
-            <g className="carrinho__roda" style={{ transformOrigin: "150px 65px" }}>
-              <circle className="carrinho__aro" cx="152" cy="65" r="8.5" />
-              <path
-                className="carrinho__raio"
-                d="M150,65 L150,56.5 M150,65 L158.1,67.6 M150,65 L155,58.1
-                   M150,65 L145,58.1 M150,65 L141.9,67.6"
-              />
-            </g>
+            <rect className="carrinho__lanterna" x="15" y="48" width="10" height="5" rx="2.5" />
+            <rect className="carrinho__freio" x="15" y="48" width="10" height="5" rx="2.5" />
           </g>
 
           {/* A pista. Andando ela corre; parada, fica. */}
@@ -269,6 +273,21 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
             y2="80"
             strokeDasharray="18 14"
           />
+
+          {/* O cachorro atravessa na frente do carro. Atrás ele ficava escondido
+              pela lataria, que agora vai quase até o chão — sobravam as patas. */}
+          {parado && (
+            <g className="carrinho__cachorro">
+              <rect x="5" y="67" width="19" height="9" rx="4.5" />
+              <circle cx="26" cy="67" r="4.5" />
+              <path d="M23,64 L26,58.5 L29.5,64 Z" />
+              <path
+                className="carrinho__patas"
+                d="M8,76 L8,81 M13,76 L13,81 M18,76 L18,81 M22,76 L22,81"
+              />
+              <path className="carrinho__rabo" d="M5,69 L0,62" />
+            </g>
+          )}
         </g>
       </svg>
     </div>
