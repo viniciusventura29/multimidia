@@ -213,6 +213,6 @@ export const navTile: AnyTileSpec = defineTile<MapaState>({
   title: "Navegação",
   area: "maps",
   icon: <Navigation size="1em" />,
-  Compact: (view) => <Mapa {...view} />,
-  Expanded: (view) => <Mapa {...view} />,
+  Compact: Mapa,
+  Expanded: Mapa,
 });

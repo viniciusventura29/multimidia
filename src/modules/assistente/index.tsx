@@ -36,7 +36,7 @@ function useRelogio(intervaloMs: number): number {
   return agora;
 }
 
-function Assistente({ data, painel, status }: TileView<AssistenteState>) {
+function Assistente({ data, status }: TileView<AssistenteState>) {
   // Um minuto: a validade é de vinte e cinco, então checar mais miúdo que isso
   // seria acordar o React à toa dentro de um carro.
   const agora = useRelogio(60_000);
@@ -57,7 +57,7 @@ function Assistente({ data, painel, status }: TileView<AssistenteState>) {
   }
 
   if (!mostrarQuadro) {
-    return <Carrinho painel={painel} />;
+    return <Carrinho />;
   }
 
   return (
@@ -91,7 +91,7 @@ function AssistenteCompleto(view: TileView<AssistenteState>) {
   if (cartoes.length === 0) {
     return (
       <div className="ia-completa ia-completa--vazia">
-        <Carrinho painel={view.painel} />
+        <Carrinho />
         <p className="ia__texto">
           Nada novo agora. Eu apareço sozinha quando houver — ao ligar o carro,
           ao traçar uma rota, ou se o carro pedir atenção.

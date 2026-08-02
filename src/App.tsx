@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useModuleStates } from "./core/useModuleStates";
+import { useModuleSelector } from "./core/moduleStore";
 import { useSpotifyPlayer } from "./modules/spotifyPlayer";
 import { useProfiles, useTema } from "./core/useProfiles";
 import { useLocalizacaoReal } from "./modules/nav";
@@ -12,7 +12,6 @@ import "./App.css";
 
 export default function App() {
   const perfis = useProfiles();
-  const states = useModuleStates();
   const [trocando, setTrocando] = useState(false);
 
   useTema(perfis.active);
@@ -25,12 +24,13 @@ export default function App() {
   // Só a falta de login derruba o player. Antes isto era `status === "ready"`, e
   // aí QUALQUER degradação o desmontava — inclusive o erro "nenhum dispositivo
   // ativo", que assim desligava justamente o dispositivo, num círculo vicioso.
-  const problemaMusica = (
-    states["music"]?.data as { problema?: { tipo?: string } } | null
-  )?.problema;
+  const tipoProblemaMusica = useModuleSelector<
+    { problema?: { tipo?: string } },
+    string | undefined
+  >("music", (data) => data?.problema?.tipo);
   useSpotifyPlayer(
     perfis.active?.id ?? null,
-    Boolean(perfis.active) && problemaMusica?.tipo !== "precisaLogin",
+    Boolean(perfis.active) && tipoProblemaMusica !== "precisaLogin",
   );
 
   if (perfis.carregando) {
@@ -46,12 +46,8 @@ export default function App() {
   return (
     <>
       <div className="app">
-        <Header
-          states={states}
-          profile={perfis.active}
-          aoTrocar={() => setTrocando(true)}
-        />
-        <Dashboard states={states} />
+        <Header profile={perfis.active} aoTrocar={() => setTrocando(true)} />
+        <Dashboard />
       </div>
 
       <BemVindo key={perfis.active.id} profile={perfis.active} />

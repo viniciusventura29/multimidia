@@ -488,6 +488,6 @@ export const musicTile: AnyTileSpec = defineTile<MusicState>({
   title: "Spotify",
   area: "spotify",
   icon: <Music size="1em" />,
-  Compact: (view) => <Compacto {...view} />,
-  Expanded: (view) => <Completa {...view} />,
+  Compact: Compacto,
+  Expanded: Completa,
 });

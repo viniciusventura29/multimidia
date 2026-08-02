@@ -23,7 +23,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import type { ModuleStates, ObdReadings } from "../../core/types";
+import { shallowEqual, useModuleSelector } from "../../core/moduleStore";
+import type { ObdReadings } from "../../core/types";
 
 interface Fix {
   heading: number;
@@ -77,16 +78,36 @@ function useDinamica(velocidade: number | null, rumo: number | null) {
   return dinamica;
 }
 
-export function Carrinho({ painel }: { painel: ModuleStates }) {
-  const obd = painel["obd"]?.data as ObdReadings | null | undefined;
-  const nav = painel["nav"]?.data as { fix?: Fix | null } | null | undefined;
+export function Carrinho() {
+  // A exceção declarada do painel: a animação reage à telemetria de verdade, e
+  // isso exige ler os módulos vizinhos. Assina direto no store, com seletores —
+  // o resto do tile do assistente não paga por estes ticks.
+  const obd = useModuleSelector<
+    ObdReadings,
+    { speedKmh: number | null; rpm: number | null }
+  >(
+    "obd",
+    (d) => ({ speedKmh: d?.speedKmh ?? null, rpm: d?.rpm ?? null }),
+    shallowEqual,
+  );
+  const fix = useModuleSelector<
+    { fix?: Fix | null },
+    { heading: number | null; speedKmh: number | null }
+  >(
+    "nav",
+    (d) => ({
+      heading: d?.fix?.heading ?? null,
+      speedKmh: d?.fix?.speedKmh ?? null,
+    }),
+    shallowEqual,
+  );
 
   // O OBD primeiro, o GPS como reserva. No Mac o OBD é sempre degradado (é
   // Bluetooth, só existe no Android), e é o GPS que faz a animação funcionar
   // enquanto se trabalha no layout.
-  const velocidade = obd?.speedKmh ?? nav?.fix?.speedKmh ?? null;
-  const rpm = obd?.rpm ?? null;
-  const rumo = nav?.fix?.heading ?? null;
+  const velocidade = obd.speedKmh ?? fix.speedKmh ?? null;
+  const rpm = obd.rpm;
+  const rumo = fix.heading;
 
   const { aceleracao, curva } = useDinamica(velocidade, rumo);
 
