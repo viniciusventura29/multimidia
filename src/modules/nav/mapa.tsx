@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 
 import type { TileView } from "../../core/types";
 import { Manobra } from "./manobra";
+import { Pois } from "./pois";
 import { BuscarRota } from "./rota";
 import { falar } from "./voz";
-import type { Fix, MapaState } from "./tipos";
+import type { Fix, MapaState, Rota } from "./tipos";
 
 /** Enquanto o GPS não fixa, o mapa nasce olhando para São Paulo. */
 const CENTRO_PADRAO = { lat: -23.5505, lng: -46.6333 };
@@ -49,10 +50,20 @@ function metros(a: Fix, b: Fix): number {
  * Fica num componente separado porque só quem está dentro do `APIProvider`
  * consegue pegar a instância do mapa com `useMap`.
  *
- * `heading` e `tilt` só têm efeito em mapa **vetorial**, que exige um Map ID
- * configurado como tal.
+ * A câmera é sempre de cima (sem `tilt` — 3D atrapalhava mais que ajudava) e
+ * não impõe `zoom`: o nível é do motorista, ajustado pelos botões, e forçá-lo
+ * a cada quadro desfaria o ajuste. `heading` só tem efeito em mapa
+ * **vetorial**, que exige um Map ID configurado como tal.
  */
-function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }) {
+function SeguirCarro({
+  fix,
+  navegando,
+  seguindo,
+}: {
+  fix: Fix | null;
+  navegando: boolean;
+  seguindo: boolean;
+}) {
   const map = useMap();
   const trecho = useRef<{ de: Fix; para: Fix; inicio: number } | null>(null);
   const rastro = useRef<google.maps.Polyline | null>(null);
@@ -63,10 +74,13 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
   // contínuo de CPU do painel.
   const quadro = useRef(0);
   const navegandoRef = useRef(navegando);
+  const seguindoRef = useRef(seguindo);
 
   const desenhar = () => {
     const atual = trecho.current;
-    if (!map || !atual) {
+    // Com o motorista segurando o mapa, mexer a câmera seria brigar com o
+    // dedo — o loop dorme e o rastro continua crescendo por fora.
+    if (!map || !atual || !seguindoRef.current) {
       quadro.current = 0;
       return;
     }
@@ -82,11 +96,7 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
         lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
       },
       ...(navegandoRef.current
-        ? {
-            heading: interpolarRumo(atual.de.heading, atual.para.heading, t),
-            tilt: 62,
-            zoom: 18,
-          }
+        ? { heading: interpolarRumo(atual.de.heading, atual.para.heading, t) }
         : {}),
     });
 
@@ -126,22 +136,37 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix]);
 
-  // Trocar de modo redesenha uma vez (heading/tilt/zoom mudam) mesmo parado.
+  // Trocar de modo redesenha uma vez (heading muda) mesmo parado.
   useEffect(() => {
     navegandoRef.current = navegando;
+    // Sair do modo seguir endireita o norte na hora — sem isto o mapa ficava
+    // travado girado com o rumo da última leitura, parecendo quebrado.
+    if (!navegando) map?.moveCamera({ heading: 0, tilt: 0 });
     acordar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navegando]);
+
+  // Voltar a seguir redesenha uma vez — é o que o botão "recentrar" faz.
+  useEffect(() => {
+    seguindoRef.current = seguindo;
+    if (seguindo) acordar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seguindo]);
 
   useEffect(() => {
     if (!map) return;
 
     rastro.current ??= new google.maps.Polyline({
-      map,
       strokeColor: "#a06bff",
       strokeOpacity: 0.9,
       strokeWeight: 6,
     });
+
+    // Religa em vez de criar preso ao mapa: a troca de tema (dia/noite)
+    // destrói e recria a instância, e a polyline sobrevive por fora — sem
+    // isto o rastro sumiria no primeiro pôr do sol.
+    rastro.current.setMap(map);
+    rastro.current.setPath(pontos.current);
 
     acordar();
     return () => {
@@ -157,6 +182,77 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
 }
 
 /**
+ * Botões de câmera: zoom, visão geral da rota e recentrar.
+ *
+ * Existem porque o mapa nasce com `disableDefaultUI` — os controles do Google
+ * são pequenos demais para dedo de motorista — e porque arrastar o mapa agora
+ * solta o seguimento (senão a câmera brigava com o dedo): alguém precisa
+ * oferecer o caminho de volta.
+ */
+function Controles({
+  seguindo,
+  temFix,
+  rota,
+  aoRecentrar,
+  aoSoltar,
+}: {
+  seguindo: boolean;
+  temFix: boolean;
+  rota: Rota | null;
+  aoRecentrar: () => void;
+  aoSoltar: () => void;
+}) {
+  const map = useMap();
+  if (!map) return null;
+
+  const ajustarZoom = (event: MouseEvent, delta: number) => {
+    event.stopPropagation();
+    map.setZoom((map.getZoom() ?? 18) + delta);
+  };
+
+  const verRota = (event: MouseEvent) => {
+    event.stopPropagation();
+    if (!rota) return;
+    // Enquadrar solta o seguimento — senão o próximo quadro devolveria a
+    // câmera para cima do carro e o enquadramento duraria um piscar.
+    aoSoltar();
+    const limites = new google.maps.LatLngBounds();
+    for (const [lat, lng] of rota.pontos) limites.extend({ lat, lng });
+    map.fitBounds(limites, 48);
+  };
+
+  const recentrar = (event: MouseEvent) => {
+    event.stopPropagation();
+    // Devolve o zoom de rua junto: quem recentra quer voltar a dirigir com o
+    // mapa, não continuar no zoom em que largou o enquadramento.
+    map.moveCamera({ zoom: 18 });
+    aoRecentrar();
+  };
+
+  // Só os botões: quem dá o lugar deles na tela é a coluna de ferramentas.
+  return (
+    <>
+      <button className="mapa__botao" onClick={(e) => ajustarZoom(e, 1)} aria-label="Aproximar">
+        +
+      </button>
+      <button className="mapa__botao" onClick={(e) => ajustarZoom(e, -1)} aria-label="Afastar">
+        −
+      </button>
+      {rota && (
+        <button className="mapa__botao" onClick={verRota}>
+          rota
+        </button>
+      )}
+      {!seguindo && temFix && (
+        <button className="mapa__recentrar" onClick={recentrar}>
+          recentrar
+        </button>
+      )}
+    </>
+  );
+}
+
+/**
  * O mapa.
  *
  * Como a UI roda num WebView, ele é um elemento comum da página: o mesmo
@@ -169,6 +265,10 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
  */
 export function Mapa({ data, status }: TileView<MapaState>) {
   const [navegando, setNavegando] = useState(true);
+  // A câmera está colada no carro? Arrastar o mapa solta; "recentrar" volta.
+  // Cada instância do tile (grid e tela cheia) tem a sua — são câmeras
+  // independentes, e é isso que se quer.
+  const [seguindo, setSeguindo] = useState(true);
 
   // O Rust decide o que e quando falar; aqui só se pronuncia.
   useEffect(() => {
@@ -193,12 +293,29 @@ export function Mapa({ data, status }: TileView<MapaState>) {
           defaultCenter={CENTRO_PADRAO}
           defaultZoom={18}
           mapId={data.mapId ?? undefined}
-          colorScheme="DARK"
+          // O tema acompanha o sol (calculado no Rust — ver `sol.rs`). Só o
+          // canvas clareia de dia; o resto do painel continua escuro.
+          colorScheme={data.noite ? "DARK" : "LIGHT"}
           disableDefaultUI
           gestureHandling="greedy"
           reuseMaps
+          // Segurar o mapa é assumir a câmera: o seguimento solta na hora e
+          // o botão "recentrar" vira o caminho de volta.
+          onDragstart={() => setSeguindo(false)}
         />
-        <SeguirCarro fix={data.fix} navegando={modoNavegacao} />
+        <SeguirCarro fix={data.fix} navegando={modoNavegacao} seguindo={seguindo} />
+        {/* Uma coluna só para todos os botões de mapa: empilhados não
+            disputam lugar com a manobra (topo) nem com a busca (embaixo). */}
+        <div className="mapa__ferramentas" onClick={(e) => e.stopPropagation()}>
+          <Pois fix={data.fix} apiKey={data.apiKey} />
+          <Controles
+            seguindo={seguindo}
+            temFix={Boolean(data.fix)}
+            rota={data.rota}
+            aoRecentrar={() => setSeguindo(true)}
+            aoSoltar={() => setSeguindo(false)}
+          />
+        </div>
         <BuscarRota
           fix={data.fix}
           rota={data.rota}
@@ -222,10 +339,10 @@ export function Mapa({ data, status }: TileView<MapaState>) {
             setNavegando((v) => !v);
           }}
         >
-          {navegando ? "ver de cima" : "seguir"}
+          {navegando ? "norte no topo" : "girar com o carro"}
         </button>
       ) : (
-        // Sem Map ID não há como inclinar nem girar. Dizer isso é melhor que
+        // Sem Map ID não há como girar o mapa. Dizer isso é melhor que
         // deixar o usuário achar que o modo navegação está quebrado.
         <span className="mapa__aviso">sem Map ID vetorial — mapa chapado</span>
       )}

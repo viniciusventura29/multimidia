@@ -9,10 +9,13 @@
 
 pub mod fix;
 pub mod guia;
+pub mod parada;
 pub mod pushed;
+pub mod sol;
 pub mod source;
 
 pub use fix::Fix;
 pub use guia::{Guia, Passo, Progresso, Route};
+pub use parada::FiltroDeParada;
 pub use pushed::{Emissor, PushedLocation, Receptor};
 pub use source::{GpsError, LocationSource};

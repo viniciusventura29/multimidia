@@ -11,12 +11,30 @@
 //! Maps JavaScript API venceu o SDK nativo, que seria uma View Java *fora* da
 //! nossa árvore e exigiria recortar um buraco transparente no WebView.
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_gps::{Fix, Guia, LocationSource, Progresso, Route};
+use eclipse_gps::{sol, FiltroDeParada, Fix, Guia, LocationSource, Progresso, Route};
 use serde::Serialize;
 
 pub const NAV: ModuleId = ModuleId::new("nav");
+
+/// Onde assumir que o carro está enquanto o GPS não fixa — a mesma São Paulo
+/// do `CENTRO_PADRAO` do frontend, para o tema inicial casar com o mapa
+/// inicial. Erra o tema por minutos em outra cidade; o primeiro fix corrige.
+const CENTRO_PADRAO: (f64, f64) = (-23.5505, -46.6333);
+
+/// De quanto em quanto tempo reavaliar o tema sem depender de fix novo —
+/// parado na garagem o sol se põe do mesmo jeito.
+const RELOGIO_DO_SOL: Duration = Duration::from_secs(60);
+
+fn agora_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,9 +46,9 @@ struct Mapa {
     /// sigilo, é o teto de cota configurado no Google Cloud.
     api_key: String,
 
-    /// O Map ID. Sem ele o mapa é raster, e mapa raster **ignora** `tilt` e
-    /// `heading` — fica sempre chapado, olhando para o norte. Inclinar e girar
-    /// para o sentido da marcha exige um Map ID configurado como vetorial.
+    /// O Map ID. Sem ele o mapa é raster, e mapa raster **ignora** `heading` —
+    /// fica sempre olhando para o norte. Girar para o sentido da marcha exige
+    /// um Map ID configurado como vetorial.
     map_id: Option<String>,
 
     /// Onde o carro está. `None` enquanto o GPS não fixa — e isso é comum:
@@ -50,6 +68,11 @@ struct Mapa {
     /// de sequência do envelope: a tela ignora o que já falou, e uma fala
     /// atrasada nunca atropela uma mais recente.
     fala: Option<String>,
+
+    /// O sol já se pôs onde o carro está? Decide o tema do mapa (ver `sol.rs`
+    /// no `eclipse-gps`). Calculado aqui e não na tela porque é aqui que dá
+    /// para testar — e o painel inteiro lê estado, não relógio.
+    noite: bool,
 }
 
 pub struct NavModule {
@@ -57,6 +80,10 @@ pub struct NavModule {
     map_id: Option<String>,
     gps: Box<dyn LocationSource>,
     guia: Option<Guia>,
+    /// Congela a posição com o carro parado — sem ele, o jitter do GPS
+    /// (dezenas de metros em Wi-Fi) faz o carro sambar no mapa e o progresso
+    /// da rota tremer no semáforo. Ver `parada.rs` no `eclipse-gps`.
+    filtro: FiltroDeParada,
 }
 
 impl NavModule {
@@ -70,6 +97,7 @@ impl NavModule {
             map_id,
             gps,
             guia: None,
+            filtro: FiltroDeParada::novo(),
         }
     }
 }
@@ -93,13 +121,18 @@ impl Module for NavModule {
             rota: None,
             progresso: None,
             fala: None,
+            noite: sol::e_noite(CENTRO_PADRAO.0, CENTRO_PADRAO.1, agora_unix()),
         };
         ctx.ready(&estado);
+
+        let mut relogio = tokio::time::interval(RELOGIO_DO_SOL);
 
         loop {
             tokio::select! {
                 posicao = self.gps.next_fix() => match posicao {
                     Ok(fix) => {
+                        let fix = self.filtro.filtrar(fix);
+                        estado.noite = sol::e_noite(fix.lat, fix.lon, agora_unix());
                         match self.guia.as_mut() {
                             Some(guia) => {
                                 let (progresso, fala) = guia.avaliar(&fix);
@@ -117,6 +150,21 @@ impl Module for NavModule {
                     // Perder sinal não apaga o mapa: ele fica no último ponto
                     // conhecido, esmaecido, como todo bom navegador faz no túnel.
                     Err(err) => ctx.degraded(err.to_string()),
+                },
+
+                // Parado na garagem não chega fix novo, mas o sol se põe do
+                // mesmo jeito — o relógio reavalia o tema. Só publica na
+                // virada: acordar a UI a cada minuto seria IPC à toa.
+                _ = relogio.tick() => {
+                    let (lat, lon) = estado
+                        .fix
+                        .map(|f| (f.lat, f.lon))
+                        .unwrap_or(CENTRO_PADRAO);
+                    let noite = sol::e_noite(lat, lon, agora_unix());
+                    if noite != estado.noite {
+                        estado.noite = noite;
+                        ctx.ready(&estado);
+                    }
                 },
 
                 comando = ctx.next_command() => match comando {

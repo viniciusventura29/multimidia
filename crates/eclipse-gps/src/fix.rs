@@ -13,6 +13,12 @@ pub struct Fix {
     /// zerar, senão o mapa rodaria sozinho em cada semáforo.
     pub heading: f32,
     pub speed_kmh: f32,
+    /// Raio de incerteza relatado pelo provedor (o círculo de 68%), em metros.
+    ///
+    /// GPS de verdade dá unidades; geolocalização por Wi-Fi dá dezenas. É o que
+    /// dimensiona a zona morta do [`FiltroDeParada`](crate::FiltroDeParada) —
+    /// um raio fixo que servisse para o Wi-Fi engoliria movimento real no GPS.
+    pub accuracy_m: f32,
 }
 
 /// Rumo do ponto `a` para o ponto `b`, em graus.

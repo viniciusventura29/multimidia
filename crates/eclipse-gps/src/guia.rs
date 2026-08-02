@@ -308,6 +308,7 @@ mod tests {
             lon,
             heading: 315.0,
             speed_kmh: 40.0,
+            accuracy_m: 10.0,
         }
     }
 
