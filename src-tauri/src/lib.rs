@@ -428,12 +428,14 @@ fn push_location(
     lon: f64,
     heading: f32,
     speed_kmh: f32,
+    accuracy_m: f32,
 ) {
     let _ = canal.0.send(Ok(eclipse_gps::Fix {
         lat,
         lon,
         heading,
         speed_kmh,
+        accuracy_m,
     }));
 }
 

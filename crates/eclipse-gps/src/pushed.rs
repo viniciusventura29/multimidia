@@ -70,6 +70,7 @@ mod tests {
             lon,
             heading: 90.0,
             speed_kmh: 0.0,
+            accuracy_m: 10.0,
         }
     }
 

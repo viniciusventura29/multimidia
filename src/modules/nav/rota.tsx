@@ -65,12 +65,15 @@ export function BuscarRota({
     if (!map) return;
 
     desenho.current ??= new google.maps.Polyline({
-      map,
       strokeColor: "#4da3ff",
       strokeOpacity: 0.75,
       strokeWeight: 9,
       zIndex: 1,
     });
+
+    // Religa em vez de criar presa ao mapa: a troca de tema (dia/noite)
+    // destrói e recria a instância, e a rota precisa sobreviver a isso.
+    desenho.current.setMap(map);
 
     desenho.current.setPath(
       (rota?.pontos ?? []).map(([lat, lng]) => ({ lat, lng })),

@@ -3,6 +3,8 @@ export interface Fix {
   lon: number;
   heading: number;
   speedKmh: number;
+  /** Raio de incerteza relatado pelo provedor, em metros. */
+  accuracyM: number;
 }
 
 export interface Passo {
@@ -41,4 +43,6 @@ export interface MapaState {
   rota: Rota | null;
   progresso: Progresso | null;
   fala: string | null;
+  /** O sol já se pôs onde o carro está? Decide o tema do mapa. */
+  noite: boolean;
 }

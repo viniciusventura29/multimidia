@@ -26,7 +26,7 @@ export function useLocalizacaoReal(): void {
 
     const id = navigator.geolocation.watchPosition(
       (posicao) => {
-        const { latitude, longitude, heading, speed } = posicao.coords;
+        const { latitude, longitude, heading, speed, accuracy } = posicao.coords;
 
         // Só aceita rumo novo quando há movimento de verdade. Parado, o GPS
         // devolve `heading` não-nulo porém ruidoso (gira sozinho a cada
@@ -45,6 +45,10 @@ export function useLocalizacaoReal(): void {
           // como zero é o mesmo "sem sinal de movimento" que o simulador
           // aplicava ao carro parado no semáforo.
           speedKmh: (speed ?? 0) * 3.6,
+          // Quem segura o carro parado é o Rust (FiltroDeParada), e a zona
+          // morta dele é dimensionada por esta incerteza — Wi-Fi espalha
+          // dezenas de metros, GPS bom espalha unidades.
+          accuracyM: accuracy,
         }).catch((err) => console.error("[eclipse] falha ao repassar posição", err));
       },
       (erro) => {

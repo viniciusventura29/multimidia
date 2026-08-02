@@ -2414,6 +2414,52 @@ body {
   backdrop-filter: blur(4px);
 }
 
+/* Uma coluna só para os botões do mapa (POIs, zoom, rota, recentrar), acima
+   do botão de modo. Empilhados à direita não disputam lugar com a manobra
+   (topo inteiro) nem com a busca (embaixo à esquerda). */
+.mapa__ferramentas {
+  position: absolute;
+  right: 0.7rem;
+  bottom: 3.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+/* A mesma receita do botão de modo — mínimo de 2,4 rem porque é dedo de
+   motorista, e fundo escuro que continua legível sobre o mapa claro de dia. */
+.mapa__botao,
+.mapa__recentrar {
+  min-height: 2.4rem;
+  min-width: 2.4rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(7, 9, 13, 0.78);
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+.mapa__botao:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mapa__botao--ativo {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Destacado: é o caminho de volta depois de arrastar o mapa. */
+.mapa__recentrar {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: 0.76rem;
+}
+
 /* O carro fica parado no centro e o mundo gira em volta, como num navegador. */
 .mapa__carro {
   position: absolute;
