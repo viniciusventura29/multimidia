@@ -173,68 +173,89 @@ export function Carrinho({ painel }: { painel: ModuleStates }) {
 
           <g className="carrinho__corpo">
             {/*
-              Proporção de brinquedo, não de fotografia. Três coisas fazem o
-              carisma, e as três são deliberadas:
+              O Eclipse 3G, e não um carrinho genérico. A silhueta é o que
+              identifica: cunha baixa e comprida, nariz caído, para-brisa muito
+              deitado, teto curto que desce em fastback até uma rabeta alta —
+              e a asa em cima dela, que é o traço que mais entrega o carro.
 
-              1. Rodas grandes demais para o corpo (raio 15 num carro de 46 de
-                 altura). Roda em escala real deixa o desenho sério.
-              2. Corpo preenchido, e não contorno fino. Linha fina lê como
-                 desenho técnico; forma cheia lê como ilustração.
-              3. Um farol grande e redondo na frente — o olho lê como olho, e é
-                 daí que vem a impressão de que o carro tem cara.
+              O estilo continua sendo ilustração e não diagrama: forma
+              preenchida, traço grosso arredondado e roda maior que a escala
+              real pediria. É o que separa "personagem" de "manual de oficina".
+            */}
+
+            {/* A asa, atrás e por baixo da lataria para os montantes sumirem
+                dentro dela. */}
+            <path className="carrinho__asa" d="M 11,39 L 37,36" />
+            <path className="carrinho__asa-pe" d="M 18,38 L 19,44 M 31,37 L 32,42" />
+
+            {/*
+              A proporção que identifica o carro é a **cabine recuada**: capô
+              longo, vidro curto e empurrado para trás, rabeta curta. Uma versão
+              anterior espalhou o vidro por toda a distância entre eixos e o
+              desenho virou um sedã genérico na hora.
             */}
             <path
               className="carrinho__lata"
-              d="M 20,64
-                 C 20,52 23,46 33,43
-                 L 52,40
-                 C 60,22 78,16 100,16
-                 L 118,16
-                 C 140,18 153,26 163,40
-                 L 172,44
-                 C 179,47 181,54 181,64
+              d="M 12,68
+                 C 10,58 13,50 20,46
+                 L 30,43
+                 C 40,33 53,29 69,28
+                 L 84,28
+                 C 101,30 114,37 127,46
+                 L 150,49
+                 C 170,52 184,58 188,68
                  Z"
             />
 
-            {/* Um vidro só, grande e arredondado — dois vidrinhos separados
-                puxam o desenho de volta para o realismo. */}
+            {/* Vidro deitado, curto e recuado. */}
             <path
               className="carrinho__vidro"
-              d="M 60,39 C 67,26 82,21 100,21 L 116,21 C 134,23 145,29 153,39 Z"
+              d="M 40,43 C 50,35 60,32 71,32 L 84,32 C 99,34 110,40 120,46 Z"
             />
-            <path className="carrinho__pilar" d="M 106,22 L 106,39" />
-            {/* O brilhinho no vidro: truque velho de ilustração, custa uma linha. */}
-            <path className="carrinho__brilho" d="M 72,36 L 84,25" />
+            <path className="carrinho__pilar" d="M 78,32 L 78,45" />
+            <path className="carrinho__brilho" d="M 52,40 L 64,33" />
 
-            <path className="carrinho__retrovisor" d="M 156,36 L 164,33" />
+            {/* O para-lama traseiro estufado — a marca registrada do 3G. */}
+            <path className="carrinho__anca" d="M 26,52 C 34,45 46,43 60,46" />
+            <path className="carrinho__porta" d="M 78,46 L 76,66" />
+            <path className="carrinho__retrovisor" d="M 129,43 L 137,40" />
 
-            {/* O farol. Grande e redondo de propósito — é o olho do bicho. */}
-            <circle className="carrinho__farol" cx="170" cy="52" r="6.5" />
-            <circle className="carrinho__farol-luz" cx="172" cy="50" r="2" />
+            {/* Farol repuxado para trás, não redondo: é ele que dá o olhar de
+                carro esportivo. Continua piscando. */}
+            <path
+              className="carrinho__farol"
+              d="M 157,52 C 165,51 174,54 180,58 C 172,60 163,58 156,56 Z"
+            />
+            <path className="carrinho__farol-luz" d="M 162,53 C 168,53 173,55 177,57" />
 
-            {/* A lanterna fica para dentro da borda: em cima dela, o traço
-                grosso da carroceria a engolia. */}
-            <rect className="carrinho__lanterna" x="24" y="47" width="7" height="8" rx="3.5" />
-            <rect className="carrinho__freio" x="24" y="47" width="7" height="8" rx="3.5" />
+            {/* A entrada de ar embaixo do para-choque. */}
+            <rect className="carrinho__admissao" x="163" y="62" width="16" height="4" rx="2" />
+
+            <rect className="carrinho__lanterna" x="13" y="49" width="10" height="6" rx="2.5" />
+            <rect className="carrinho__freio" x="13" y="49" width="10" height="6" rx="2.5" />
           </g>
 
           {/* Rodas fora do grupo da carroceria: elas giram, ele mergulha. */}
           <g className="carrinho__eixo">
-            <circle className="carrinho__pneu" cx="58" cy="64" r="15" />
-            <g className="carrinho__roda" style={{ transformOrigin: "58px 64px" }}>
-              <circle className="carrinho__aro" cx="58" cy="64" r="7" />
+            <circle className="carrinho__pneu" cx="48" cy="65" r="15" />
+            <g className="carrinho__roda" style={{ transformOrigin: "48px 65px" }}>
+              <circle className="carrinho__aro" cx="50" cy="65" r="8.5" />
+              {/* Cinco raios, e não três: a roda de muitos raios é metade do
+                  visual do carro nas fotos. */}
               <path
                 className="carrinho__raio"
-                d="M58,64 L58,56 M58,64 L64.9,68 M58,64 L51.1,68"
+                d="M48,65 L48,56.5 M48,65 L56.1,67.6 M48,65 L53,58.1
+                   M48,65 L43,58.1 M48,65 L39.9,67.6"
               />
             </g>
 
-            <circle className="carrinho__pneu" cx="146" cy="64" r="15" />
-            <g className="carrinho__roda" style={{ transformOrigin: "146px 64px" }}>
-              <circle className="carrinho__aro" cx="146" cy="64" r="7" />
+            <circle className="carrinho__pneu" cx="150" cy="65" r="15" />
+            <g className="carrinho__roda" style={{ transformOrigin: "150px 65px" }}>
+              <circle className="carrinho__aro" cx="152" cy="65" r="8.5" />
               <path
                 className="carrinho__raio"
-                d="M146,64 L146,56 M146,64 L152.9,68 M146,64 L139.1,68"
+                d="M150,65 L150,56.5 M150,65 L158.1,67.6 M150,65 L155,58.1
+                   M150,65 L145,58.1 M150,65 L141.9,67.6"
               />
             </g>
           </g>

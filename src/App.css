@@ -735,6 +735,34 @@ body {
   opacity: 0.55;
 }
 
+/* A asa. Traço grosso e arredondado para ler como uma peça sólida em cima da
+   tampa, e não como um risco solto no ar. */
+.carrinho__asa {
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.carrinho__asa-pe {
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* O para-lama traseiro estufado. */
+.carrinho__anca {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.carrinho__admissao {
+  fill: #0d1016;
+  opacity: 0.8;
+}
+
 .carrinho__brilho {
   stroke: #fff;
   stroke-width: 2.5;
@@ -760,9 +788,14 @@ body {
   animation: ia-piscar 6.5s ease-in-out infinite;
 }
 
+/* O reflexo dentro do farol — agora é traço, e não bolinha, porque o farol
+   virou uma amêndoa deitada. */
 .carrinho__farol-luz {
-  fill: #fff;
-  opacity: 0.75;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.7;
   transform-box: fill-box;
   transform-origin: center;
   animation: ia-piscar 6.5s ease-in-out infinite;
