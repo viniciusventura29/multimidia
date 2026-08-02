@@ -142,6 +142,9 @@ impl ProvedorCarro {
 
         let rpm = d["rpm"].as_u64();
         let velocidade = d["speedKmh"].as_u64();
+        let consumo = &d["consumo"];
+        let tanque = &d["tanque"];
+        let viagem = &d["viagem"];
 
         json!({
             "disponivel": motivo.is_none(),
@@ -149,14 +152,43 @@ impl ProvedorCarro {
             "rpm": rpm,
             "velocidade_kmh": velocidade,
             "temperatura_motor_c": d["coolantC"].as_i64(),
-            "combustivel_pct": d["fuelPct"].as_u64(),
             "tensao_bateria_v": d["voltage"].as_f64(),
             "motor_ligado": rpm.map(|r| r > 0),
             "andando": velocidade.map(|v| v > 0),
+
+            // Nada aqui vem pronto do barramento: o consumo sai do fluxo de ar
+            // por uma cascata de fontes, e os litros são integrados. O `medido`
+            // diz se houve sensor de verdade ou modelo — e é ele que decide
+            // como o número pode ser dito.
+            "consumo": {
+                "km_por_litro": consumo["instantaneoKmL"].as_f64(),
+                "litros_por_hora": consumo["litrosHora"].as_f64(),
+                "medido": consumo["medido"].as_bool(),
+                "origem": consumo["metodo"].as_str(),
+            },
+            "tanque": {
+                "litros": tanque["litros"].as_f64(),
+                "pct": tanque["pct"].as_f64(),
+                "capacidade_l": tanque["capacidadeL"].as_f64(),
+                "autonomia_km": tanque["autonomiaKm"].as_f64(),
+                "media_do_tanque_km_l": tanque["mediaTanqueKmL"].as_f64(),
+                "medido": tanque["medido"].as_bool(),
+            },
+            "viagem": {
+                "distancia_km": viagem["distanciaKm"].as_f64(),
+                "media_km_l": viagem["mediaKmL"].as_f64(),
+                "litros": viagem["litros"].as_f64(),
+            },
+
             "leia_assim": "campo nulo quer dizer que aquele PID ainda não voltou do \
                 barramento — o Eclipse 2000 é ISO 9141-2 e entrega 1 a 3 leituras por \
                 segundo, então os lentos demoram alguns segundos. Nulo não é zero. \
-                Com `disponivel: false` os números são a última leitura boa, não a de agora.",
+                Com `disponivel: false` os números são a última leitura boa, não a de agora.\n\n\
+                CONSUMO E TANQUE COM `medido: false` SÃO ESTIMATIVA, não medição — a vazão \
+                foi modelada a partir de carga ou pressão do coletor, e os litros foram \
+                integrados no tempo. Nesse caso diga `cerca de`, `por volta de` ou `~`, e \
+                nunca dê o número como fato. Autonomia é sempre conta, então nunca mande \
+                ninguém contar com ela para chegar num lugar exato.",
         })
     }
 
@@ -299,9 +331,11 @@ impl Provedor for ProvedorCarro {
             ),
             sem_argumentos(
                 "carro_telemetria",
-                "Chame antes de comentar qualquer coisa sobre o carro — motor, combustível, \
-                 temperatura, bateria, se está andando. Devolve a leitura mais recente do \
-                 ELM327 pelo OBD-II.",
+                "Chame antes de comentar qualquer coisa sobre o carro — motor, temperatura, \
+                 bateria, consumo, quanto tem de gasolina, quantos km ainda dá, e como está \
+                 a média da viagem. Devolve a leitura mais recente do ELM327 pelo OBD-II. \
+                 Repare no campo `medido` de consumo e tanque: quando é `false`, o número é \
+                 estimado e não pode ser dito como fato.",
             ),
             sem_argumentos(
                 "carro_localizacao",
@@ -382,7 +416,17 @@ mod tests {
     fn obd_normal() -> Value {
         json!({
             "rpm": 2500, "speedKmh": 62, "coolantC": 88,
-            "fuelPct": 45, "voltage": 14.1
+            "fuelPct": 45, "voltage": 14.1,
+            "consumo": {
+                "instantaneoKmL": 11.4, "litrosHora": 5.4,
+                "metodo": "maf", "medido": true
+            },
+            "tanque": {
+                "capacidadeL": 61.0, "litros": 27.5, "pct": 45.1,
+                "faltaParaEncherL": 33.5, "autonomiaKm": 313.0,
+                "mediaTanqueKmL": 11.4, "medido": true
+            },
+            "viagem": { "distanciaKm": 42.0, "duracaoS": 2400, "litros": 3.7, "mediaKmL": 11.3 }
         })
     }
 
@@ -396,6 +440,41 @@ mod tests {
         assert_eq!(r["temperatura_motor_c"], 88);
         assert_eq!(r["motor_ligado"], true);
         assert_eq!(r["andando"], true);
+    }
+
+    /// O `main` trouxe consumo, tanque e autonomia. Sem expor isso, a
+    /// ferramenta continuaria dizendo que sabe falar de combustível e não
+    /// saberia responder "dá para chegar lá?".
+    #[tokio::test]
+    async fn telemetria_entrega_consumo_tanque_e_autonomia() {
+        let p = provedor(vec![envelope("obd", Status::Ready, obd_normal())]);
+        let r = p.chamar("carro_telemetria", &json!({})).await.unwrap();
+
+        assert_eq!(r["consumo"]["km_por_litro"], 11.4);
+        assert_eq!(r["tanque"]["autonomia_km"], 313.0);
+        assert_eq!(r["tanque"]["litros"], 27.5);
+        assert_eq!(r["viagem"]["media_km_l"], 11.3);
+    }
+
+    /// Estimativa não pode se passar por medição: o modelo precisa ver o
+    /// `medido` para saber quando dizer "cerca de".
+    #[tokio::test]
+    async fn numero_estimado_chega_marcado_como_estimado() {
+        let mut obd = obd_normal();
+        obd["consumo"]["medido"] = json!(false);
+        obd["consumo"]["metodo"] = json!("carga");
+        obd["tanque"]["medido"] = json!(false);
+
+        let p = provedor(vec![envelope("obd", Status::Ready, obd)]);
+        let r = p.chamar("carro_telemetria", &json!({})).await.unwrap();
+
+        assert_eq!(r["consumo"]["medido"], false);
+        assert_eq!(r["consumo"]["origem"], "carga");
+        assert_eq!(r["tanque"]["medido"], false);
+        assert!(
+            r["leia_assim"].as_str().unwrap().contains("ESTIMATIVA"),
+            "o aviso sobre estimativa tem que viajar junto com o número"
+        );
     }
 
     /// O caso que separa "o carro está frio" de "eu não sei ainda".

@@ -346,6 +346,143 @@ body {
 }
 
 /* ------------------------------------------------------------------ */
+/* Dado (rótulo + número + unidade)                                    */
+/* ------------------------------------------------------------------ */
+
+/* O primitivo que era o chip do rodapé da velocidade. Vive aqui, junto do Gauge,
+   porque a tela do carro usa a mesma anatomia uma dúzia de vezes. */
+.dado {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--tile-alto);
+}
+
+.dado__rotulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dado__icone {
+  display: inline-flex;
+  font-size: 1.1em;
+}
+
+.dado__valor {
+  font-size: 1.35rem;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--tom, var(--text));
+  font-variant-numeric: tabular-nums;
+}
+
+.dado__unit {
+  margin-left: 0.15rem;
+  font-size: 0.6em;
+  color: var(--muted);
+}
+
+/* Estimativa: um til discreto e um véu leve. Cor está reservada para limiar —
+   pintar estimativa de amarelo mataria o "amarelo = atenção". */
+.dado__til {
+  margin-right: 0.1rem;
+  color: var(--muted);
+}
+
+.dado--estimado .dado__valor {
+  opacity: 0.82;
+}
+
+.dado--forte .dado__valor {
+  font-size: 2rem;
+}
+
+/* Alerta não é um dado: ele grita. Borda e fundo no tom, e um pulso lento — a
+   visão periférica pega o pulso antes de o motorista virar a cabeça. */
+.dado--alerta {
+  border-color: var(--tom);
+  background: color-mix(in srgb, var(--tom) 16%, var(--tile-alto));
+  animation: alerta-pulsa 1.4s ease-in-out infinite;
+}
+
+.dado--alerta .dado__rotulo {
+  color: var(--tom);
+}
+
+@keyframes alerta-pulsa {
+  50% {
+    background: color-mix(in srgb, var(--tom) 34%, var(--tile-alto));
+  }
+}
+
+/* Degradado manda na cor, como no Gauge: tom de métrica não disfarça "sem sinal". */
+.tile--degraded .dado__valor,
+.tile--degraded .dado__icone {
+  color: var(--warn);
+}
+
+/* ------------------------------------------------------------------ */
+/* Segurar para confirmar                                              */
+/* ------------------------------------------------------------------ */
+
+.segurar {
+  position: relative;
+  overflow: hidden;
+  min-height: 3rem;
+  padding: 0 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--tile-alto);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A barra é retorno, não enfeite: é ela que ensina que existe um tempo a cumprir. */
+.segurar__progresso {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  transition: width 0ms linear;
+}
+
+.segurar--armado .segurar__progresso {
+  width: 100%;
+}
+
+.segurar__rotulo,
+.segurar__dica {
+  position: relative;
+}
+
+.segurar__dica {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------------ */
 /* Velocidade (herói) + RPM encaixado                                  */
 /* ------------------------------------------------------------------ */
 
@@ -377,27 +514,112 @@ body {
   font-size: 1.35rem;
 }
 
-/* RPM e temperatura moram encaixados no rodapé do quadro da velocidade. */
+/* Consumo e autonomia moram encaixados no rodapé do quadro da velocidade. A
+   anatomia de cada um é o `.dado`; aqui só se posiciona — e é aqui que ele espicha,
+   e não no próprio `.dado`, que também vive dentro de colunas e grades. */
 .velo__chips {
   display: flex;
   gap: 0.5rem;
 }
 
-.velo__chip {
+.velo__chips .dado {
   flex: 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Carro em tela cheia                                                 */
+/* ------------------------------------------------------------------ */
+
+/* `flex: 1; min-height: 0` e não `height: 100%`: é a lição da WebView do Android,
+   a mesma que o `.sp` da tela cheia da música documenta. */
+.carro {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.4rem 0.6rem;
+  gap: 0.7rem;
+}
+
+/* Duas faixas: o que se lê de relance em cima, o que se ajusta parado embaixo. */
+.carro__leitura {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-areas:
+    "heroi motor tanque"
+    "heroi motor consumo";
+  grid-template-columns: 1.1fr 0.8fr 1.2fr;
+  grid-template-rows: auto 1fr;
+  gap: 0.7rem;
+}
+
+.carro__heroi {
+  grid-area: heroi;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.9rem;
+}
+
+.carro__motor {
+  grid-area: motor;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.carro__tanque {
+  grid-area: tanque;
+}
+
+.carro__consumo {
+  grid-area: consumo;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.carro__grade {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.carro__viagem,
+.carro__legenda {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.carro__viagem strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* --- Nível do tanque: barra gorda, litros e porcentagem --- */
+
+.tanque {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.6rem 0.8rem;
   border: 1px solid var(--line);
   border-radius: 0.8rem;
   background: var(--tile-alto);
 }
 
-.velo__chip-titulo {
+.tanque__rotulo {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.3rem;
   font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -405,17 +627,158 @@ body {
   color: var(--muted);
 }
 
-.velo__chip-valor {
-  font-size: 1.35rem;
+.tanque__icone {
+  font-size: 1.2em;
+  color: var(--tom);
+}
+
+.tanque__valor {
+  font-size: 1.9rem;
   font-weight: 300;
   line-height: 1;
+  color: var(--tom);
   font-variant-numeric: tabular-nums;
 }
 
-.velo__chip-unit {
-  margin-left: 0.15rem;
-  font-size: 0.6em;
+.tanque__pct {
+  margin-left: 0.6rem;
+  font-size: 0.5em;
   color: var(--muted);
+}
+
+.tanque__trilho {
+  position: relative;
+  height: 1.2rem;
+  border-radius: 0.4rem;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.tanque__nivel {
+  height: 100%;
+  background: var(--tom);
+  transition: width 900ms linear;
+}
+
+/* As marcas são o que torna uma barra de combustível legível sem ler número. */
+.tanque__marca {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(7, 9, 13, 0.55);
+}
+
+.tanque__escala {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* Degradado manda na cor, como em `.tile--degraded .gauge__fill`. */
+.overlay__painel--degraded .tanque__nivel {
+  background: var(--warn);
+}
+
+/* --- Rodapé de ajustes --- */
+
+/* Grade e não flex-wrap: cinco botões de toque não caberiam num flex-basis
+   apertado, e grupos de alturas diferentes se desalinhavam ao quebrar a linha.
+   `auto-fit` com mínimo em rem é a responsividade daqui — numa head unit larga dá
+   uma faixa só, num celular deitado vira duas, sem media query nenhuma. */
+.carro__rodape {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  align-items: end;
+  gap: 0.7rem 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.carro__grupo {
+  min-width: 0;
+}
+
+.carro__aviso {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--warn);
+}
+
+/* --- Stepper --- */
+
+.passo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.passo__rotulo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.passo__hoje {
+  font-size: 0.9em;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.passo__linha {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* ~51px na head unit e ~35px no celular: alvo de dedo, não de mouse. */
+.passo__botao {
+  flex: 0 1 auto;
+  min-width: 2.8rem;
+  min-height: 2.9rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--tile-alto);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.passo__valor {
+  flex: 1 1 4rem;
+  min-width: 0;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+
+.passo__aplicar {
+  align-self: flex-start;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1284,6 +1647,10 @@ body {
   overflow-y: auto;
   /* Rolagem por gesto com inércia na WebView do Android. */
   -webkit-overflow-scrolling: touch;
+  /* Declara o gesto vertical pra WebView e segura o fling aqui dentro, em vez de
+     deixá-lo vazar pro `body` (que tem `overscroll-behavior: none`). */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -1428,6 +1795,14 @@ body {
   position: fixed;
   inset: 0;
   display: grid;
+  /*
+   * `minmax(0, 1fr)`, não a linha implícita `auto`. Linha `auto` é medida pelo
+   * conteúdo: com uma playlist longa a linha ficava mais alta que a tela, o
+   * painel transbordava a viewport e a lista lá dentro recebia altura infinita
+   * — nunca sobrava overflow pra rolar. O `minmax(0, …)` deixa a linha encolher
+   * abaixo do conteúdo, que é o que devolve o scroll pra quem tem overflow.
+   */
+  grid-template-rows: minmax(0, 1fr);
   place-items: stretch;
   /* Mesma safe-area do painel: sem isto o rodapé da tela cheia (a barra do
      "tocando agora", com os controles) ficava atrás da barra do Android. */
@@ -1440,6 +1815,12 @@ body {
 .overlay__painel {
   display: flex;
   flex-direction: column;
+  /* Item de grid nasce com `min-height: auto`, ou seja, se recusa a ficar menor
+     que o conteúdo. Sem este zero o painel volta a crescer pra fora da linha e
+     leva junto o scroll das listas filhas. */
+  min-height: 0;
+  /* Recorta no `border-radius` e impede que qualquer filho estique o painel. */
+  overflow: hidden;
   padding: 1.1rem 1.3rem;
   border: 1px solid var(--line);
   border-radius: 0.9rem;
@@ -1759,6 +2140,12 @@ body {
   .bemvindo {
     animation: none;
   }
+
+  /* O pulso sai, a cor e a borda ficam: o alerta de temperatura continua sendo
+     alerta sem depender de movimento. */
+  .dado--alerta {
+    animation: none;
+  }
 }
 
 .musica__conectar {
@@ -1859,11 +2246,17 @@ body {
   text-align: center;
 }
 
+/* Mesma receita da `.sp-lista`: sem `flex: 1` + `min-height: 0` o thread crescia
+   com as conversas e o `overflow-y` não tinha contra o que rolar. */
 .msg__thread {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .msg__conversa {

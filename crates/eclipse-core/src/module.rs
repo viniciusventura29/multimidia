@@ -179,6 +179,34 @@ impl ModuleCtx {
             }
         }
     }
+
+    /// A próxima ordem, se já houver uma esperando — sem bloquear.
+    ///
+    /// Existe para o módulo cujo trabalho **não pode ser cancelado no meio**. O OBD
+    /// é o caso: a leitura de um PID roda num `spawn_blocking` que escreve no socket
+    /// do ELM327 e espera o `>`, então abandonar esse futuro num `select!` deixaria
+    /// a resposta no buffer e desalinharia a leitura seguinte — o adaptador passaria
+    /// a responder sempre a pergunta anterior. Com isto o módulo lê um PID até o
+    /// fim e só então drena as ações, pagando no máximo uma leitura de latência.
+    pub fn try_next_command(&mut self) -> Option<ModuleCommand> {
+        if let Some(pendente) = self.pendente.take() {
+            return Some(pendente);
+        }
+
+        loop {
+            match self.commands.try_recv() {
+                Ok(ModuleCommand::Action { target, .. }) if target != self.id => continue,
+                Ok(command) => return Some(command),
+                Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
+                    tracing::warn!(module = %self.id, skipped, "módulo perdeu comandos");
+                    continue;
+                }
+                // Vazio e fechado dão no mesmo aqui: não há ordem para agora. Quem
+                // precisa saber que o barramento fechou usa `next_command`.
+                Err(_) => return None,
+            }
+        }
+    }
 }
 
 /// Uma funcionalidade do painel.
@@ -226,5 +254,61 @@ where
 
     fn create(&self) -> Box<dyn Module> {
         Box::new((self.build)())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ModuleId;
+    use serde_json::json;
+
+    fn acao(alvo: &'static str, o_que: &str) -> ModuleCommand {
+        ModuleCommand::Action {
+            target: ModuleId::new(alvo),
+            payload: json!({ "acao": o_que }),
+        }
+    }
+
+    fn qual_acao(command: &ModuleCommand) -> &str {
+        match command {
+            ModuleCommand::Action { payload, .. } => payload["acao"].as_str().unwrap(),
+            _ => panic!("não é ação"),
+        }
+    }
+
+    #[test]
+    fn sem_ordem_na_fila_nao_espera() {
+        let bus = Bus::new(8);
+        let mut ctx = ModuleCtx::new(ModuleId::new("obd"), bus);
+
+        assert!(ctx.try_next_command().is_none());
+    }
+
+    #[test]
+    fn drena_o_que_chegou_enquanto_o_modulo_lia_um_pid() {
+        let bus = Bus::new(8);
+        let mut ctx = ModuleCtx::new(ModuleId::new("obd"), bus.clone());
+
+        // As duas ordens chegam enquanto o módulo está preso no barramento do carro.
+        bus.dispatch(acao("obd", "enchi"));
+        bus.dispatch(acao("obd", "zerar_viagem"));
+
+        assert_eq!(qual_acao(&ctx.try_next_command().unwrap()), "enchi");
+        assert_eq!(qual_acao(&ctx.try_next_command().unwrap()), "zerar_viagem");
+        assert!(ctx.try_next_command().is_none());
+    }
+
+    #[test]
+    fn ordem_de_outro_modulo_nao_para_a_drenagem() {
+        let bus = Bus::new(8);
+        let mut ctx = ModuleCtx::new(ModuleId::new("obd"), bus.clone());
+
+        bus.dispatch(acao("music", "tocar"));
+        bus.dispatch(acao("obd", "enchi"));
+
+        // A ação do vizinho é descartada em silêncio, e a nossa continua achável:
+        // se o `continue` virasse `return None`, o toque do usuário se perderia.
+        assert_eq!(qual_acao(&ctx.try_next_command().unwrap()), "enchi");
     }
 }

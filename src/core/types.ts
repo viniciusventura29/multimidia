@@ -32,7 +32,78 @@ export interface ObdReadings {
   coolantC: number | null;
   fuelPct: number | null;
   voltage: number | null;
+  /** Massa de ar admitida, em g/s. A entrada da conta de consumo. */
+  mafGs: number | null;
+  cargaPct: number | null;
+  mapKpa: number | null;
+  iatC: number | null;
+  /** Vazão que o próprio carro calcula. Raro antes de 2010. */
+  vazaoLh: number | null;
+  consumo: Consumo;
+  tanque: Tanque;
+  viagem: Viagem;
+  capacidades: Capacidades;
+  /** Como o adaptador descreve o barramento negociado. Só para o diagnóstico. */
+  protocolo: string | null;
 }
+
+/**
+ * Consumo, calculado no Rust.
+ *
+ * `medido` é `false` quando a vazão foi modelada a partir de carga ou pressão do
+ * coletor em vez de medida por um sensor de massa de ar. A tela marca esses números
+ * com `~`: dizer "11,4 km/l" com a mesma cara nos dois casos seria mentir sobre a
+ * precisão.
+ */
+export interface Consumo {
+  /** `null` com o carro parado: km/l não existe a 0 km/h — aí só existe `litrosHora`. */
+  instantaneoKmL: number | null;
+  litrosHora: number | null;
+  metodo: "direto" | "maf" | "coletor" | "carga" | "indisponivel";
+  medido: boolean;
+}
+
+export interface Tanque {
+  capacidadeL: number;
+  litros: number | null;
+  /** Derivada dos litros estimados — combina com a barra, ao contrário de `fuelPct`. */
+  pct: number | null;
+  /** Quanto cabe até encher. Vem pronto para a tela não fazer conta. */
+  faltaParaEncherL: number | null;
+  autonomiaKm: number | null;
+  mediaTanqueKmL: number | null;
+  calibracao: number;
+  /** O nível vem do PID do carro **e** a estimativa já convergiu com ele. */
+  medido: boolean;
+}
+
+export interface Viagem {
+  distanciaKm: number;
+  duracaoS: number;
+  litros: number;
+  mediaKmL: number | null;
+}
+
+/** O que este carro respondeu na máscara de PIDs suportados. */
+export interface Capacidades {
+  /** Em hex de dois dígitos: `["04","05","0C","0D"]`. */
+  pids: string[];
+  descoberto: boolean;
+}
+
+/**
+ * O que a tela pode pedir ao módulo `obd`. Espelho do enum de ações do Rust.
+ *
+ * Tipado porque são cinco ações que mudam número em que o motorista confia: errar o
+ * nome de uma chave falharia em silêncio do outro lado.
+ */
+export type AcaoObd =
+  | { acao: "enchi" }
+  | { acao: "abasteci"; litros: number }
+  | { acao: "nivel"; litros: number }
+  | { acao: "tanque"; capacidadeL: number }
+  | { acao: "calibrar"; fator: number }
+  | { acao: "zerarViagem" };
 
 export interface NowPlaying {
   track: string;

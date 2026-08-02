@@ -164,7 +164,12 @@ impl Alerta {
     fn valor(self, obd: &Value) -> Option<f64> {
         match self {
             Self::TemperaturaAlta => obd["coolantC"].as_f64(),
-            Self::CombustivelBaixo => obd["fuelPct"].as_f64(),
+            // O `tanque.pct` estimado antes do `fuelPct` cru: é ele que casa
+            // com a barra que o motorista vê, e ele existe mesmo em carro que
+            // não responde o PID de nível. O cru fica de reserva.
+            Self::CombustivelBaixo => obd["tanque"]["pct"]
+                .as_f64()
+                .or_else(|| obd["fuelPct"].as_f64()),
             Self::TensaoBaixa => obd["voltage"].as_f64(),
         }
     }
@@ -305,10 +310,14 @@ mod tests {
         )
     }
 
+    /// `fuel` entra pelo `tanque.pct`, que é a fonte que o detector prefere.
     fn obd(temp: Option<f64>, fuel: Option<f64>, volt: Option<f64>) -> StateEnvelope {
         env(
             "obd",
-            json!({ "coolantC": temp, "fuelPct": fuel, "voltage": volt }),
+            json!({
+                "coolantC": temp, "voltage": volt, "fuelPct": null,
+                "tanque": { "pct": fuel }
+            }),
         )
     }
 
@@ -402,6 +411,16 @@ mod tests {
         assert!(d.observar(&obd(Some(95.0), None, None)).is_none());
         // E agora pode acender de novo.
         assert!(d.observar(&obd(Some(106.0), None, None)).is_some());
+    }
+
+    /// Carro que não responde o PID de nível ainda tem a estimativa do tanque —
+    /// e carro que responde tem as duas. O detector prefere a estimativa,
+    /// porque é ela que casa com a barra da tela.
+    #[test]
+    fn combustivel_cai_para_o_pid_cru_quando_nao_ha_estimativa() {
+        let mut d = Detector::novo();
+        let so_cru = env("obd", json!({ "fuelPct": 12.0, "tanque": { "pct": null } }));
+        assert!(d.observar(&so_cru).is_some());
     }
 
     #[test]
