@@ -12,3 +12,8 @@
 
 # Client ID do Spotify embutido pelo build.rs (fora do git)
 /spotify_client_id.txt
+
+# As duas chaves do assistente. Estas gastam dinheiro — ao contrário da do
+# Maps, que é pública por natureza e se defende com cota. Fora do git sempre.
+/anthropic_api_key.txt
+/openrouter_api_key.txt
