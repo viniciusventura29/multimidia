@@ -30,6 +30,18 @@ pub struct Config {
     pub sistema: String,
     /// Teto de idas e voltas com a API num turno.
     pub max_iteracoes: usize,
+    /// Teto de tokens de entrada somados num turno.
+    ///
+    /// O `max_iteracoes` limita as idas e voltas, não o tamanho delas — e o que
+    /// custa caro é o tamanho. A busca web com filtragem dinâmica traz o
+    /// conteúdo das páginas para dentro do contexto, e uma página longa põe
+    /// dezenas de milhares de tokens num turno só: um caso medido em produção
+    /// chegou a 150 mil de entrada, ~US$ 1,37 num turno de Opus.
+    ///
+    /// Aqui o corte é nosso e é duro. Se o modelo já pintou quando o teto
+    /// estoura, o quadro vale; se não pintou, o turno vira erro — e é melhor
+    /// perder um comentário sobre a estrada do que a fatura do mês.
+    pub max_tokens_turno: u64,
     /// Validação estrita do esquema das ferramentas.
     ///
     /// Fica configurável para poder ser desligado pelo `assistente.json`, sem
@@ -45,7 +57,16 @@ impl Config {
         Self {
             modelo,
             sistema: sistema_padrao(),
-            max_iteracoes: 8,
+            // Seis, e não oito: cada ida reenvia a conversa inteira, então as
+            // últimas são as mais caras. Seis dá espaço para consultar,
+            // pesquisar, pintar e refinar uma vez.
+            max_iteracoes: 6,
+            // Rede de segurança, não controle principal — quem segura o
+            // tamanho é o `max_content_tokens` do `web_fetch`. Precisa ser
+            // folgado: cada ida reenvia a conversa inteira, então três idas de
+            // pesquisa somam 60–70 mil naturalmente. Com 40 mil o corte pegava
+            // a assistente no meio do trabalho e deixava rascunho na tela.
+            max_tokens_turno: 120_000,
             estrito: true,
             mcp_remotos: Vec::new(),
         }
@@ -261,6 +282,9 @@ impl Agente {
                 container = Some(id.to_string());
             }
 
+            let entrada_total = uso.entrada + uso.cache_escrita + uso.cache_leitura;
+            let estourou = entrada_total > self.config.max_tokens_turno;
+
             let conteudo = resposta.get("content").cloned().unwrap_or_else(|| json!([]));
             let parada = resposta["stop_reason"].as_str().unwrap_or("");
 
@@ -321,6 +345,19 @@ impl Agente {
                         }));
                     }
 
+                    // Encerrar o turno na primeira pintura foi tentado, e foi
+                    // pior. O modelo trabalha rascunhando: pinta um esboço,
+                    // olha, e refina — e como só o último quadro vale, isso
+                    // sempre funcionou. Cortar na primeira pintura não elimina o
+                    // rascunho, só congela ele na tela: as medições devolveram
+                    // `{"titulo":"placeholder","pontos":[]}` e
+                    // `{"rotulo":"tipo","valor":"—"}` como resposta final.
+                    //
+                    // O custo se controla no tamanho (`max_tokens_turno`, o
+                    // `max_content_tokens` da busca) e no número de idas
+                    // (`max_iteracoes`) — não interrompendo o método de trabalho
+                    // dele no meio.
+
                     // TODOS os resultados numa mensagem só. Espalhar em várias
                     // mensagens de user ensina o modelo a parar de pedir
                     // ferramentas em paralelo.
@@ -333,6 +370,20 @@ impl Agente {
                     break;
                 }
             }
+
+            // O corte por tamanho vem no fim da volta, e não no começo: as
+            // ferramentas pendentes já foram executadas acima, e executá-las é
+            // de graça — inclusive `pintar_quadro`. O que custa é a requisição
+            // seguinte, e é ela que não sai.
+            if estourou {
+                tracing::warn!(
+                    entrada_total,
+                    teto = self.config.max_tokens_turno,
+                    "turno cortado por tamanho — a pesquisa trouxe conteúdo demais"
+                );
+                terminou = true;
+                break;
+            }
         }
 
         let quadro = self.quadro.tomar();
@@ -341,6 +392,20 @@ impl Agente {
         // Falhar sem quadro é falha de verdade — gastou token e não produziu
         // tela; falhar com quadro é só o fim de um turno que já entregou.
         if quadro.is_none() {
+            // Turno que falha gastou token igual. Sem esta linha o consumo dele
+            // some junto com o erro — e foi exatamente o que aconteceu no
+            // primeiro 400 de verdade: deu para ver que falhou, não quanto
+            // custou.
+            if falha.is_some() || !terminou {
+                tracing::warn!(
+                    iteracoes,
+                    entrada = uso.entrada,
+                    saida = uso.saida,
+                    cache_leitura = uso.cache_leitura,
+                    cache_escrita = uso.cache_escrita,
+                    "turno sem quadro; o consumo abaixo foi gasto do mesmo jeito",
+                );
+            }
             if let Some(err) = falha {
                 return Err(err);
             }
@@ -380,6 +445,10 @@ viagem está longa. O que você pintar fica na tela até a próxima vez.
 Nada do que você escrever como texto aparece para ninguém. A ÚNICA saída é a ferramenta \
 `pintar_quadro`. Turno que termina sem chamá-la é turno perdido.
 
+O que você pinta aparece na tela imediatamente, e o turno pode ser interrompido a qualquer \
+momento por limite de tempo ou de custo. Então **nunca pinte rascunho nem placeholder**: \
+pesquise primeiro, pinte uma vez, com o conteúdo pronto.
+
 ANTES DE ESCREVER
 Chame `contexto_agora` sempre — você não tem relógio próprio, e sábado de manhã pede uma \
 coisa que terça à noite não pede. Chame as ferramentas do carro antes de comentar qualquer \
@@ -387,9 +456,31 @@ coisa sobre o carro, e nunca invente número de telemetria. Se houver destino tr
 pesquise sobre ele: como está o tempo lá, como está o caminho, o que existe por perto.
 
 COMO ESCREVER
-Português do Brasil, direto. Sem saudação formal, sem se apresentar, sem emoji. Frases \
-curtas: a coluna é estreita e quem lê está dirigindo. No máximo {MAXIMO_CARTOES} cartões, o \
-mais importante primeiro. Número que importa vira cartão `metrica`, não frase.
+Português do Brasil, direto. Sem saudação formal, sem se apresentar, sem emoji.
+
+**Seja econômico. Este é o ponto mais importante.** O teto é {MAXIMO_CARTOES} cartões, mas \
+dois quase sempre são melhores que três, e um bom cartão é melhor que dois medianos. O teto \
+é teto, não meta. Cada cartão tem que ganhar o seu lugar: se você tirasse ele, o motorista \
+perderia alguma coisa? Se não, não ponha.
+
+**Um cartão de texto é UMA frase, de no máximo 20 palavras.** Não duas frases curtas: uma. \
+A coluna tem a largura de um celular em pé, e cada linha a mais empurra o resto para fora \
+da tela.
+
+Assim, não:
+\"Cidade em pleno inverno: máximas perto de 19°C e mínimas que caem a 6°C, podendo beirar \
+zero de madrugada. Mês seco, quase não chove. Leve agasalho pesado.\"
+
+Assim, sim:
+\"Mínima de 6°C de madrugada, e seco. Leve agasalho pesado.\"
+
+Corte o que o motorista já sabe (que é inverno), o que não muda decisão nenhuma (a média \
+de chuva do mês) e o que é detalhe de origem (\"não consigo ler o OBD porque só funciona no \
+Android\" — basta \"sem leitura do carro agora\").
+
+**Nunca diga a mesma coisa duas vezes.** Se a temperatura já está na frase, não faça um \
+cartão de métrica com ela. Se o clima já está no aviso, não faça um cartão de clima. \
+Escolha o melhor formato para cada informação e use só ele.
 
 Não narre o que você fez (\"consultei a telemetria e...\"). Não peça desculpas. Não ofereça \
 ajuda (\"quer que eu...\") — ela não tem como aceitar. Não repita o que já está em outro \
@@ -489,6 +580,7 @@ mod tests {
     #[tokio::test]
     async fn laco_executa_ferramenta_e_devolve_o_quadro() {
         let dublê = Dublê::com(vec![
+            pede_ferramentas(&[("t0", "carro_telemetria", json!({}))]),
             pede_ferramentas(&[("t1", "pintar_quadro", pintura("Sábado limpo."))]),
             fim(),
         ]);
@@ -496,19 +588,56 @@ mod tests {
 
         let turno = agente.rodar("o carro ligou").await.unwrap();
 
-        assert_eq!(turno.iteracoes, 2);
+        // Consultar, pintar, encerrar.
+        assert_eq!(turno.iteracoes, 3);
         let quadro = turno.quadro.expect("nada foi pintado");
         assert!(matches!(&quadro.cartoes[0], Cartao::Texto { corpo, .. } if corpo == "Sábado limpo."));
     }
 
     /// Espalhar os resultados em várias mensagens de user ensina o modelo a
     /// parar de pedir ferramentas em paralelo.
+    /// Rascunhar e refinar é o método do modelo, e só o último quadro vale.
+    /// Interromper na primeira pintura deixava o rascunho na tela.
+    #[tokio::test]
+    async fn refinar_o_quadro_e_permitido_e_vale_o_ultimo() {
+        let dublê = Dublê::com(vec![
+            pede_ferramentas(&[("a", "pintar_quadro", pintura("rascunho"))]),
+            pede_ferramentas(&[("b", "pintar_quadro", pintura("versão final"))]),
+            fim(),
+        ]);
+
+        let (agente, _) = agente(dublê.clone(), Config::nova(Modelo::Opus));
+
+        let turno = agente.rodar("x").await.unwrap();
+
+        assert!(
+            matches!(&turno.quadro.unwrap().cartoes[0], Cartao::Texto { corpo, .. } if corpo == "versão final"),
+            "o refinamento tem que substituir o rascunho"
+        );
+    }
+
+    /// Mas uma pintura recusada não conta como entrega — ela precisa poder
+    /// consertar e tentar de novo.
+    #[tokio::test]
+    async fn pintura_recusada_nao_encerra_o_turno() {
+        let dublê = Dublê::com(vec![
+            pede_ferramentas(&[("a", "pintar_quadro", json!({ "cartoes": [] }))]),
+            pede_ferramentas(&[("b", "pintar_quadro", pintura("agora vai"))]),
+            fim(),
+        ]);
+        let (agente, _) = agente(dublê.clone(), Config::nova(Modelo::Opus));
+
+        let turno = agente.rodar("x").await.unwrap();
+        assert!(dublê.pedidos().len() >= 2, "precisa ter tido uma segunda chance");
+        assert!(turno.quadro.is_some());
+    }
+
     #[tokio::test]
     async fn resultados_paralelos_voltam_numa_mensagem_so() {
         let dublê = Dublê::com(vec![
             pede_ferramentas(&[
-                ("a", "pintar_quadro", pintura("um")),
-                ("b", "inexistente", json!({})),
+                ("a", "carro_telemetria", json!({})),
+                ("b", "carro_musica", json!({})),
             ]),
             fim(),
         ]);
@@ -638,7 +767,9 @@ mod tests {
     /// primeira conversa de verdade com o Opus.
     #[tokio::test]
     async fn container_da_busca_web_volta_nas_requisicoes_seguintes() {
-        let mut com_container = pede_ferramentas(&[("a", "pintar_quadro", pintura("achei"))]);
+        // Uma ferramenta que não é a pintura: pintar encerraria o turno e não
+        // haveria requisição seguinte para conferir.
+        let mut com_container = pede_ferramentas(&[("a", "carro_telemetria", json!({}))]);
         com_container["container"] = json!({ "id": "cntr_abc123" });
 
         let dublê = Dublê::com(vec![com_container, fim()]);
@@ -682,10 +813,53 @@ mod tests {
         assert!(agente.rodar("x").await.is_err());
     }
 
+    /// O teto de tamanho é o que segura o custo quando a busca web traz uma
+    /// página enorme. Um turno medido em produção chegou a 150 mil tokens de
+    /// entrada; `max_iteracoes` não pegava isso, porque foram poucas idas e
+    /// voltas — só muito grandes.
+    #[tokio::test]
+    async fn turno_gordo_demais_e_cortado() {
+        let mut gordo = pede_ferramentas(&[("a", "pintar_quadro", pintura("pintei antes"))]);
+        gordo["usage"] = json!({ "input_tokens": 90_000, "output_tokens": 100 });
+
+        let dublê = Dublê::com(vec![gordo, fim()]);
+        let mut config = Config::nova(Modelo::Opus);
+        config.max_tokens_turno = 40_000;
+        let (agente, _) = agente(dublê.clone(), config);
+
+        let turno = agente.rodar("x").await.unwrap();
+
+        assert_eq!(dublê.pedidos().len(), 1, "não pode pedir mais depois de estourar");
+        assert!(
+            turno.quadro.is_some(),
+            "o que já tinha sido pintado continua valendo"
+        );
+    }
+
+    /// E o corte conta o cache junto: 80 mil lidos do cache são baratos, mas
+    /// ainda são contexto — e é o contexto que a próxima ida vai reprocessar.
+    #[tokio::test]
+    async fn o_corte_conta_o_cache_tambem() {
+        let mut gordo = pede_ferramentas(&[("a", "inexistente", json!({}))]);
+        gordo["usage"] = json!({
+            "input_tokens": 1_000,
+            "output_tokens": 50,
+            "cache_read_input_tokens": 60_000,
+        });
+
+        let dublê = Dublê::com(vec![gordo, fim()]);
+        let mut config = Config::nova(Modelo::Opus);
+        config.max_tokens_turno = 40_000;
+        let (agente, _) = agente(dublê.clone(), config);
+
+        let _ = agente.rodar("x").await;
+        assert_eq!(dublê.pedidos().len(), 1);
+    }
+
     #[tokio::test]
     async fn uso_acumula_entre_as_idas_e_voltas() {
         let dublê = Dublê::com(vec![
-            pede_ferramentas(&[("a", "pintar_quadro", pintura("x"))]),
+            pede_ferramentas(&[("a", "carro_telemetria", json!({}))]),
             fim(),
         ]);
         let (agente, _) = agente(dublê, Config::nova(Modelo::Haiku));

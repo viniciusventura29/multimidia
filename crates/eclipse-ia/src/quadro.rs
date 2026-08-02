@@ -137,9 +137,13 @@ impl Provedor for ProvedorQuadro {
             PINTAR,
             format!(
                 "Escreve no quadro do painel. **É a única forma de o motorista ver alguma \
-                 coisa** — o que você responder em texto não aparece em lugar nenhum. Chame \
-                 uma vez, no fim, com no máximo {MAXIMO_CARTOES} cartões. Se ainda estiver \
-                 pesquisando, termine antes: pode chamar de novo e o quadro é substituído."
+                 coisa** — o que você responder em texto não aparece em lugar nenhum.\n\n\
+                 **Nunca pinte rascunho, placeholder ou texto provisório.** O que você \
+                 escreve aqui aparece na tela na hora, e pode ser a última coisa que ela vê \
+                 se o turno for interrompido. Só chame quando o conteúdo estiver pronto para \
+                 ser lido por alguém dirigindo. Se ainda falta pesquisar, pesquise antes.\n\n\
+                 No máximo {MAXIMO_CARTOES} cartões, e o teto não é meta: dois costumam ser \
+                 melhores que três, e nenhum cartão pode repetir o que outro já disse."
             ),
             json!({
                 "type": "object",
@@ -171,6 +175,20 @@ impl Provedor for ProvedorQuadro {
             return Err(McpError::argumento(
                 "quadro sem cartão nenhum — se não há o que dizer, não chame esta ferramenta",
             ));
+        }
+
+        // O serde já garantiu a forma; aqui se garante a substância. Sem isto,
+        // um rascunho como `{"tipo":"grafico","titulo":"placeholder",
+        // "pontos":[]}` passa, encerra o turno, e o motorista fica olhando um
+        // cartão vazio.
+        for (i, cartao) in quadro.cartoes.iter().enumerate() {
+            if let Err(motivo) = cartao.validar() {
+                return Err(McpError::argumento(format!(
+                    "o cartão {} não serve: {motivo}. Nada foi pintado — refaça o quadro \
+                     inteiro com conteúdo de verdade.",
+                    i + 1
+                )));
+            }
         }
 
         let quadro = quadro.aparado();
@@ -231,6 +249,63 @@ mod tests {
             "erro pouco útil: {err}"
         );
         assert!(p.tomar().is_none(), "nada pode ter sido guardado");
+    }
+
+    /// O caso que aconteceu de verdade: o modelo pintou um rascunho, e como o
+    /// turno encerra na primeira pintura válida, o rascunho ficou na tela.
+    #[tokio::test]
+    async fn grafico_de_rascunho_sem_pontos_e_recusado() {
+        let p = ProvedorQuadro::novo();
+        let err = p
+            .chamar(
+                PINTAR,
+                &json!({ "cartoes": [
+                    { "tipo": "grafico", "titulo": "placeholder", "grafico": "barras",
+                      "unidade": null, "pontos": [] }
+                ]}),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("pelo menos"), "veio: {err}");
+        assert!(p.tomar().is_none(), "nada de rascunho pode ficar guardado");
+    }
+
+    #[tokio::test]
+    async fn cartoes_sem_substancia_sao_recusados() {
+        let p = ProvedorQuadro::novo();
+
+        let casos = [
+            json!({ "tipo": "texto", "corpo": "   ", "titulo": null, "tom": "neutro" }),
+            json!({ "tipo": "metrica", "rotulo": "", "valor": "9", "unidade": null, "tom": "bom" }),
+            json!({ "tipo": "lista", "titulo": "vazia", "itens": [] }),
+            json!({ "tipo": "imagem", "url": "", "legenda": null }),
+        ];
+
+        for caso in casos {
+            let r = p.chamar(PINTAR, &json!({ "cartoes": [caso.clone()] })).await;
+            assert!(r.is_err(), "{caso} devia ter sido recusado");
+        }
+    }
+
+    /// Mas um quadro de verdade continua passando — a validação não pode ser
+    /// tão zelosa a ponto de calar a assistente.
+    #[tokio::test]
+    async fn quadro_com_substancia_passa() {
+        let p = ProvedorQuadro::novo();
+        p.chamar(
+            PINTAR,
+            &json!({ "cartoes": [
+                { "tipo": "texto", "corpo": "Neblina na serra.", "titulo": "Aviso", "tom": "atencao" },
+                { "tipo": "grafico", "titulo": "Temperatura", "grafico": "linha", "unidade": "°C",
+                  "pontos": [{"rotulo":"0","valor":9.0},{"rotulo":"6","valor":16.0}] },
+                { "tipo": "lista", "titulo": "Por lá", "itens": ["Vila Capivari"] },
+            ]}),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(p.tomar().unwrap().cartoes.len(), 3);
     }
 
     #[tokio::test]

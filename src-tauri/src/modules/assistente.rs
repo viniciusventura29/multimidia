@@ -248,6 +248,15 @@ impl Module for AssistenteModule {
                             // tela trocá-lo pela animação.
                             match turno.quadro {
                                 Some(novo) => {
+                                    // O conteúdo é escolha do modelo, e quando
+                                    // ele escreve mal não há como saber olhando
+                                    // a tela de longe se foi o modelo ou o
+                                    // desenho que falhou.
+                                    tracing::debug!(
+                                        cartoes = %serde_json::to_string(&novo.cartoes)
+                                            .unwrap_or_default(),
+                                        "quadro pintado"
+                                    );
                                     painel.cartoes = novo.cartoes;
                                     painel.gerado_em = Some(Utc::now().to_rfc3339());
                                     painel.gatilho = Some(gatilho.como_texto().to_string());
@@ -413,61 +422,89 @@ fn gatilho_forcado() -> Option<Acionamento> {
     }
 }
 
-/// Cartões de mentira para `ECLIPSE_IA_DEMO=1`: exercita os cinco tipos e os
-/// dois gráficos sem gastar token nenhum.
+/// Cartões de mentira para `ECLIPSE_IA_DEMO=1`, sem gastar token nenhum.
+///
+/// Cada gatilho mostra um conjunto diferente. Não é enfeite: o teto é de três
+/// cartões, e uma demonstração que mostrasse os cinco tipos de uma vez estaria
+/// pintando uma tela que a de verdade nunca vai produzir. Assim dá para ver
+/// todos os tipos — trocando `ECLIPSE_IA_GATILHO` — sem mentir sobre a
+/// densidade.
 fn cartoes_de_demonstracao(gatilho: Gatilho) -> Vec<Cartao> {
     use eclipse_ia::{Ponto, TipoGrafico};
 
-    vec![
-        Cartao::Texto {
-            titulo: Some("Sábado".into()),
-            corpo: format!(
-                "Céu limpo, 19°C. Trânsito leve na Bandeirantes. (demo: {})",
-                gatilho.como_texto()
+    let texto = |titulo: &str, corpo: &str, tom| Cartao::Texto {
+        titulo: Some(titulo.into()),
+        corpo: corpo.into(),
+        tom,
+    };
+
+    match gatilho {
+        // texto + métrica + gráfico de linha
+        Gatilho::Ignicao => vec![
+            texto("Sábado", "Céu limpo, 19°C. Trânsito leve na Bandeirantes.", Tom::Bom),
+            Cartao::Metrica {
+                rotulo: "Combustível".into(),
+                valor: "38".into(),
+                unidade: Some("%".into()),
+                tom: Tom::Atencao,
+            },
+            Cartao::Grafico {
+                titulo: "Temperatura".into(),
+                grafico: TipoGrafico::Linha,
+                unidade: Some("°C".into()),
+                pontos: vec![
+                    Ponto { rotulo: "0".into(), valor: 62.0 },
+                    Ponto { rotulo: "5".into(), valor: 78.0 },
+                    Ponto { rotulo: "10".into(), valor: 88.0 },
+                    Ponto { rotulo: "15".into(), valor: 91.0 },
+                ],
+            },
+        ],
+
+        // texto + imagem + lista
+        Gatilho::RotaDefinida | Gatilho::Chegada => vec![
+            texto(
+                "Neblina na serra",
+                "9°C e nublado na SP-123. Farol baixo, pé leve nas curvas.",
+                Tom::Atencao,
             ),
-            tom: Tom::Bom,
-        },
-        Cartao::Metrica {
-            rotulo: "Combustível".into(),
-            valor: "38".into(),
-            unidade: Some("%".into()),
-            tom: Tom::Atencao,
-        },
-        Cartao::Grafico {
-            titulo: "Temperatura".into(),
-            grafico: TipoGrafico::Linha,
-            unidade: Some("°C".into()),
-            pontos: vec![
-                Ponto { rotulo: "0".into(), valor: 62.0 },
-                Ponto { rotulo: "5".into(), valor: 78.0 },
-                Ponto { rotulo: "10".into(), valor: 88.0 },
-                Ponto { rotulo: "15".into(), valor: 91.0 },
-            ],
-        },
-        Cartao::Grafico {
-            titulo: "Consumo".into(),
-            grafico: TipoGrafico::Barras,
-            unidade: Some("km/l".into()),
-            pontos: vec![
-                Ponto { rotulo: "seg".into(), valor: 8.2 },
-                Ponto { rotulo: "ter".into(), valor: 9.1 },
-                Ponto { rotulo: "qua".into(), valor: 7.4 },
-                Ponto { rotulo: "qui".into(), valor: 10.3 },
-            ],
-        },
-        Cartao::Lista {
-            titulo: Some("No caminho".into()),
-            itens: vec![
-                "Pedágio em 12 km".into(),
-                "Posto Graal, 40 km".into(),
-                "Serra começa em 60 km".into(),
-            ],
-        },
-        Cartao::Imagem {
-            url: format!("arquivo:{ARQUIVO_DEMO}"),
-            legenda: Some("Campos do Jordão".into()),
-        },
-    ]
+            Cartao::Imagem {
+                url: format!("arquivo:{ARQUIVO_DEMO}"),
+                legenda: Some("Campos do Jordão".into()),
+            },
+            Cartao::Lista {
+                titulo: Some("Por lá".into()),
+                itens: vec![
+                    "Vila Capivari".into(),
+                    "Horto Florestal".into(),
+                    "Morro do Elefante".into(),
+                ],
+            },
+        ],
+
+        // texto + gráfico de barras
+        Gatilho::Periodico => vec![
+            texto("No caminho", "Pedágio em 12 km, e a serra começa em 60.", Tom::Neutro),
+            Cartao::Grafico {
+                titulo: "Consumo".into(),
+                grafico: TipoGrafico::Barras,
+                unidade: Some("km/l".into()),
+                pontos: vec![
+                    Ponto { rotulo: "seg".into(), valor: 8.2 },
+                    Ponto { rotulo: "ter".into(), valor: 9.1 },
+                    Ponto { rotulo: "qua".into(), valor: 7.4 },
+                    Ponto { rotulo: "qui".into(), valor: 10.3 },
+                ],
+            },
+        ],
+
+        // o caso de um cartão só, que é o que mais deve acontecer
+        Gatilho::AlertaCarro => vec![texto(
+            "Motor quente",
+            "108°C e subindo. Encoste e deixe esfriar antes de seguir.",
+            Tom::Alerta,
+        )],
+    }
 }
 
 const ARQUIVO_DEMO: &str = "demonstracao.svg";
@@ -505,23 +542,54 @@ mod tests {
         assert_eq!(v["pensando"], false);
     }
 
-    #[test]
-    fn a_demonstracao_exercita_os_cinco_tipos_de_cartao() {
-        let cartoes = cartoes_de_demonstracao(Gatilho::Ignicao);
+    const TODOS_OS_GATILHOS: [Gatilho; 5] = [
+        Gatilho::Ignicao,
+        Gatilho::RotaDefinida,
+        Gatilho::AlertaCarro,
+        Gatilho::Periodico,
+        Gatilho::Chegada,
+    ];
 
-        let tipos: Vec<String> = cartoes
+    /// Somando os gatilhos, a demonstração precisa cobrir os cinco tipos e os
+    /// dois gráficos — senão há caminho de desenho que ninguém nunca viu.
+    #[test]
+    fn a_demonstracao_exercita_todos_os_tipos_de_cartao() {
+        let tipos: Vec<String> = TODOS_OS_GATILHOS
             .iter()
-            .map(|c| serde_json::to_value(c).unwrap()["tipo"].as_str().unwrap().to_string())
+            .flat_map(|g| cartoes_de_demonstracao(*g))
+            .map(|c| serde_json::to_value(&c).unwrap()["tipo"].as_str().unwrap().to_string())
             .collect();
 
         for esperado in ["texto", "metrica", "grafico", "imagem", "lista"] {
-            assert!(tipos.contains(&esperado.to_string()), "faltou {esperado}");
+            assert!(tipos.contains(&esperado.to_string()), "faltou o cartão {esperado}");
         }
+
+        let graficos: Vec<String> = TODOS_OS_GATILHOS
+            .iter()
+            .flat_map(|g| cartoes_de_demonstracao(*g))
+            .filter_map(|c| match c {
+                Cartao::Grafico { grafico, .. } => {
+                    Some(serde_json::to_value(grafico).unwrap().as_str().unwrap().to_string())
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(graficos.contains(&"barras".to_string()), "faltou o gráfico de barras");
+        assert!(graficos.contains(&"linha".to_string()), "faltou o de linha");
     }
 
-    /// Se a demonstração passar do teto, ela não representa o que a tela recebe.
+    /// Demonstração acima do teto pintaria uma tela que a de verdade nunca
+    /// produz — e foi para não descobrir isso no carro que este teste existe.
     #[test]
     fn a_demonstracao_cabe_no_teto_de_cartoes() {
-        assert!(cartoes_de_demonstracao(Gatilho::Ignicao).len() <= eclipse_ia::MAXIMO_CARTOES);
+        for gatilho in TODOS_OS_GATILHOS {
+            let quantos = cartoes_de_demonstracao(gatilho).len();
+            assert!(
+                quantos <= eclipse_ia::MAXIMO_CARTOES,
+                "{} pinta {quantos} cartões, acima do teto de {}",
+                gatilho.como_texto(),
+                eclipse_ia::MAXIMO_CARTOES
+            );
+        }
     }
 }

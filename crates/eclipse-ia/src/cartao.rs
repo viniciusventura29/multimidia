@@ -13,10 +13,10 @@ use serde::{Deserialize, Serialize};
 
 /// Quantos cartões cabem num quadro.
 ///
-/// A coluna tem quatro linhas do grid e o motorista está dirigindo. Mais que
-/// isso vira parede de texto que ninguém lê a 80 km/h — e o teto também impede
-/// um turno caro de encher o estado do módulo.
-pub const MAXIMO_CARTOES: usize = 6;
+/// Três, e não seis. Com seis a coluna rolava — e um quadro que rola é um
+/// quadro que ninguém termina de ler dirigindo. Vale menos que três: o teto é
+/// teto, não meta.
+pub const MAXIMO_CARTOES: usize = 3;
 
 /// A cor de um cartão. Mapeia nas constantes de `src/core/telemetria.ts`, que
 /// já pintam os mostradores do OBD — assistente e painel falam a mesma língua
@@ -102,6 +102,62 @@ pub enum Cartao {
         titulo: Option<String>,
         itens: Vec<String>,
     },
+}
+
+/// Menos pontos que isto não desenha série nenhuma.
+///
+/// Espelha o `MINIMO_PONTOS` de `src/modules/assistente/graficos.tsx`. A tela
+/// se recusa a desenhar abaixo disso, então aceitar aqui seria garantir um
+/// cartão invisível.
+pub const MINIMO_PONTOS: usize = 2;
+
+impl Cartao {
+    /// O cartão tem substância suficiente para virar pixel?
+    ///
+    /// O serde garante a *forma*; isto garante o *conteúdo*. São coisas
+    /// diferentes, e a diferença apareceu na prática: o modelo pintou
+    /// `{"tipo":"grafico","titulo":"placeholder","pontos":[]}` como rascunho,
+    /// passou pelo serde, e a tela mostrou um cartão vazio.
+    ///
+    /// O erro volta ao modelo por escrito e ele conserta na volta seguinte —
+    /// que é bem mais confiável que pedir no prompt para não rascunhar.
+    pub fn validar(&self) -> Result<(), String> {
+        let vazio = |s: &str| s.trim().is_empty();
+
+        match self {
+            Self::Texto { corpo, .. } if vazio(corpo) => {
+                Err("cartão de texto sem corpo".into())
+            }
+            Self::Metrica { rotulo, valor, .. } if vazio(rotulo) || vazio(valor) => {
+                Err("cartão de métrica precisa de rótulo e valor".into())
+            }
+            Self::Grafico { titulo, pontos, .. } => {
+                if pontos.len() < MINIMO_PONTOS {
+                    Err(format!(
+                        "gráfico `{titulo}` tem {} ponto(s); a tela precisa de pelo menos \
+                         {MINIMO_PONTOS} para desenhar uma série. Se você ainda não tem os \
+                         números, não faça um gráfico — escreva o que sabe em texto.",
+                        pontos.len()
+                    ))
+                } else if pontos.iter().any(|p| vazio(&p.rotulo)) {
+                    Err(format!("gráfico `{titulo}` tem ponto sem rótulo"))
+                } else {
+                    Ok(())
+                }
+            }
+            Self::Imagem { url, .. } if vazio(url) => Err("cartão de imagem sem url".into()),
+            Self::Lista { itens, .. } => {
+                if itens.is_empty() {
+                    Err("cartão de lista sem itens".into())
+                } else if itens.iter().any(|i| vazio(i)) {
+                    Err("cartão de lista com item vazio".into())
+                } else {
+                    Ok(())
+                }
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// O conteúdo inteiro do quadro.
