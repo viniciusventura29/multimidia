@@ -60,6 +60,50 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
   const trecho = useRef<{ de: Fix; para: Fix; inicio: number } | null>(null);
   const rastro = useRef<google.maps.Polyline | null>(null);
   const pontos = useRef<google.maps.LatLngLiteral[]>([]);
+  // O quadro agendado, ou 0 = loop dormindo. O loop só roda enquanto há trecho
+  // a percorrer: com o carro parado não chega trecho novo (zona morta) e o rAF
+  // se auto-encerra — numa head unit, 60 moveCamera/s à toa é o maior gasto
+  // contínuo de CPU do painel.
+  const quadro = useRef(0);
+  const navegandoRef = useRef(navegando);
+
+  const desenhar = () => {
+    const atual = trecho.current;
+    if (!map || !atual) {
+      quadro.current = 0;
+      return;
+    }
+
+    // Trava em 1 quando a próxima leitura atrasa. Deixar passar continuaria
+    // extrapolando o carro para longe do que se sabe; parar e esperar é
+    // honesto — é exatamente o que o aparelho conhece.
+    const t = Math.min(1, (performance.now() - atual.inicio) / INTERVALO_GPS_MS);
+
+    map.moveCamera({
+      center: {
+        lat: atual.de.lat + (atual.para.lat - atual.de.lat) * t,
+        lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
+      },
+      ...(navegandoRef.current
+        ? {
+            heading: interpolarRumo(atual.de.heading, atual.para.heading, t),
+            tilt: 62,
+            zoom: 18,
+          }
+        : {}),
+    });
+
+    if (t >= 1) {
+      // Chegou onde o aparelho conhece: dorme até o próximo fix acordar.
+      quadro.current = 0;
+      return;
+    }
+    quadro.current = requestAnimationFrame(desenhar);
+  };
+
+  const acordar = () => {
+    if (!quadro.current) quadro.current = requestAnimationFrame(desenhar);
+  };
 
   // Cada leitura abre um trecho novo a ser percorrido até a próxima chegar.
   useEffect(() => {
@@ -81,7 +125,16 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
       -RASTRO_MAXIMO,
     );
     rastro.current?.setPath(pontos.current);
+    acordar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix]);
+
+  // Trocar de modo redesenha uma vez (heading/tilt/zoom mudam) mesmo parado.
+  useEffect(() => {
+    navegandoRef.current = navegando;
+    acordar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navegando]);
 
   useEffect(() => {
     if (!map) return;
@@ -93,35 +146,13 @@ function SeguirCarro({ fix, navegando }: { fix: Fix | null; navegando: boolean }
       strokeWeight: 6,
     });
 
-    let quadro = 0;
-    const desenhar = () => {
-      const atual = trecho.current;
-      if (atual) {
-        // Trava em 1 quando a próxima leitura atrasa. Deixar passar continuaria
-        // extrapolando o carro para longe do que se sabe; parar e esperar é
-        // honesto — é exatamente o que o aparelho conhece.
-        const t = Math.min(1, (performance.now() - atual.inicio) / INTERVALO_GPS_MS);
-
-        map.moveCamera({
-          center: {
-            lat: atual.de.lat + (atual.para.lat - atual.de.lat) * t,
-            lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
-          },
-          ...(navegando
-            ? {
-                heading: interpolarRumo(atual.de.heading, atual.para.heading, t),
-                tilt: 62,
-                zoom: 18,
-              }
-            : {}),
-        });
-      }
-      quadro = requestAnimationFrame(desenhar);
+    acordar();
+    return () => {
+      cancelAnimationFrame(quadro.current);
+      quadro.current = 0;
     };
-
-    quadro = requestAnimationFrame(desenhar);
-    return () => cancelAnimationFrame(quadro);
-  }, [map, navegando]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]);
 
   useEffect(() => () => rastro.current?.setMap(null), []);
 

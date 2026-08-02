@@ -210,6 +210,8 @@ function ProgressoTocando({
   }, [posicaoMs]);
 
   // Interpola por segundo enquanto toca; zera o timer quando o estado muda.
+  // 1 s basta: o texto só mostra segundos, e o deslizar visual da barra quem
+  // faz é a transition do CSS — de graça, no compositor, sem acordar o React.
   useEffect(() => {
     if (!tocando || duracaoMs == null) return;
     const base = posicaoMs ?? 0;
@@ -217,7 +219,7 @@ function ProgressoTocando({
     const id = setInterval(() => {
       if (arrastando.current) return;
       setPos(Math.min(base + (Date.now() - inicio), duracaoMs));
-    }, 500);
+    }, 1000);
     return () => clearInterval(id);
   }, [tocando, posicaoMs, duracaoMs]);
 
@@ -257,7 +259,7 @@ function ProgressoTocando({
     <div className="progresso">
       <span className="progresso__tempo">{formatarTempo(pos)}</span>
       <div
-        className="progresso__trilho"
+        className={`progresso__trilho${arrastando.current ? " progresso__trilho--arrastando" : ""}`}
         ref={trilhoRef}
         onPointerDown={aoApertar}
         onPointerMove={aoMover}

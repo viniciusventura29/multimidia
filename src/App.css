@@ -1500,6 +1500,8 @@ body {
   height: 3px;
   border-radius: 999px;
   background: var(--accent);
+  /* O React reancora 1x/s; quem desliza entre um segundo e outro é isto. */
+  transition: width 1s linear;
 }
 
 .progresso__knob {
@@ -1511,6 +1513,13 @@ body {
   background: #fff;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  transition: left 1s linear;
+}
+
+/* Arrastando, a barra segue o dedo — a transição brigaria com o toque. */
+.progresso__trilho--arrastando .progresso__feito,
+.progresso__trilho--arrastando .progresso__knob {
+  transition: none;
 }
 
 .controles__botao {
