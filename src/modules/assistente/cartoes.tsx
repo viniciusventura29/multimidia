@@ -58,14 +58,16 @@ function useImagemLocal(url: string): string | null {
 
     const nome = url.slice(PREFIXO_ARQUIVO.length);
 
-    invoke<number[]>("imagem_ia", { nome })
+    // O Rust responde com `ipc::Response`: os bytes atravessam a IPC crus e
+    // chegam como ArrayBuffer — sem virar array JSON com um número por byte.
+    invoke<ArrayBuffer>("imagem_ia", { nome })
       .then((bytes) => {
         // O tile monta duas vezes (grid + expandido) e o quadro pode trocar no
         // meio do carregamento: sem esta guarda, o `revoke` do cleanup correria
         // atrás de um URL que já foi substituído.
         if (!vivo) return;
         objeto = URL.createObjectURL(
-          new Blob([new Uint8Array(bytes)], { type: tipoDaImagem(nome) }),
+          new Blob([bytes], { type: tipoDaImagem(nome) }),
         );
         setPronta(objeto);
       })

@@ -1,6 +1,7 @@
 //! O estado que um módulo expõe, e a forma serializada que chega na UI.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -73,7 +74,12 @@ pub struct StateEnvelope {
     pub seq: u64,
     pub status: Status,
     /// O último valor bom. Sobrevive à degradação.
-    pub data: Option<Value>,
+    ///
+    /// `Arc` porque o envelope é clonado a cada publicação (para o `latest` e
+    /// para o broadcast) e a cada snapshot — na cadência do OBD isso era um
+    /// deep-clone de JSON por leitura de PID. O JSON serializado não muda em
+    /// nada (`serde` com feature `rc` atravessa o `Arc`).
+    pub data: Option<Arc<Value>>,
     /// Preenchido só quando `status` é `degraded`.
     pub reason: Option<String>,
 }
@@ -104,7 +110,7 @@ mod tests {
             module: ModuleId::new("obd"),
             seq: 7,
             status: Status::Degraded,
-            data: Some(serde_json::json!({ "rpm": 2500 })),
+            data: Some(Arc::new(serde_json::json!({ "rpm": 2500 }))),
             reason: Some("adaptador desconectado".into()),
         };
         let json = serde_json::to_value(&env).unwrap();

@@ -235,8 +235,8 @@ mod tests {
 
         let env = espera_por(&mut rx, |e| e.is_degraded()).await;
         assert_eq!(
-            env.data,
-            Some(serde_json::json!(2500)),
+            env.data.as_deref(),
+            Some(&serde_json::json!(2500)),
             "o último valor bom precisa sobreviver à queda"
         );
     }
@@ -302,8 +302,8 @@ mod tests {
         let snapshot = sup.snapshot();
         let ids: Vec<_> = snapshot.iter().map(|e| e.module.as_str()).collect();
         assert_eq!(ids, vec!["a", "b"], "snapshot vem ordenado por id");
-        assert_eq!(snapshot[0].data, Some(serde_json::json!(10)));
-        assert_eq!(snapshot[1].data, Some(serde_json::json!(20)));
+        assert_eq!(snapshot[0].data.as_deref(), Some(&serde_json::json!(10)));
+        assert_eq!(snapshot[1].data.as_deref(), Some(&serde_json::json!(20)));
     }
 
     /// Um `broadcast` não entrega o que passou. Sem o supervisor guardar o
@@ -336,7 +336,7 @@ mod tests {
         sup.spawn(factory(ModuleId::new("quem"), || QuemDirige));
 
         let env = espera_por(&mut rx, |e| e.status == Status::Ready).await;
-        assert_eq!(env.data, Some(serde_json::json!("Vinicius")));
+        assert_eq!(env.data.as_deref(), Some(&serde_json::json!("Vinicius")));
     }
 
     #[test]

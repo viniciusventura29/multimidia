@@ -31,7 +31,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Já vinha na árvore pelo rspotify; agora é dependência direta do `eclipse-ia`.
 # `rustls-tls` e não o TLS do sistema: o Android não tem OpenSSL para ligar.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
+# `rc`: o `StateEnvelope` carrega o payload num `Arc` para não clonar JSON
+# fundo a cada publicação; a feature faz o serde atravessar o Arc.
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
