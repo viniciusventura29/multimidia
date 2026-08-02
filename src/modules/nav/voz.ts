@@ -5,7 +5,7 @@
  * guarda o que já disse. Aqui só se pronuncia.
  *
  * A checagem de repetição existe porque o mesmo envelope pode chegar mais de uma
- * vez: o `useModuleStates` repinta a partir do snapshot ao montar, e sem isso o
+ * vez: o `moduleStore` repinta a partir do snapshot ao montar, e sem isso o
  * painel repetiria a última frase toda vez que a janela recarregasse.
  */
 let ultimaFalada: string | null = null;
