@@ -16,6 +16,21 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# Release para a head unit: LTO fino e uma unidade de codegen compilam mais
+# devagar, mas o binário fica menor e mais rápido — e o strip é o maior corte
+# isolado de tamanho do .so no APK. `opt-level = 3` de propósito: telemetria em
+# tempo real (parser ELM327, guiagem, serde na cadência do OBD) vale mais que
+# os KB que "s" economizaria.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+# DELIBERADO — NÃO trocar por "abort": o supervisor depende de pânico de módulo
+# virar JoinError para degradar e reiniciar só aquele módulo (module.rs). Com
+# "abort", qualquer pânico derrubaria o painel inteiro.
+panic = "unwind"
+
 [workspace.dependencies]
 eclipse-core = { path = "crates/eclipse-core" }
 eclipse-obd = { path = "crates/eclipse-obd" }
@@ -31,7 +46,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Já vinha na árvore pelo rspotify; agora é dependência direta do `eclipse-ia`.
 # `rustls-tls` e não o TLS do sistema: o Android não tem OpenSSL para ligar.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
+# `rc`: o `StateEnvelope` carrega o payload num `Arc` para não clonar JSON
+# fundo a cada publicação; a feature faz o serde atravessar o Arc.
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }

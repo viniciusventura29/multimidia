@@ -55,6 +55,11 @@ impl Bus {
     /// Quando `data` é `None` — degradação, ou volta pra `Loading` — o último
     /// valor bom conhecido é herdado. É isso que mantém o número no tile em vez
     /// de piscar pra vazio quando o módulo cai.
+    ///
+    /// Publicar exatamente o que já está publicado é silêncio: nada muda para
+    /// ninguém, então não gasta seq, clone, serialização nem IPC. Módulos que
+    /// republicam o mesmo estado a cada volta do laço (nav parado, messaging
+    /// sem mensagem nova) deixam de acordar a UI à toa.
     pub(crate) fn publish(
         &self,
         module: &ModuleId,
@@ -62,10 +67,19 @@ impl Bus {
         data: Option<Value>,
         reason: Option<String>,
     ) {
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let mut latest = self.latest.lock().unwrap_or_else(|e| e.into_inner());
 
-        let data = data.or_else(|| latest.get(module).and_then(|prev| prev.data.clone()));
+        let data = data
+            .map(Arc::new)
+            .or_else(|| latest.get(module).and_then(|prev| prev.data.clone()));
+
+        if let Some(prev) = latest.get(module) {
+            if prev.status == status && prev.reason == reason && prev.data == data {
+                return;
+            }
+        }
+
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let envelope = StateEnvelope {
             module: module.clone(),
             seq,
@@ -297,6 +311,28 @@ mod tests {
         assert_eq!(qual_acao(&ctx.try_next_command().unwrap()), "enchi");
         assert_eq!(qual_acao(&ctx.try_next_command().unwrap()), "zerar_viagem");
         assert!(ctx.try_next_command().is_none());
+    }
+
+    #[test]
+    fn publicar_o_mesmo_valor_nao_emite() {
+        let bus = Bus::new(8);
+        let mut rx = bus.subscribe_events();
+        let id = ModuleId::new("messaging");
+
+        bus.publish(&id, Status::Ready, Some(json!({ "novas": 0 })), None);
+        bus.publish(&id, Status::Ready, Some(json!({ "novas": 0 })), None);
+        bus.publish(&id, Status::Ready, Some(json!({ "novas": 1 })), None);
+
+        let primeiro = rx.try_recv().unwrap();
+        let segundo = rx.try_recv().unwrap();
+        assert_eq!(primeiro.data.as_deref(), Some(&json!({ "novas": 0 })));
+        assert_eq!(segundo.data.as_deref(), Some(&json!({ "novas": 1 })));
+        assert!(
+            rx.try_recv().is_err(),
+            "republicar o mesmo estado tinha que ser silêncio"
+        );
+        // E o silêncio não gasta seq: a numeração continua densa.
+        assert_eq!(segundo.seq, primeiro.seq + 1);
     }
 
     #[test]

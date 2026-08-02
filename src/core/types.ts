@@ -13,8 +13,6 @@ export interface StateEnvelope<T = unknown> {
   reason: string | null;
 }
 
-export type ModuleStates = Record<string, StateEnvelope>;
-
 /* ------------------------------------------------------------------ */
 /* Payloads dos módulos                                                */
 /* ------------------------------------------------------------------ */
@@ -196,24 +194,19 @@ export interface Profile {
 /* Contrato de tile                                                    */
 /* ------------------------------------------------------------------ */
 
-/** O que um tile recebe: o estado do módulo do qual ele lê. */
+/**
+ * O que um tile recebe: o estado do módulo do qual ele lê — e SÓ dele.
+ *
+ * Cada tile lê apenas do próprio módulo, e é essa separação que faz o OBD cair
+ * sem levar música e navegação junto — e que faz um tick de RPM re-renderizar
+ * só os mostradores. Quem precisa espiar o módulo do vizinho (o carrinho do
+ * assistente, que reage à telemetria de verdade) assina direto no
+ * `moduleStore` com um seletor, sem desfazer o isolamento dos demais.
+ */
 export interface TileView<T> {
   data: T | null;
   status: Status;
   reason: string | null;
-  /**
-   * O painel inteiro.
-   *
-   * Quase todo tile ignora isto, e é de propósito: cada um lê só do próprio
-   * módulo, e é essa separação que faz o OBD cair sem levar música e navegação
-   * junto. A exceção declarada é o assistente — a animação dele reage à
-   * telemetria de verdade (acelera com o RPM, freia junto com o carro), e isso
-   * exige ler o módulo do vizinho.
-   *
-   * Um tile que passar a usar isto por conveniência estará desfazendo o
-   * isolamento que o resto do desenho protege.
-   */
-  painel: ModuleStates;
 }
 
 /**

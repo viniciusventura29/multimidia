@@ -82,7 +82,9 @@ impl ProvedorCarro {
 /// `Degraded` mantém o último valor bom, e ele continua sendo informação útil —
 /// "o adaptador soltou, mas 40 segundos atrás o motor estava a 90°" é melhor
 /// resposta que "não sei". Por isso os dois voltam juntos.
-fn dados_e_motivo(envelope: Option<StateEnvelope>) -> (Option<Value>, Option<String>) {
+fn dados_e_motivo(
+    envelope: Option<StateEnvelope>,
+) -> (Option<Arc<Value>>, Option<String>) {
     match envelope {
         None => (None, Some("o módulo ainda não subiu".to_string())),
         Some(e) => {
@@ -395,7 +397,7 @@ mod tests {
             module: ModuleId::new(modulo),
             seq: 1,
             status,
-            data: Some(data),
+            data: Some(Arc::new(data)),
             reason: match status {
                 Status::Degraded => Some("adaptador desconectado".into()),
                 _ => None,

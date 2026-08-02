@@ -120,12 +120,14 @@ function Caixa({ data, grande }: TileView<InboxState> & { grande?: boolean }) {
   );
 }
 
+const CaixaGrande = (view: TileView<InboxState>) => <Caixa {...view} grande />;
+
 export const messagingTile: AnyTileSpec = defineTile<InboxState>({
   id: "mensagens",
   module: MESSAGING,
   title: "WhatsApp",
   area: "whatsapp",
   icon: <MessageSquare size="1em" />,
-  Compact: (view) => <Caixa {...view} />,
-  Expanded: (view) => <Caixa {...view} grande />,
+  Compact: Caixa,
+  Expanded: CaixaGrande,
 });

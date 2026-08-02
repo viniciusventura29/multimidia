@@ -7,7 +7,9 @@ mod assistente;
 mod modules;
 mod obd_bt;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use eclipse_core::{
     factory, ModuleCommand, ModuleId, Profile, ProfileStore, StateEnvelope, Supervisor,
@@ -346,16 +348,31 @@ fn nome_de_imagem_seguro(nome: &str) -> Option<&str> {
 /// Um comando, e não o protocolo de asset do Tauri: assim funciona igual no Mac
 /// e no Android sem mexer em capability nenhuma. A tela monta um object URL com
 /// o que vier.
+///
+/// `async` + `spawn_blocking` para o disco não segurar o thread de comandos, e
+/// `ipc::Response` para os bytes atravessarem a IPC crus — devolver `Vec<u8>`
+/// os serializava como um array JSON com um número por byte.
 #[tauri::command]
-fn imagem_ia(app: tauri::AppHandle, nome: String) -> Result<Vec<u8>, String> {
-    let seguro = nome_de_imagem_seguro(&nome).ok_or("nome de imagem inválido")?;
+async fn imagem_ia(
+    app: tauri::AppHandle,
+    nome: String,
+) -> Result<tauri::ipc::Response, String> {
+    let seguro = nome_de_imagem_seguro(&nome)
+        .ok_or("nome de imagem inválido")?
+        .to_owned();
 
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("sem diretório de dados: {e}"))?;
 
-    std::fs::read(dir.join("ia_imagens").join(seguro)).map_err(|e| e.to_string())
+    let caminho = dir.join("ia_imagens").join(seguro);
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(caminho))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[cfg(test)]
@@ -439,23 +456,58 @@ fn push_location_error(canal: tauri::State<'_, Localizacao>, permissao_negada: b
 /* Fiação                                                              */
 /* ------------------------------------------------------------------ */
 
-/// Repassa cada mudança de estado para a janela.
+/// Repassa cada mudança de estado para a janela, conflando rajadas.
+///
+/// Cada emit é uma serialização JSON e uma travessia de IPC até o WebView, e o
+/// OBD publica a cada leitura de PID. A janela de 250 ms por módulo deixa o
+/// primeiro evento passar na hora (latência zero percebida) e, dentro da
+/// janela, guarda só o mais novo para emitir no tick seguinte — teto de
+/// 4 emits/s por módulo. Descartar intermediários é seguro por construção:
+/// cada envelope carrega o estado **inteiro** do módulo.
 fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
+    const JANELA: Duration = Duration::from_millis(250);
+
     let mut rx = supervisor.subscribe();
     tokio::spawn(async move {
+        let mut ultimo_emit: HashMap<ModuleId, Instant> = HashMap::new();
+        let mut pendentes: HashMap<ModuleId, StateEnvelope> = HashMap::new();
+        let mut tick = tokio::time::interval(JANELA);
+
+        let emitir = |envelope: &StateEnvelope| {
+            if let Err(err) = app.emit(EVENT_MODULE_STATE, envelope) {
+                tracing::warn!(%err, "não consegui emitir estado para a UI");
+            }
+        };
+
         loop {
-            match rx.recv().await {
-                Ok(envelope) => {
-                    if let Err(err) = app.emit(EVENT_MODULE_STATE, &envelope) {
-                        tracing::warn!(%err, "não consegui emitir estado para a UI");
+            tokio::select! {
+                recebido = rx.recv() => match recebido {
+                    Ok(envelope) => {
+                        let agora = Instant::now();
+                        let na_janela = ultimo_emit
+                            .get(&envelope.module)
+                            .is_some_and(|t| agora.duration_since(*t) < JANELA);
+                        if na_janela {
+                            // O mais novo ganha; o intermediário nunca fez falta.
+                            pendentes.insert(envelope.module.clone(), envelope);
+                        } else {
+                            ultimo_emit.insert(envelope.module.clone(), agora);
+                            emitir(&envelope);
+                        }
+                    }
+                    // A UI ficou pra trás. Ela se corrige sozinha no próximo
+                    // evento, porque cada envelope carrega o estado inteiro.
+                    Err(RecvError::Lagged(perdidos)) => {
+                        tracing::warn!(perdidos, "UI ficou pra trás no barramento");
+                    }
+                    Err(RecvError::Closed) => break,
+                },
+                _ = tick.tick() => {
+                    for (module, envelope) in pendentes.drain() {
+                        ultimo_emit.insert(module, Instant::now());
+                        emitir(&envelope);
                     }
                 }
-                // A UI ficou pra trás. Ela se corrige sozinha no próximo evento,
-                // porque cada envelope carrega o estado inteiro do módulo.
-                Err(RecvError::Lagged(perdidos)) => {
-                    tracing::warn!(perdidos, "UI ficou pra trás no barramento");
-                }
-                Err(RecvError::Closed) => break,
             }
         }
     });

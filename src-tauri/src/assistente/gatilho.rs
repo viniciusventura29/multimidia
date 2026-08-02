@@ -215,8 +215,8 @@ impl Detector {
 
     pub fn observar(&mut self, envelope: &StateEnvelope) -> Option<Acionamento> {
         match envelope.module.as_str() {
-            "nav" => self.observar_nav(envelope.data.as_ref()?),
-            "obd" => self.observar_obd(envelope.data.as_ref()?),
+            "nav" => self.observar_nav(envelope.data.as_deref()?),
+            "obd" => self.observar_obd(envelope.data.as_deref()?),
             _ => None,
         }
     }
@@ -295,7 +295,7 @@ mod tests {
             module: ModuleId::new(modulo),
             seq: 0,
             status: Status::Ready,
-            data: Some(data),
+            data: Some(std::sync::Arc::new(data)),
             reason: None,
         }
     }

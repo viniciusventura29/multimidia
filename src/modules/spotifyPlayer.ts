@@ -114,6 +114,21 @@ export async function controlarLocal(acao: string, arg?: number): Promise<boolea
   }
 }
 
+/**
+ * Espera o navegador desocupar antes de rodar `tarefa`.
+ *
+ * O SDK é buscado num CDN externo e inicializa DRM — no boot ele brigaria com o
+ * primeiro paint do painel pelo parse e pela rede. Virar device do Spotify uns
+ * segundos depois é imperceptível; um boot mais lento, não.
+ */
+function quandoOcioso(tarefa: () => void): void {
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(tarefa, { timeout: 4000 });
+  } else {
+    setTimeout(tarefa, 1500);
+  }
+}
+
 function carregarSdk(): Promise<void> {
   if (window.Spotify) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -121,11 +136,14 @@ function carregarSdk(): Promise<void> {
     window.onSpotifyWebPlaybackSDKReady = () => resolve();
     const existente = document.querySelector(`script[src="${SDK_URL}"]`);
     if (existente) return;
-    const script = document.createElement("script");
-    script.src = SDK_URL;
-    script.async = true;
-    script.onerror = () => reject(new Error("não consegui carregar o SDK do Spotify"));
-    document.head.appendChild(script);
+    quandoOcioso(() => {
+      const script = document.createElement("script");
+      script.src = SDK_URL;
+      script.async = true;
+      script.onerror = () =>
+        reject(new Error("não consegui carregar o SDK do Spotify"));
+      document.head.appendChild(script);
+    });
   });
 }
 

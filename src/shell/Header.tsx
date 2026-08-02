@@ -1,11 +1,11 @@
 import { useEffect, useState, type CSSProperties } from "react";
 
+import { shallowEqual, useModuleSelector } from "../core/moduleStore";
 import { corBateria, corFuel, voltagemPct } from "../core/telemetria";
-import type { ModuleStates, ObdReadings, Profile } from "../core/types";
+import type { ObdReadings, Profile } from "../core/types";
 import { BateriaIcon, GasolinaIcon } from "./indicadores";
 
 interface Props {
-  states: ModuleStates;
   profile: Profile;
   /** Clicar no nome abre a troca de perfil — herda o papel do antigo chip. */
   aoTrocar: () => void;
@@ -19,11 +19,21 @@ interface Props {
  * vêm do mesmo módulo `obd` dos mostradores; quando o adaptador cai, elas somem
  * junto (viram `--`), sem alarde.
  */
-export function Header({ states, profile, aoTrocar }: Props) {
-  const obd = states["obd"]?.data as ObdReadings | null | undefined;
-  const voltage = obd?.voltage ?? null;
-  const fuel = obd?.fuelPct ?? null;
-  const autonomia = obd?.tanque?.autonomiaKm ?? null;
+export function Header({ profile, aoTrocar }: Props) {
+  // Fatia com igualdade: um tick de RPM não re-renderiza a barra — só quando
+  // voltagem, nível ou autonomia mudam de verdade.
+  const { voltage, fuel, autonomia } = useModuleSelector<
+    ObdReadings,
+    { voltage: number | null; fuel: number | null; autonomia: number | null }
+  >(
+    "obd",
+    (obd) => ({
+      voltage: obd?.voltage ?? null,
+      fuel: obd?.fuelPct ?? null,
+      autonomia: obd?.tanque?.autonomiaKm ?? null,
+    }),
+    shallowEqual,
+  );
 
   const hora = useHora();
 

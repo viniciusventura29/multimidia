@@ -329,7 +329,7 @@ mod tests {
         })
         .await;
 
-        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        let estado: MusicState = serde_json::from_value((*envelope.data.unwrap()).clone()).unwrap();
         let problema = estado.problema.expect("problema publicado");
         assert_eq!(problema.tipo, TipoProblema::PrecisaLogin);
         assert!(
@@ -351,7 +351,7 @@ mod tests {
         })
         .await;
 
-        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        let estado: MusicState = serde_json::from_value((*envelope.data.unwrap()).clone()).unwrap();
         let problema = estado.problema.expect("problema publicado");
         // Token vencido é login, não erro passageiro — a tela oferece reconectar.
         assert_eq!(problema.tipo, TipoProblema::PrecisaLogin);
@@ -370,7 +370,7 @@ mod tests {
         ))));
 
         let parado = proximo(&mut rx, |e| e.status == Status::Ready).await;
-        let estado: MusicState = serde_json::from_value(parado.data.unwrap()).unwrap();
+        let estado: MusicState = serde_json::from_value((*parado.data.unwrap()).clone()).unwrap();
         assert!(!estado.now_playing.unwrap().is_playing);
 
         supervisor.dispatch(ModuleCommand::Action {
@@ -425,7 +425,7 @@ mod tests {
         ))));
 
         let envelope = proximo(&mut rx, |e| e.status == Status::Ready).await;
-        let estado: MusicState = serde_json::from_value(envelope.data.unwrap()).unwrap();
+        let estado: MusicState = serde_json::from_value((*envelope.data.unwrap()).clone()).unwrap();
         assert!(estado.now_playing.is_none());
     }
 }
