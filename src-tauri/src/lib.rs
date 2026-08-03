@@ -515,7 +515,6 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
     });
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Liga o `tracing`.
 ///
 /// Sem isto, **todo** `tracing::info!`/`warn!`/`error!` do Eclipse cai no vazio —
@@ -538,6 +537,11 @@ fn ligar_log() {
     let _ = fmt().with_env_filter(filtro).with_target(true).try_init();
 }
 
+// ⚠️ O atributo tem que ficar COLADO no `run()`: é ele que faz o Android chamar
+// o app. Em #19 uma função nova entrou entre os dois e o atributo ficou nela —
+// o APK abria só o logger e todo o resto virava código morto (nem as chaves
+// embutidas sobravam no binário). Nenhum teste de desktop pega isso.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     ligar_log();
 
