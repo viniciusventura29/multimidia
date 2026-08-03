@@ -2,8 +2,11 @@
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
 #
 # O `git blame` deste repo é o registro real do porquê de cada decisão — vários
-# comentários citam o número da PR que os motivou. Um commit de `cargo fmt` não
-# pode enterrar isso.
+# comentários citam o número da PR que os motivou. Um `cargo fmt` não pode
+# enterrar isso.
 
-# chore: cargo fmt
-8d02d92aae877de630fd025b44f0b735d2f0f93f
+# O `cargo fmt` do repo inteiro (32 arquivos). Veio num commit separado, mas o
+# merge do #24 foi squash e juntou tudo — então o hash a ignorar é o do squash.
+# Ignorar este commit também ignora os arquivos de CI que ele criou, o que é
+# inócuo: em arquivo novo não há linha anterior para o blame preservar.
+b165eda3e14cdbeee3eb60898b4427d5a01a4be7
