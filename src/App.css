@@ -2460,22 +2460,9 @@ body {
   font-size: 0.76rem;
 }
 
-/* O carro fica parado no centro e o mundo gira em volta, como num navegador. */
-.mapa__carro {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 0;
-  height: 0;
-  /* Um triângulo apontando para cima: em modo navegação a frente do carro é
-     sempre o topo da tela, então ele nunca precisa girar. */
-  border-left: 11px solid transparent;
-  border-right: 11px solid transparent;
-  border-bottom: 24px solid var(--accent);
-  transform: translate(-50%, -60%);
-  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.7));
-  pointer-events: none;
-}
+/* O carro agora é um marcador do próprio mapa (ancorado na coordenada do
+   GPS, em `mapa.tsx`) — um triângulo de CSS no centro da tela "andava"
+   junto com o dedo quando o mapa era arrastado. */
 
 /* ------------------------------------------------------------------ */
 /* Rota e manobra                                                      */

@@ -67,6 +67,11 @@ function SeguirCarro({
   const map = useMap();
   const trecho = useRef<{ de: Fix; para: Fix; inicio: number } | null>(null);
   const rastro = useRef<google.maps.Polyline | null>(null);
+  // O carro é um marcador ancorado no MUNDO, não um enfeite no centro da
+  // tela: com o seguimento solto (dedo arrastando), ele fica parado na
+  // geografia enquanto o mapa desliza por baixo — mexer a tela não pode
+  // mexer o carro.
+  const carro = useRef<google.maps.Marker | null>(null);
   const pontos = useRef<google.maps.LatLngLiteral[]>([]);
   // O quadro agendado, ou 0 = loop dormindo. O loop só roda enquanto há trecho
   // a percorrer: com o carro parado não chega trecho novo (zona morta) e o rAF
@@ -78,9 +83,7 @@ function SeguirCarro({
 
   const desenhar = () => {
     const atual = trecho.current;
-    // Com o motorista segurando o mapa, mexer a câmera seria brigar com o
-    // dedo — o loop dorme e o rastro continua crescendo por fora.
-    if (!map || !atual || !seguindoRef.current) {
+    if (!map || !atual) {
       quadro.current = 0;
       return;
     }
@@ -90,15 +93,28 @@ function SeguirCarro({
     // honesto — é exatamente o que o aparelho conhece.
     const t = Math.min(1, (performance.now() - atual.inicio) / INTERVALO_GPS_MS);
 
-    map.moveCamera({
-      center: {
-        lat: atual.de.lat + (atual.para.lat - atual.de.lat) * t,
-        lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
-      },
-      ...(navegandoRef.current
-        ? { heading: interpolarRumo(atual.de.heading, atual.para.heading, t) }
-        : {}),
-    });
+    const posicao = {
+      lat: atual.de.lat + (atual.para.lat - atual.de.lat) * t,
+      lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
+    };
+    const rumo = interpolarRumo(atual.de.heading, atual.para.heading, t);
+
+    // O marcador anda sempre — é o carro no mundo. A rotação do símbolo é
+    // relativa ao norte do mapa, então funciona igual girando ou não.
+    carro.current?.setPosition(posicao);
+    const icone = carro.current?.getIcon() as google.maps.Symbol | undefined;
+    if (icone && icone.rotation !== rumo) {
+      carro.current?.setIcon({ ...icone, rotation: rumo });
+    }
+
+    // A câmera só acompanha se o motorista não estiver segurando o mapa —
+    // mexer a câmera durante o gesto seria brigar com o dedo.
+    if (seguindoRef.current) {
+      map.moveCamera({
+        center: posicao,
+        ...(navegandoRef.current ? { heading: rumo } : {}),
+      });
+    }
 
     if (t >= 1) {
       // Chegou onde o aparelho conhece: dorme até o próximo fix acordar.
@@ -162,11 +178,29 @@ function SeguirCarro({
       strokeWeight: 6,
     });
 
+    carro.current ??= new google.maps.Marker({
+      // A seta dos navegadores, na cor de destaque do painel, por cima da
+      // rota e do rastro.
+      icon: {
+        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+        scale: 7,
+        fillColor: "#3ddc97",
+        fillOpacity: 1,
+        strokeColor: "#07090d",
+        strokeWeight: 2,
+        rotation: 0,
+      },
+      zIndex: 3,
+    });
+
     // Religa em vez de criar preso ao mapa: a troca de tema (dia/noite)
-    // destrói e recria a instância, e a polyline sobrevive por fora — sem
-    // isto o rastro sumiria no primeiro pôr do sol.
+    // destrói e recria a instância, e os overlays sobrevivem por fora — sem
+    // isto o rastro e o carro sumiriam no primeiro pôr do sol.
     rastro.current.setMap(map);
     rastro.current.setPath(pontos.current);
+    carro.current.setMap(map);
+    const conhecido = trecho.current?.para;
+    if (conhecido) carro.current.setPosition({ lat: conhecido.lat, lng: conhecido.lon });
 
     acordar();
     return () => {
@@ -176,7 +210,13 @@ function SeguirCarro({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map]);
 
-  useEffect(() => () => rastro.current?.setMap(null), []);
+  useEffect(
+    () => () => {
+      rastro.current?.setMap(null);
+      carro.current?.setMap(null);
+    },
+    [],
+  );
 
   return null;
 }
@@ -325,11 +365,6 @@ export function Mapa({ data, status }: TileView<MapaState>) {
       </APIProvider>
 
       {data.progresso && <Manobra progresso={data.progresso} />}
-
-      {/* Em modo navegação o carro fica parado no centro e o mundo gira em
-          volta. Um marcador que se move seria redundante — e erraria, porque a
-          câmera é que está sendo interpolada. */}
-      {modoNavegacao && data.fix && <span className="mapa__carro" aria-hidden />}
 
       {data.mapId ? (
         <button

@@ -12,3 +12,8 @@
 
 # Client ID do Spotify embutido pelo build.rs (fora do git)
 /spotify_client_id.txt
+
+# Chaves que GASTAM DINHEIRO (assistente) — jamais no git. O buraco já mordeu:
+# um `git add -A` chegou a commitar a da Anthropic (pega antes do push).
+/anthropic_api_key.txt
+/openrouter_api_key.txt
