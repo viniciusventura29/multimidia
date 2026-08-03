@@ -165,8 +165,12 @@ fn credencial(dir_dados: &std::path::Path, env: &str, arquivo: &str) -> Option<S
 }
 
 fn client_id(dir_dados: &std::path::Path) -> Option<String> {
-    credencial(dir_dados, "ECLIPSE_SPOTIFY_CLIENT_ID", "spotify_client_id.txt")
-        .or_else(|| embutida(option_env!("ECLIPSE_SPOTIFY_CLIENT_ID")))
+    credencial(
+        dir_dados,
+        "ECLIPSE_SPOTIFY_CLIENT_ID",
+        "spotify_client_id.txt",
+    )
+    .or_else(|| embutida(option_env!("ECLIPSE_SPOTIFY_CLIENT_ID")))
 }
 
 /// Fallback embutido em tempo de compilação, para builds de teste em aparelho
@@ -199,8 +203,12 @@ fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
 /// se o APK for ficar com você. A defesa real é o teto de gasto no console da
 /// Anthropic, não o segredo.
 fn anthropic_api_key(dir_dados: &std::path::Path) -> Option<String> {
-    credencial(dir_dados, "ECLIPSE_ANTHROPIC_API_KEY", "anthropic_api_key.txt")
-        .or_else(|| embutida(option_env!("ECLIPSE_ANTHROPIC_API_KEY")))
+    credencial(
+        dir_dados,
+        "ECLIPSE_ANTHROPIC_API_KEY",
+        "anthropic_api_key.txt",
+    )
+    .or_else(|| embutida(option_env!("ECLIPSE_ANTHROPIC_API_KEY")))
 }
 
 /// A chave do OpenRouter, usada só para gerar imagem — a Anthropic não gera.
@@ -239,10 +247,7 @@ async fn spotify_access_token(app: tauri::AppHandle, id: Uuid) -> Result<String,
 /// Conecta o Spotify de um perfil: abre o navegador, espera o redirect de volta
 /// e guarda o refresh token.
 #[tauri::command]
-async fn connect_spotify(
-    app: tauri::AppHandle,
-    id: Uuid,
-) -> Result<(), String> {
+async fn connect_spotify(app: tauri::AppHandle, id: Uuid) -> Result<(), String> {
     let dir = app
         .path()
         .app_data_dir()
@@ -353,10 +358,7 @@ fn nome_de_imagem_seguro(nome: &str) -> Option<&str> {
 /// `ipc::Response` para os bytes atravessarem a IPC crus — devolver `Vec<u8>`
 /// os serializava como um array JSON com um número por byte.
 #[tauri::command]
-async fn imagem_ia(
-    app: tauri::AppHandle,
-    nome: String,
-) -> Result<tauri::ipc::Response, String> {
+async fn imagem_ia(app: tauri::AppHandle, nome: String) -> Result<tauri::ipc::Response, String> {
     let seguro = nome_de_imagem_seguro(&nome)
         .ok_or("nome de imagem inválido")?
         .to_owned();
@@ -382,7 +384,10 @@ mod tests_imagem {
     #[test]
     fn nome_simples_passa() {
         assert_eq!(nome_de_imagem_seguro("abc.png"), Some("abc.png"));
-        assert_eq!(nome_de_imagem_seguro("demonstracao.svg"), Some("demonstracao.svg"));
+        assert_eq!(
+            nome_de_imagem_seguro("demonstracao.svg"),
+            Some("demonstracao.svg")
+        );
     }
 
     /// O diretório de dados guarda `spotify_tokens.json` e as chaves de API. Um
@@ -585,7 +590,9 @@ pub fn run() {
             // comando `connect_spotify` e a Web API seguem úteis mesmo no
             // Android para busca e playlists, ainda que a reprodução em si não
             // passe mais por eles.
-            let cofre = Arc::new(Mutex::new(TokenStore::load(dir.join("spotify_tokens.json"))));
+            let cofre = Arc::new(Mutex::new(TokenStore::load(
+                dir.join("spotify_tokens.json"),
+            )));
 
             // Spotify pela Web API nas DUAS plataformas: é o que dá busca,
             // playlists e "escolher a música dentro do Eclipse" sem abrir o app
@@ -666,8 +673,7 @@ pub fn run() {
                 app.deep_link().on_open_url(move |evento| {
                     for url in evento.urls() {
                         println!("[eclipse] deep link recebido: {}", url.as_str());
-                        let Some(codigo) =
-                            eclipse_music::spotify::codigo_de_url(url.as_str())
+                        let Some(codigo) = eclipse_music::spotify::codigo_de_url(url.as_str())
                         else {
                             println!("[eclipse] deep link sem code, ignorando");
                             continue;
@@ -689,7 +695,9 @@ pub fn run() {
                                 Ok(autorizacao) => {
                                     println!("[eclipse] Spotify conectado com sucesso");
                                     if let Err(err) = finalizar_spotify(&app, id, autorizacao) {
-                                        eprintln!("[eclipse] falha ao finalizar login do Spotify: {err}");
+                                        eprintln!(
+                                            "[eclipse] falha ao finalizar login do Spotify: {err}"
+                                        );
                                     }
                                 }
                                 Err(err) => {

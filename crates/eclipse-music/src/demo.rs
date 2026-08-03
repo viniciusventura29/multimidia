@@ -95,8 +95,18 @@ impl MusicSource for DemoSource {
     async fn abrir(&mut self, uri: &str) -> Result<crate::source::Contexto, MusicError> {
         Ok(crate::source::Contexto {
             uri: uri.to_string(),
-            nome: if uri.contains(":album:") { "Álbum Demo" } else { "Playlist Demo" }.into(),
-            subtitulo: if uri.contains(":album:") { "Artista Demo" } else { "playlist" }.into(),
+            nome: if uri.contains(":album:") {
+                "Álbum Demo"
+            } else {
+                "Playlist Demo"
+            }
+            .into(),
+            subtitulo: if uri.contains(":album:") {
+                "Artista Demo"
+            } else {
+                "playlist"
+            }
+            .into(),
             album_art: None,
             faixas: PLAYLIST
                 .iter()
@@ -127,9 +137,21 @@ impl MusicSource for DemoSource {
 
     async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
         Ok(vec![
-            Playlist { uri: "spotify:playlist:demo-1".into(), nome: "Foco".into(), album_art: None },
-            Playlist { uri: "spotify:playlist:demo-2".into(), nome: "Estrada".into(), album_art: None },
-            Playlist { uri: "spotify:playlist:demo-3".into(), nome: "Domingo".into(), album_art: None },
+            Playlist {
+                uri: "spotify:playlist:demo-1".into(),
+                nome: "Foco".into(),
+                album_art: None,
+            },
+            Playlist {
+                uri: "spotify:playlist:demo-2".into(),
+                nome: "Estrada".into(),
+                album_art: None,
+            },
+            Playlist {
+                uri: "spotify:playlist:demo-3".into(),
+                nome: "Domingo".into(),
+                album_art: None,
+            },
         ])
     }
 }

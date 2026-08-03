@@ -42,18 +42,30 @@ pub struct Telemetria<'a> {
 /// valida: uma ação com nome errado ou campo faltando não vira `Acao` nenhuma, em vez
 /// de virar meia ação silenciosa.
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
-#[serde(tag = "acao", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "acao",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Acao {
     /// Enchi o tanque: o nível vira a capacidade e a média do tanque recomeça.
     Enchi,
     /// Coloquei N litros.
-    Abasteci { litros: f32 },
+    Abasteci {
+        litros: f32,
+    },
     /// O nível é este — correção à mão, sem ter abastecido.
-    Nivel { litros: f32 },
+    Nivel {
+        litros: f32,
+    },
     /// O tanque deste carro é de N litros.
-    Tanque { capacidade_l: f32 },
+    Tanque {
+        capacidade_l: f32,
+    },
     /// A calibração do consumo é esta (1,0 = sem correção).
-    Calibrar { fator: f32 },
+    Calibrar {
+        fator: f32,
+    },
     ZerarViagem,
 }
 
@@ -307,6 +319,9 @@ mod tests {
 
         let t = de_novo.telemetria();
         assert!((t.tanque.litros.unwrap() - salvo.litros.unwrap()).abs() < 0.1);
-        assert!(t.viagem.distancia_km > 15.0, "a viagem continua de onde parou");
+        assert!(
+            t.viagem.distancia_km > 15.0,
+            "a viagem continua de onde parou"
+        );
     }
 }

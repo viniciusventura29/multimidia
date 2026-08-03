@@ -285,7 +285,10 @@ impl Agente {
             let entrada_total = uso.entrada + uso.cache_escrita + uso.cache_leitura;
             let estourou = entrada_total > self.config.max_tokens_turno;
 
-            let conteudo = resposta.get("content").cloned().unwrap_or_else(|| json!([]));
+            let conteudo = resposta
+                .get("content")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
             let parada = resposta["stop_reason"].as_str().unwrap_or("");
 
             match parada {
@@ -591,7 +594,9 @@ mod tests {
         // Consultar, pintar, encerrar.
         assert_eq!(turno.iteracoes, 3);
         let quadro = turno.quadro.expect("nada foi pintado");
-        assert!(matches!(&quadro.cartoes[0], Cartao::Texto { corpo, .. } if corpo == "Sábado limpo."));
+        assert!(
+            matches!(&quadro.cartoes[0], Cartao::Texto { corpo, .. } if corpo == "Sábado limpo.")
+        );
     }
 
     /// Espalhar os resultados em várias mensagens de user ensina o modelo a
@@ -628,7 +633,10 @@ mod tests {
         let (agente, _) = agente(dublê.clone(), Config::nova(Modelo::Opus));
 
         let turno = agente.rodar("x").await.unwrap();
-        assert!(dublê.pedidos().len() >= 2, "precisa ter tido uma segunda chance");
+        assert!(
+            dublê.pedidos().len() >= 2,
+            "precisa ter tido uma segunda chance"
+        );
         assert!(turno.quadro.is_some());
     }
 
@@ -669,7 +677,10 @@ mod tests {
 
         let resultado = &dublê.pedidos()[1]["messages"][2]["content"][0];
         assert_eq!(resultado["is_error"], true);
-        assert!(resultado["content"].as_str().unwrap().contains("inexistente"));
+        assert!(resultado["content"]
+            .as_str()
+            .unwrap()
+            .contains("inexistente"));
     }
 
     #[tokio::test]
@@ -829,7 +840,11 @@ mod tests {
 
         let turno = agente.rodar("x").await.unwrap();
 
-        assert_eq!(dublê.pedidos().len(), 1, "não pode pedir mais depois de estourar");
+        assert_eq!(
+            dublê.pedidos().len(),
+            1,
+            "não pode pedir mais depois de estourar"
+        );
         assert!(
             turno.quadro.is_some(),
             "o que já tinha sido pintado continua valendo"
@@ -964,7 +979,10 @@ mod tests {
 
         let ferramenta = &dublê.pedidos()[0]["tools"][0];
         assert!(ferramenta.get("strict").is_none());
-        assert!(ferramenta.get("input_schema").is_some(), "a API pede input_schema");
+        assert!(
+            ferramenta.get("input_schema").is_some(),
+            "a API pede input_schema"
+        );
     }
 
     #[tokio::test]

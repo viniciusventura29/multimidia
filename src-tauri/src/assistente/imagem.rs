@@ -132,7 +132,9 @@ impl ProvedorImagem {
             .ok_or_else(|| McpError::falhou(format!("não achei nenhum lugar para `{consulta}`")))?;
 
         let nome_foto = lugar["photos"][0]["name"].as_str().ok_or_else(|| {
-            McpError::falhou(format!("achei `{consulta}`, mas ele não tem foto publicada"))
+            McpError::falhou(format!(
+                "achei `{consulta}`, mas ele não tem foto publicada"
+            ))
         })?;
 
         // Sem `skipHttpRedirect`: a API redireciona para os bytes e o reqwest
@@ -262,7 +264,10 @@ impl Provedor for ProvedorImagem {
                  verdade.",
                 esquema_objeto(&[(
                     "consulta",
-                    campo("string", "o lugar, como você diria a alguém: `Campos do Jordão SP`"),
+                    campo(
+                        "string",
+                        "o lugar, como você diria a alguém: `Campos do Jordão SP`",
+                    ),
                 )]),
             ),
             Ferramenta::nova(
@@ -332,7 +337,10 @@ mod tests {
         assert!(url.starts_with("arquivo:"), "veio {url}");
 
         let nome = url.trim_start_matches("arquivo:");
-        assert_eq!(std::fs::read(d.join("ia_imagens").join(nome)).unwrap(), b"bytes");
+        assert_eq!(
+            std::fs::read(d.join("ia_imagens").join(nome)).unwrap(),
+            b"bytes"
+        );
     }
 
     /// O painel fica horas ligado; a pasta não pode crescer sem fim.

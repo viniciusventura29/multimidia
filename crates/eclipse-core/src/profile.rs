@@ -108,7 +108,11 @@ impl ProfileStore {
         self.dados.profiles.iter().find(|p| p.id == id)
     }
 
-    pub fn create(&mut self, name: impl Into<String>, color: impl Into<String>) -> Result<Profile, ProfileError> {
+    pub fn create(
+        &mut self,
+        name: impl Into<String>,
+        color: impl Into<String>,
+    ) -> Result<Profile, ProfileError> {
         let profile = Profile::new(name, color);
         self.dados.profiles.push(profile.clone());
 

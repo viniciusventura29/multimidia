@@ -35,10 +35,7 @@ impl ProvedorQuadro {
     /// Pega o que foi pintado e esvazia, deixando o provedor pronto para o
     /// próximo turno.
     pub fn tomar(&self) -> Option<Quadro> {
-        self.ultimo
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
+        self.ultimo.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 }
 
@@ -227,12 +224,18 @@ mod tests {
     #[tokio::test]
     async fn tomar_esvazia_para_o_proximo_turno() {
         let p = ProvedorQuadro::novo();
-        p.chamar(PINTAR, &json!({ "cartoes": [{ "tipo": "texto", "corpo": "oi" }] }))
-            .await
-            .unwrap();
+        p.chamar(
+            PINTAR,
+            &json!({ "cartoes": [{ "tipo": "texto", "corpo": "oi" }] }),
+        )
+        .await
+        .unwrap();
 
         assert!(p.tomar().is_some());
-        assert!(p.tomar().is_none(), "o quadro não pode repetir no turno seguinte");
+        assert!(
+            p.tomar().is_none(),
+            "o quadro não pode repetir no turno seguinte"
+        );
     }
 
     /// O erro tem que ser legível: é ele que o modelo lê para consertar.
@@ -240,7 +243,10 @@ mod tests {
     async fn cartao_malformado_e_recusado_com_motivo() {
         let p = ProvedorQuadro::novo();
         let err = p
-            .chamar(PINTAR, &json!({ "cartoes": [{ "tipo": "grafico", "titulo": "x" }] }))
+            .chamar(
+                PINTAR,
+                &json!({ "cartoes": [{ "tipo": "grafico", "titulo": "x" }] }),
+            )
             .await
             .unwrap_err();
 
@@ -283,7 +289,9 @@ mod tests {
         ];
 
         for caso in casos {
-            let r = p.chamar(PINTAR, &json!({ "cartoes": [caso.clone()] })).await;
+            let r = p
+                .chamar(PINTAR, &json!({ "cartoes": [caso.clone()] }))
+                .await;
             assert!(r.is_err(), "{caso} devia ter sido recusado");
         }
     }
@@ -317,12 +325,18 @@ mod tests {
     #[tokio::test]
     async fn repintar_substitui_em_vez_de_acumular() {
         let p = ProvedorQuadro::novo();
-        p.chamar(PINTAR, &json!({ "cartoes": [{ "tipo": "texto", "corpo": "rascunho" }] }))
-            .await
-            .unwrap();
-        p.chamar(PINTAR, &json!({ "cartoes": [{ "tipo": "texto", "corpo": "final" }] }))
-            .await
-            .unwrap();
+        p.chamar(
+            PINTAR,
+            &json!({ "cartoes": [{ "tipo": "texto", "corpo": "rascunho" }] }),
+        )
+        .await
+        .unwrap();
+        p.chamar(
+            PINTAR,
+            &json!({ "cartoes": [{ "tipo": "texto", "corpo": "final" }] }),
+        )
+        .await
+        .unwrap();
 
         let quadro = p.tomar().unwrap();
         assert_eq!(quadro.cartoes.len(), 1);
@@ -390,7 +404,11 @@ mod tests {
 
         let tipos: Vec<&str> = variantes
             .iter()
-            .map(|v| v["properties"]["tipo"]["const"].as_str().expect("sem const"))
+            .map(|v| {
+                v["properties"]["tipo"]["const"]
+                    .as_str()
+                    .expect("sem const")
+            })
             .collect();
         assert_eq!(tipos, ["texto", "metrica", "grafico", "imagem", "lista"]);
     }

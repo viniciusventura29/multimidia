@@ -111,7 +111,10 @@ impl Bus {
     }
 
     pub(crate) fn perfil_atual(&self) -> Option<Arc<Profile>> {
-        self.perfil.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.perfil
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub(crate) fn snapshot(&self) -> Vec<StateEnvelope> {
@@ -157,9 +160,7 @@ impl ModuleCtx {
     /// um bug de `Serialize` num módulo não deve derrubar o painel.
     pub fn ready<T: Serialize>(&self, value: &T) {
         match serde_json::to_value(value) {
-            Ok(data) => self
-                .bus
-                .publish(&self.id, Status::Ready, Some(data), None),
+            Ok(data) => self.bus.publish(&self.id, Status::Ready, Some(data), None),
             Err(err) => self.degraded(format!("falha ao serializar o estado: {err}")),
         }
     }

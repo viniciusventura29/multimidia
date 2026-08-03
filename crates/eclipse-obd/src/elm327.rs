@@ -91,8 +91,7 @@ impl<T: Elm327Transport> Elm327Source<T> {
                     // (`5E`) no terceiro, então sem estes pedidos não há como saber
                     // se o tanque é legível nem se o carro já calcula o consumo. O
                     // PID `20` de um bloco é quem anuncia que o próximo existe.
-                    for (base, pedido, prefixo) in
-                        [(0x20, "0120", "4120"), (0x40, "0140", "4140")]
+                    for (base, pedido, prefixo) in [(0x20, "0120", "4120"), (0x40, "0140", "4140")]
                     {
                         if !capacidades.suporta(base) {
                             break;
@@ -252,9 +251,7 @@ fn interpretar_voltagem(bruto: &str) -> Result<f32, ObdError> {
         .take_while(|c| c.is_ascii_digit() || *c == '.')
         .collect();
 
-    numero
-        .parse::<f32>()
-        .map_err(|_| classificar_erro(bruto))
+    numero.parse::<f32>().map_err(|_| classificar_erro(bruto))
 }
 
 /// Só os dígitos hex da resposta, em maiúscula e sem espaços.
@@ -334,7 +331,7 @@ mod tests {
     fn velocidade_temperatura_e_combustivel() {
         assert_eq!(interpretar(Pid::Speed, "410D45").unwrap(), 69.0);
         assert_eq!(interpretar(Pid::Coolant, "41056E").unwrap(), 70.0); // 0x6E-40
-        // 0x80 = 128 → 128*100/255 ≈ 50.196
+                                                                        // 0x80 = 128 → 128*100/255 ≈ 50.196
         let fuel = interpretar(Pid::Fuel, "412F80").unwrap();
         assert!((fuel - 50.196).abs() < 0.01, "combustível {fuel}");
     }
@@ -347,7 +344,7 @@ mod tests {
         assert_eq!(interpretar(Pid::Carga, "410433").unwrap(), 20.0);
         assert_eq!(interpretar(Pid::Map, "410B1E").unwrap(), 30.0);
         assert_eq!(interpretar(Pid::Iat, "410F41").unwrap(), 25.0); // 0x41-40
-        // Vazão de combustível: (0x00*256 + 0x28)/20 = 2,0 L/h.
+                                                                    // Vazão de combustível: (0x00*256 + 0x28)/20 = 2,0 L/h.
         assert_eq!(interpretar(Pid::VazaoComb, "415E0028").unwrap(), 2.0);
     }
 
@@ -355,10 +352,7 @@ mod tests {
     fn segunda_ecu_respondendo_o_mesmo_pid_nao_polui_a_leitura() {
         // Dois quadros colados é o que se vê quando motor e câmbio respondem juntos.
         // Ler "todo o hex depois do prefixo" daria 4 bytes e a conta erraria.
-        assert_eq!(
-            interpretar(Pid::Rpm, "410C1AF8410C1AF8").unwrap(),
-            1726.0
-        );
+        assert_eq!(interpretar(Pid::Rpm, "410C1AF8410C1AF8").unwrap(), 1726.0);
     }
 
     #[test]
@@ -380,7 +374,10 @@ mod tests {
     #[test]
     fn searching_colado_no_quadro_bom_ainda_le() {
         // O clássico do primeiro PID: negociação colada no dado. Não pode perder o dado.
-        assert_eq!(interpretar(Pid::Rpm, "SEARCHING...410C1AF8").unwrap(), 1726.0);
+        assert_eq!(
+            interpretar(Pid::Rpm, "SEARCHING...410C1AF8").unwrap(),
+            1726.0
+        );
     }
 
     #[test]
@@ -424,9 +421,7 @@ mod tests {
             Self {
                 respostas: respostas
                     .into_iter()
-                    .map(|(cmd, rs)| {
-                        (cmd.to_string(), rs.iter().map(|r| r.to_string()).collect())
-                    })
+                    .map(|(cmd, rs)| (cmd.to_string(), rs.iter().map(|r| r.to_string()).collect()))
                     .collect(),
                 visto: Vec::new(),
             }
