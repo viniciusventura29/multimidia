@@ -1,0 +1,9 @@
+# Commits que só mexem em formatação. Configure com:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# O `git blame` deste repo é o registro real do porquê de cada decisão — vários
+# comentários citam o número da PR que os motivou. Um commit de `cargo fmt` não
+# pode enterrar isso.
+
+# chore: cargo fmt
+8d02d92aae877de630fd025b44f0b735d2f0f93f

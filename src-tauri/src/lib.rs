@@ -413,6 +413,63 @@ mod tests_imagem {
     }
 }
 
+/// O ponto de entrada do Android, guardado por leitura do próprio fonte.
+///
+/// Em #19 uma função entrou entre o `#[cfg_attr(mobile, tauri::mobile_entry_point)]`
+/// e o `run()`; o atributo ficou nela, o `run()` virou código inalcançável e o APK
+/// subiu só o logger. O comentário do `run()` diz "nenhum teste de desktop pega
+/// isso" — este pega, e roda no Mac em zero segundo.
+///
+/// ⚠️ Não dá para checar isso pela tabela de símbolos do `.so`: o
+/// `mobile_entry_point` expande o `android_binding!` esteja ele em qualquer
+/// função, então os 24 símbolos `Java_*` continuam exportados **idênticos** com o
+/// bug presente — foi medido, o `diff` das tabelas é vazio. O que muda é o app
+/// inteiro desaparecer por código morto (61 MB → 21 MB, 114.262 símbolos →
+/// 38.625), e é isso que o job `android` do CI afere pelo artefato.
+#[cfg(test)]
+mod tests_ponto_de_entrada {
+    /// O atributo tem que estar na linha imediatamente anterior ao `pub fn run()`.
+    #[test]
+    fn o_atributo_do_android_esta_colado_no_run() {
+        let fonte = include_str!("lib.rs");
+        let linhas: Vec<&str> = fonte.lines().map(str::trim).collect();
+
+        let atributo = linhas
+            .iter()
+            .position(|l| l.starts_with("#[cfg_attr(mobile, tauri::mobile_entry_point)]"))
+            .expect(
+                "o #[cfg_attr(mobile, tauri::mobile_entry_point)] desapareceu do lib.rs — \
+                 sem ele o APK não tem ponto de entrada nenhum",
+            );
+
+        assert_eq!(
+            linhas.get(atributo + 1).copied(),
+            Some("pub fn run() {"),
+            "o #[cfg_attr(mobile, tauri::mobile_entry_point)] se desgrudou do `pub fn run()`: \
+             a linha seguinte é `{}`. Era esse o bug do #19/#22 — o atributo vai para a função \
+             intrometida, o `run()` fica inalcançável e o APK abre sem fazer nada.",
+            linhas
+                .get(atributo + 1)
+                .copied()
+                .unwrap_or("<fim do arquivo>"),
+        );
+    }
+
+    /// Só um `mobile_entry_point` no crate. Dois seria ambíguo, e o segundo
+    /// venceria em silêncio.
+    #[test]
+    fn existe_exatamente_um_ponto_de_entrada() {
+        let n = include_str!("lib.rs")
+            .lines()
+            .filter(|l| {
+                l.trim()
+                    .starts_with("#[cfg_attr(mobile, tauri::mobile_entry_point)]")
+            })
+            .count();
+        assert_eq!(n, 1, "esperava um mobile_entry_point no lib.rs, achei {n}");
+    }
+}
+
 /* ------------------------------------------------------------------ */
 /* Localização                                                         */
 /* ------------------------------------------------------------------ */

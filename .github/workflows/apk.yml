@@ -1,0 +1,49 @@
+# APK completo: noturno e sob demanda, NÃO por PR.
+#
+# São ~10-14 min de gradle mais o codegen de release (`codegen-units = 1`,
+# `lto = "thin"`), e não afirma quase nada que a checagem de código morto do job
+# `android` do ci.yml já não afirme em ~1 segundo. O que ele ADICIONA é que
+# gradle/AGP/proguard continuam funcionando — e isso quebra em bump de
+# dependência, não em PR comum. Noturno é a cadência certa disso.
+#
+# O artefato serve ao ritual da última milha: instalar no emulador
+# `eclipse_head_unit` (1024x600) antes de gravar na head unit do carro.
+name: apk
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: apk
+      - run: npm ci
+      # `src-tauri/gen/android` é versionado (40 arquivos), então não há
+      # `tauri android init` a fazer aqui.
+      - run: npm run tauri -- android build --apk --target aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eclipse-os-arm64-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
