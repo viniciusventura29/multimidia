@@ -125,9 +125,7 @@ impl Cartao {
         let vazio = |s: &str| s.trim().is_empty();
 
         match self {
-            Self::Texto { corpo, .. } if vazio(corpo) => {
-                Err("cartão de texto sem corpo".into())
-            }
+            Self::Texto { corpo, .. } if vazio(corpo) => Err("cartão de texto sem corpo".into()),
             Self::Metrica { rotulo, valor, .. } if vazio(rotulo) || vazio(valor) => {
                 Err("cartão de métrica precisa de rótulo e valor".into())
             }
@@ -213,7 +211,11 @@ mod tests {
 
         assert!(matches!(
             c,
-            Cartao::Texto { titulo: None, tom: Tom::Neutro, .. }
+            Cartao::Texto {
+                titulo: None,
+                tom: Tom::Neutro,
+                ..
+            }
         ));
     }
 
@@ -231,8 +233,7 @@ mod tests {
 
     #[test]
     fn tipo_desconhecido_falha_em_vez_de_virar_cartao_mudo() {
-        let r: Result<Cartao, _> =
-            serde_json::from_value(json!({ "tipo": "video", "url": "x" }));
+        let r: Result<Cartao, _> = serde_json::from_value(json!({ "tipo": "video", "url": "x" }));
         assert!(r.is_err(), "cartão inventado tem que ser recusado");
     }
 

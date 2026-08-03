@@ -82,9 +82,7 @@ impl ProvedorCarro {
 /// `Degraded` mantém o último valor bom, e ele continua sendo informação útil —
 /// "o adaptador soltou, mas 40 segundos atrás o motor estava a 90°" é melhor
 /// resposta que "não sei". Por isso os dois voltam juntos.
-fn dados_e_motivo(
-    envelope: Option<StateEnvelope>,
-) -> (Option<Arc<Value>>, Option<String>) {
+fn dados_e_motivo(envelope: Option<StateEnvelope>) -> (Option<Arc<Value>>, Option<String>) {
     match envelope {
         None => (None, Some("o módulo ainda não subiu".to_string())),
         Some(e) => {
@@ -289,10 +287,7 @@ impl ProvedorCarro {
             })
             .collect();
 
-        let total: u64 = conversas
-            .iter()
-            .filter_map(|c| c["unread"].as_u64())
-            .sum();
+        let total: u64 = conversas.iter().filter_map(|c| c["unread"].as_u64()).sum();
 
         json!({
             "nao_lidas": total,
@@ -547,7 +542,9 @@ mod tests {
     /// Centenas de coordenadas e dezenas de passos não podem ir junto.
     #[tokio::test]
     async fn rota_vira_resumo_em_vez_da_geometria_inteira() {
-        let pontos: Vec<Value> = (0..400).map(|i| json!([-23.5 + i as f64 * 1e-4, -46.6])).collect();
+        let pontos: Vec<Value> = (0..400)
+            .map(|i| json!([-23.5 + i as f64 * 1e-4, -46.6]))
+            .collect();
         let p = provedor(vec![envelope(
             "nav",
             Status::Ready,
@@ -627,10 +624,17 @@ mod tests {
 
         let r = p.chamar("carro_mensagens", &json!({})).await.unwrap();
 
-        assert_eq!(r["nao_lidas"], 18, "o total conta todas, não só as mostradas");
+        assert_eq!(
+            r["nao_lidas"], 18,
+            "o total conta todas, não só as mostradas"
+        );
         assert_eq!(r["conversas"].as_array().unwrap().len(), 5);
         let previa = r["conversas"][0]["ultima"].as_str().unwrap();
-        assert!(previa.chars().count() <= 81, "prévia longa demais: {}", previa.len());
+        assert!(
+            previa.chars().count() <= 81,
+            "prévia longa demais: {}",
+            previa.len()
+        );
     }
 
     #[tokio::test]

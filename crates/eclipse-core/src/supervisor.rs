@@ -216,7 +216,9 @@ mod tests {
     async fn panico_vira_degraded_com_a_mensagem() {
         let mut sup = Supervisor::new();
         let mut rx = sup.subscribe();
-        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra { valor: 2500 }));
+        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra {
+            valor: 2500,
+        }));
 
         let env = espera_por(&mut rx, |e| e.is_degraded()).await;
         let reason = env.reason.expect("degradação precisa dizer o motivo");
@@ -231,7 +233,9 @@ mod tests {
     async fn degradacao_preserva_o_ultimo_valor_bom() {
         let mut sup = Supervisor::new();
         let mut rx = sup.subscribe();
-        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra { valor: 2500 }));
+        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra {
+            valor: 2500,
+        }));
 
         let env = espera_por(&mut rx, |e| e.is_degraded()).await;
         assert_eq!(
@@ -245,7 +249,9 @@ mod tests {
     async fn modulo_que_quebra_e_reiniciado() {
         let mut sup = Supervisor::new();
         let mut rx = sup.subscribe();
-        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra { valor: 1 }));
+        sup.spawn(factory(ModuleId::new("obd"), || PublicaEQuebra {
+            valor: 1,
+        }));
 
         // Duas degradações seguidas só acontecem se ele voltou a rodar no meio.
         espera_por(&mut rx, |e| e.is_degraded()).await;

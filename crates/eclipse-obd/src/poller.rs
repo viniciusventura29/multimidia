@@ -254,7 +254,11 @@ mod tests {
         let vistos = &poller.source.vistos;
         assert_eq!(vistos[&Pid::Rpm], 3);
         assert_eq!(vistos[&Pid::Speed], 3);
-        assert_eq!(vistos[&Pid::Carga], 3, "a fonte de ar é integrada: vai junto");
+        assert_eq!(
+            vistos[&Pid::Carga],
+            3,
+            "a fonte de ar é integrada: vai junto"
+        );
         assert_eq!(vistos[&Pid::Coolant], 1);
         assert_eq!(vistos[&Pid::Fuel], 1);
         assert_eq!(vistos[&Pid::Voltage], 1);
@@ -317,7 +321,8 @@ mod tests {
             poller.step().await.unwrap();
         }
         assert_eq!(
-            poller.source.vistos[&Pid::Fuel], tentativas_ate_desistir,
+            poller.source.vistos[&Pid::Fuel],
+            tentativas_ate_desistir,
             "e não volta a ser pedido"
         );
     }

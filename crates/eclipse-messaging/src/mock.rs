@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 
 use crate::inbox::IncomingMessage;
-use crate::source::{MessagingError, MessageSource};
+use crate::source::{MessageSource, MessagingError};
 
 const ROTEIRO: [(&str, &str, &str); 5] = [
     ("Ana", "Ana", "oi, você já saiu?"),

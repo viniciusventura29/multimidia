@@ -53,11 +53,9 @@ impl Elm327Transport for AndroidBtTransport {
     async fn command(&mut self, cmd: &str, timeout_ms: u32) -> Result<String, ObdError> {
         let app = self.app.clone();
         let cmd = cmd.to_string();
-        tokio::task::spawn_blocking(move || {
-            app.obd_bt().command(&cmd, timeout_ms).map_err(erro)
-        })
-        .await
-        .map_err(|e| ObdError::Bus(format!("task de leitura falhou: {e}")))?
+        tokio::task::spawn_blocking(move || app.obd_bt().command(&cmd, timeout_ms).map_err(erro))
+            .await
+            .map_err(|e| ObdError::Bus(format!("task de leitura falhou: {e}")))?
     }
 }
 
@@ -113,7 +111,9 @@ async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
 }
 
 /// Conecta ao adaptador e faz o handshake ELM327, devolvendo a fonte pronta.
-pub async fn conectar(app: &tauri::AppHandle) -> Result<Elm327Source<AndroidBtTransport>, ObdError> {
+pub async fn conectar(
+    app: &tauri::AppHandle,
+) -> Result<Elm327Source<AndroidBtTransport>, ObdError> {
     let rotulo = preparar(app).await?;
     tracing::info!(adaptador = %rotulo, "conectado; iniciando handshake do ELM327");
     Elm327Source::conectar(AndroidBtTransport { app: app.clone() }).await

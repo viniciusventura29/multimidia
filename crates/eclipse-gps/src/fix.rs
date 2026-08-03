@@ -50,10 +50,7 @@ pub fn distancia_m(a: (f64, f64), b: (f64, f64)) -> f64 {
 /// Interpolação linear em graus. Em segmentos de rua, com décimos de grau, o
 /// erro contra a geodésica é de centímetros — não vale a complexidade.
 pub fn interpolar(a: (f64, f64), b: (f64, f64), fracao: f64) -> (f64, f64) {
-    (
-        a.0 + (b.0 - a.0) * fracao,
-        a.1 + (b.1 - a.1) * fracao,
-    )
+    (a.0 + (b.0 - a.0) * fracao, a.1 + (b.1 - a.1) * fracao)
 }
 
 #[cfg(test)]

@@ -108,7 +108,11 @@ impl ProfileStore {
         self.dados.profiles.iter().find(|p| p.id == id)
     }
 
-    pub fn create(&mut self, name: impl Into<String>, color: impl Into<String>) -> Result<Profile, ProfileError> {
+    pub fn create(
+        &mut self,
+        name: impl Into<String>,
+        color: impl Into<String>,
+    ) -> Result<Profile, ProfileError> {
         let profile = Profile::new(name, color);
         self.dados.profiles.push(profile.clone());
 
@@ -194,7 +198,7 @@ mod tests {
         };
 
         let store = ProfileStore::load(&caminho);
-        assert_eq!(store.profiles(), [criado.clone()]);
+        assert_eq!(store.profiles(), std::slice::from_ref(&criado));
         assert_eq!(
             store.active(),
             Some(&criado),

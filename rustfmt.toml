@@ -1,0 +1,8 @@
+# Só a edição, de propósito.
+#
+# Em especial NÃO ligar `wrap_comments`: os comentários em português deste repo
+# são documentação escrita e quebrada à mão — cada um explica uma decisão e
+# vários citam o número da PR que os motivou. Reflowar todos geraria um diff
+# enorme por zero ganho, e enterraria o `git blame` que é o registro real do
+# porquê de cada escolha.
+edition = "2021"

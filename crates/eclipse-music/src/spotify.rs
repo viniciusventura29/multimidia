@@ -349,7 +349,11 @@ impl MusicSource for SpotifySource {
                 .into_static();
             // O álbum inteiro numa chamada: nome/capa vêm do álbum, e as faixas
             // dele não repetem a capa (é a mesma), então herdam a do álbum.
-            let album = self.client.album(id.clone(), None).await.map_err(traduzir)?;
+            let album = self
+                .client
+                .album(id.clone(), None)
+                .await
+                .map_err(traduzir)?;
             let capa = album.images.into_iter().next().map(|i| i.url);
             let faixas = self
                 .client
@@ -422,9 +426,7 @@ impl MusicSource for SpotifySource {
         faixa: Option<&str>,
         contexto: Option<&str>,
     ) -> Result<(), MusicError> {
-        use rspotify::model::{
-            AlbumId, Offset, PlayContextId, PlayableId, PlaylistId, TrackId,
-        };
+        use rspotify::model::{AlbumId, Offset, PlayContextId, PlayableId, PlaylistId, TrackId};
 
         let device = self.escolher_device().await?;
 
@@ -500,7 +502,6 @@ impl MusicSource for SpotifySource {
             })
             .collect())
     }
-
 }
 
 /// Resultado de uma autorização nova.
@@ -538,9 +539,7 @@ pub fn iniciar_autorizacao(client_id: &str) -> Result<(PkcePendente, String), Mu
 /// Sobe um servidor de uma requisição só em `REDIRECT_URI`. É o caminho normal
 /// para app desktop: o navegador abre, o usuário aprova, e o Spotify devolve o
 /// código para o próprio aparelho — sem servidor na internet no meio.
-pub async fn concluir_autorizacao(
-    pendente: PkcePendente,
-) -> Result<Autorizacao, MusicError> {
+pub async fn concluir_autorizacao(pendente: PkcePendente) -> Result<Autorizacao, MusicError> {
     let codigo = esperar_codigo().await?;
     trocar_codigo(pendente, &codigo).await
 }

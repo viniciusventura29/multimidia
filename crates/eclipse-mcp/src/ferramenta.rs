@@ -28,11 +28,7 @@ pub struct Ferramenta {
 }
 
 impl Ferramenta {
-    pub fn nova(
-        nome: impl Into<String>,
-        descricao: impl Into<String>,
-        esquema: Value,
-    ) -> Self {
+    pub fn nova(nome: impl Into<String>, descricao: impl Into<String>, esquema: Value) -> Self {
         Self {
             nome: nome.into(),
             descricao: descricao.into(),

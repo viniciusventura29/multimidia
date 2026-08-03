@@ -24,9 +24,9 @@ pub mod source;
 pub mod veiculo;
 
 pub use capacidades::Capacidades;
+pub use consumo::{Consumo, Medidor, MetodoFluxo, Tanque, Viagem};
 pub use elm327::{Elm327Source, Elm327Transport};
 pub use painel::{Acao, Painel, Telemetria};
-pub use consumo::{Consumo, Medidor, MetodoFluxo, Tanque, Viagem};
 pub use pid::{Pid, Readings};
 pub use poller::{Plano, Poller};
 pub use sim::SimulatedSource;

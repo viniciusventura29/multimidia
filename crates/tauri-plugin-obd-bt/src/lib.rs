@@ -22,10 +22,7 @@ pub use models::BtDevice;
 #[cfg(target_os = "android")]
 const PLUGIN_IDENTIFIER: &str = "com.eclipseos.obdbt";
 
-fn init_plugin<R: Runtime>(
-    app: &AppHandle<R>,
-    api: PluginApi<R, ()>,
-) -> crate::Result<ObdBt<R>> {
+fn init_plugin<R: Runtime>(app: &AppHandle<R>, api: PluginApi<R, ()>) -> crate::Result<ObdBt<R>> {
     #[cfg(target_os = "android")]
     {
         let _ = app;
@@ -96,7 +93,9 @@ mod imp {
         /// Bloqueia até o usuário responder o diálogo. Sem a permissão não dá nem
         /// para listar os pareados, então isto vem antes de tudo.
         pub fn ensure_permissions(&self) -> crate::Result<()> {
-            let atual: PermStatus = self.plugin_handle.run_mobile_plugin("checkPermissions", ())?;
+            let atual: PermStatus = self
+                .plugin_handle
+                .run_mobile_plugin("checkPermissions", ())?;
             if atual.bluetooth.as_deref() == Some("granted") {
                 return Ok(());
             }

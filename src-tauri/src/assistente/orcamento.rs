@@ -185,9 +185,9 @@ impl Orcamento {
         };
         let temporario = self.caminho.with_extension("json.tmp");
 
-        if let Err(err) = fs::write(&temporario, &json).and_then(|_| {
-            fs::rename(&temporario, &self.caminho)
-        }) {
+        if let Err(err) =
+            fs::write(&temporario, &json).and_then(|_| fs::rename(&temporario, &self.caminho))
+        {
             tracing::warn!(%err, "não consegui gravar o uso do assistente");
         }
     }

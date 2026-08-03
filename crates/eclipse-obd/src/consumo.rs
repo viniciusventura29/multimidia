@@ -476,15 +476,24 @@ mod tests {
             MetodoFluxo::escolher(cap_com(&[0x0B, 0x04, 0x0C])),
             MetodoFluxo::Coletor
         );
-        assert_eq!(MetodoFluxo::escolher(cap_com(&[0x04, 0x0C])), MetodoFluxo::Carga);
-        assert_eq!(MetodoFluxo::escolher(cap_com(&[0x0D])), MetodoFluxo::Indisponivel);
+        assert_eq!(
+            MetodoFluxo::escolher(cap_com(&[0x04, 0x0C])),
+            MetodoFluxo::Carga
+        );
+        assert_eq!(
+            MetodoFluxo::escolher(cap_com(&[0x0D])),
+            MetodoFluxo::Indisponivel
+        );
     }
 
     #[test]
     fn so_maf_e_vazao_direta_contam_como_medidos() {
         assert!(MetodoFluxo::Maf.medido());
         assert!(MetodoFluxo::Direto.medido());
-        assert!(!MetodoFluxo::Coletor.medido(), "modelo com VE chutada é estimativa");
+        assert!(
+            !MetodoFluxo::Coletor.medido(),
+            "modelo com VE chutada é estimativa"
+        );
         assert!(!MetodoFluxo::Carga.medido());
     }
 
@@ -493,7 +502,10 @@ mod tests {
         let v = Veiculo::default();
 
         // MAF de 3 g/s: 3 * 3600 / (13,2 * 750) = 1,09 L/h.
-        let maf = Readings { maf_gs: Some(3.0), ..leitura() };
+        let maf = Readings {
+            maf_gs: Some(3.0),
+            ..leitura()
+        };
         assert!(
             (vazao_lh(MetodoFluxo::Maf, &maf, &v).unwrap() - 1.09).abs() < 0.02,
             "{:?}",
@@ -501,24 +513,40 @@ mod tests {
         );
 
         // Coletor a 30 kPa, ar a 40 °C, 750 rpm: ~5,0 g/s → ~1,8 L/h.
-        let coletor = Readings { map_kpa: Some(30), iat_c: Some(40), ..leitura() };
+        let coletor = Readings {
+            map_kpa: Some(30),
+            iat_c: Some(40),
+            ..leitura()
+        };
         let lh = vazao_lh(MetodoFluxo::Coletor, &coletor, &v).unwrap();
         assert!((0.8..2.5).contains(&lh), "coletor deu {lh} L/h");
 
         // Carga de 22% a 750 rpm: 0,22 * 6,25 * 3,0 * 1,184 = 4,9 g/s → ~1,8 L/h.
-        let carga = Readings { carga_pct: Some(22), ..leitura() };
+        let carga = Readings {
+            carga_pct: Some(22),
+            ..leitura()
+        };
         let lh = vazao_lh(MetodoFluxo::Carga, &carga, &v).unwrap();
         assert!((0.8..2.5).contains(&lh), "carga deu {lh} L/h");
 
         // Vazão direta passa reto, só com a calibração.
-        let direto = Readings { vazao_lh: Some(2.0), ..leitura() };
+        let direto = Readings {
+            vazao_lh: Some(2.0),
+            ..leitura()
+        };
         assert_eq!(vazao_lh(MetodoFluxo::Direto, &direto, &v), Some(2.0));
     }
 
     #[test]
     fn a_calibracao_multiplica_o_resultado() {
-        let v = Veiculo { calibracao: 1.1, ..Veiculo::default() };
-        let r = Readings { maf_gs: Some(3.0), ..leitura() };
+        let v = Veiculo {
+            calibracao: 1.1,
+            ..Veiculo::default()
+        };
+        let r = Readings {
+            maf_gs: Some(3.0),
+            ..leitura()
+        };
         let com = vazao_lh(MetodoFluxo::Maf, &r, &v).unwrap();
         let sem = vazao_lh(MetodoFluxo::Maf, &r, &Veiculo::default()).unwrap();
         assert!((com / sem - 1.1).abs() < 0.001);
@@ -538,7 +566,10 @@ mod tests {
         assert_eq!(vazao_lh(MetodoFluxo::Maf, &corte, &v), Some(0.0));
 
         // A mesma rotação com o pé na tábua não é corte.
-        let acelerando = Readings { carga_pct: Some(70), ..corte };
+        let acelerando = Readings {
+            carga_pct: Some(70),
+            ..corte
+        };
         assert!(vazao_lh(MetodoFluxo::Maf, &acelerando, &v).unwrap() > 1.0);
     }
 
@@ -640,11 +671,19 @@ mod tests {
     #[test]
     fn a_vazao_suavizada_persegue_o_valor_novo_sem_pular() {
         let mut m = medidor();
-        let calmo = Readings { rpm: Some(750), speed_kmh: Some(0), maf_gs: Some(3.0), ..Readings::default() };
+        let calmo = Readings {
+            rpm: Some(750),
+            speed_kmh: Some(0),
+            maf_gs: Some(3.0),
+            ..Readings::default()
+        };
         rodar(&mut m, &calmo, Duration::from_secs(1), 60);
         let antes = m.consumo(&calmo).litros_hora.unwrap();
 
-        let pe_fundo = Readings { maf_gs: Some(30.0), ..calmo };
+        let pe_fundo = Readings {
+            maf_gs: Some(30.0),
+            ..calmo
+        };
         m.amostrar(&pe_fundo, Duration::from_secs(1));
         let depois = m.consumo(&pe_fundo).litros_hora.unwrap();
 
@@ -669,7 +708,8 @@ mod tests {
         m.encheu();
         assert_eq!(m.tanque().litros, Some(61.0));
         assert_eq!(
-            m.tanque().media_tanque_km_l, None,
+            m.tanque().media_tanque_km_l,
+            None,
             "gasolina nova, média do tanque nova"
         );
         assert!(
@@ -706,20 +746,30 @@ mod tests {
 
         // Agora a média real (~12,5 km/l) manda, e a autonomia sobe.
         let t = m.tanque();
-        assert!(t.autonomia_km.unwrap() > 700.0, "autonomia {:?}", t.autonomia_km);
+        assert!(
+            t.autonomia_km.unwrap() > 700.0,
+            "autonomia {:?}",
+            t.autonomia_km
+        );
     }
 
     #[test]
     fn o_nivel_do_carro_ancora_a_estimativa_sem_fazer_o_numero_pular() {
         let mut m = medidor();
         // Primeira leitura vira a âncora: 50% de 61 L.
-        let meio = Readings { fuel_pct: Some(50), ..Readings::default() };
+        let meio = Readings {
+            fuel_pct: Some(50),
+            ..Readings::default()
+        };
         m.amostrar(&meio, Duration::from_secs(1));
         assert_eq!(m.tanque().litros, Some(30.5));
 
         // O carro passa a dizer 40% (24,4 L). A estimativa tem que caminhar para lá
         // devagar, não teleportar — o PID chapinha em curva.
-        let menos = Readings { fuel_pct: Some(40), ..Readings::default() };
+        let menos = Readings {
+            fuel_pct: Some(40),
+            ..Readings::default()
+        };
         m.amostrar(&menos, Duration::from_secs(1));
         let depois = m.tanque().litros.unwrap();
         assert!(depois < 30.5 && depois > 30.0, "andou demais: {depois}");
@@ -735,7 +785,10 @@ mod tests {
     #[test]
     fn nivel_so_e_medido_depois_de_convergir() {
         let mut m = medidor();
-        let meio = Readings { fuel_pct: Some(50), ..Readings::default() };
+        let meio = Readings {
+            fuel_pct: Some(50),
+            ..Readings::default()
+        };
 
         m.amostrar(&meio, Duration::from_secs(1));
         assert!(
@@ -750,10 +803,16 @@ mod tests {
     #[test]
     fn salto_grande_de_nivel_e_lido_como_abastecimento() {
         let mut m = medidor();
-        let quase_seco = Readings { fuel_pct: Some(10), ..Readings::default() };
+        let quase_seco = Readings {
+            fuel_pct: Some(10),
+            ..Readings::default()
+        };
         rodar(&mut m, &quase_seco, Duration::from_secs(1), 10);
 
-        let cheio = Readings { fuel_pct: Some(95), ..Readings::default() };
+        let cheio = Readings {
+            fuel_pct: Some(95),
+            ..Readings::default()
+        };
         m.amostrar(&cheio, Duration::from_secs(1));
 
         // Sem esta regra, a correção lenta levaria uma hora de estrada para admitir
@@ -769,14 +828,20 @@ mod tests {
         m.encheu();
         assert_eq!(m.tanque().litros, Some(61.0));
 
-        m.ajustar(Veiculo { capacidade_l: 45.0, ..Veiculo::default() });
+        m.ajustar(Veiculo {
+            capacidade_l: 45.0,
+            ..Veiculo::default()
+        });
         assert_eq!(
             m.tanque().litros,
             Some(45.0),
             "o teto baixou, então o conteúdo é limitado por ele"
         );
 
-        m.ajustar(Veiculo { capacidade_l: 61.0, ..Veiculo::default() });
+        m.ajustar(Veiculo {
+            capacidade_l: 61.0,
+            ..Veiculo::default()
+        });
         assert_eq!(
             m.tanque().litros,
             Some(45.0),
@@ -821,18 +886,31 @@ mod tests {
         m.recalcular_metodo(cap);
 
         assert_eq!(m.metodo(), MetodoFluxo::Carga);
-        assert_eq!(m.consumo(&r).litros_hora, None, "sem carga lida ainda, sem vazão");
+        assert_eq!(
+            m.consumo(&r).litros_hora,
+            None,
+            "sem carga lida ainda, sem vazão"
+        );
         assert!(!m.consumo(&r).medido, "agora é estimativa");
     }
 
     #[test]
     fn tempo_de_viagem_so_conta_com_o_motor_girando() {
         let mut m = medidor();
-        let desligado = Readings { rpm: None, speed_kmh: Some(0), ..Readings::default() };
+        let desligado = Readings {
+            rpm: None,
+            speed_kmh: Some(0),
+            ..Readings::default()
+        };
         rodar(&mut m, &desligado, Duration::from_secs(1), 60);
         assert_eq!(m.viagem().duracao_s, 0.0);
 
-        let ligado = Readings { rpm: Some(750), speed_kmh: Some(0), maf_gs: Some(3.0), ..Readings::default() };
+        let ligado = Readings {
+            rpm: Some(750),
+            speed_kmh: Some(0),
+            maf_gs: Some(3.0),
+            ..Readings::default()
+        };
         rodar(&mut m, &ligado, Duration::from_secs(1), 60);
         assert_eq!(m.viagem().duracao_s, 60.0);
     }

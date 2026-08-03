@@ -63,10 +63,7 @@ impl Conector for SpotifyConector {
             return Ok(Box::new(DemoSource::default()));
         }
 
-        let client_id = self
-            .client_id
-            .as_deref()
-            .ok_or(MusicError::NotConfigured)?;
+        let client_id = self.client_id.as_deref().ok_or(MusicError::NotConfigured)?;
 
         Ok(Box::new(
             SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre)).await?,

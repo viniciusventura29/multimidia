@@ -320,7 +320,10 @@ impl AssistenteModule {
         let gatilho = acionamento.gatilho;
 
         if *ocupado {
-            tracing::debug!(gatilho = gatilho.como_texto(), "turno anterior ainda rodando");
+            tracing::debug!(
+                gatilho = gatilho.como_texto(),
+                "turno anterior ainda rodando"
+            );
             return;
         }
 
@@ -377,12 +380,7 @@ impl AssistenteModule {
         cfg.estrito = config.estrito;
         cfg.mcp_remotos = mcp_remotos.to_vec();
 
-        let agente = Agente::novo(
-            transporte,
-            Arc::clone(registro),
-            Arc::clone(quadro),
-            cfg,
-        );
+        let agente = Agente::novo(transporte, Arc::clone(registro), Arc::clone(quadro), cfg);
 
         *ocupado = true;
         painel.pensando = true;
@@ -441,7 +439,11 @@ fn cartoes_de_demonstracao(gatilho: Gatilho) -> Vec<Cartao> {
     match gatilho {
         // texto + métrica + gráfico de linha
         Gatilho::Ignicao => vec![
-            texto("Sábado", "Céu limpo, 19°C. Trânsito leve na Bandeirantes.", Tom::Bom),
+            texto(
+                "Sábado",
+                "Céu limpo, 19°C. Trânsito leve na Bandeirantes.",
+                Tom::Bom,
+            ),
             Cartao::Metrica {
                 rotulo: "Combustível".into(),
                 valor: "38".into(),
@@ -453,10 +455,22 @@ fn cartoes_de_demonstracao(gatilho: Gatilho) -> Vec<Cartao> {
                 grafico: TipoGrafico::Linha,
                 unidade: Some("°C".into()),
                 pontos: vec![
-                    Ponto { rotulo: "0".into(), valor: 62.0 },
-                    Ponto { rotulo: "5".into(), valor: 78.0 },
-                    Ponto { rotulo: "10".into(), valor: 88.0 },
-                    Ponto { rotulo: "15".into(), valor: 91.0 },
+                    Ponto {
+                        rotulo: "0".into(),
+                        valor: 62.0,
+                    },
+                    Ponto {
+                        rotulo: "5".into(),
+                        valor: 78.0,
+                    },
+                    Ponto {
+                        rotulo: "10".into(),
+                        valor: 88.0,
+                    },
+                    Ponto {
+                        rotulo: "15".into(),
+                        valor: 91.0,
+                    },
                 ],
             },
         ],
@@ -484,16 +498,32 @@ fn cartoes_de_demonstracao(gatilho: Gatilho) -> Vec<Cartao> {
 
         // texto + gráfico de barras
         Gatilho::Periodico => vec![
-            texto("No caminho", "Pedágio em 12 km, e a serra começa em 60.", Tom::Neutro),
+            texto(
+                "No caminho",
+                "Pedágio em 12 km, e a serra começa em 60.",
+                Tom::Neutro,
+            ),
             Cartao::Grafico {
                 titulo: "Consumo".into(),
                 grafico: TipoGrafico::Barras,
                 unidade: Some("km/l".into()),
                 pontos: vec![
-                    Ponto { rotulo: "seg".into(), valor: 8.2 },
-                    Ponto { rotulo: "ter".into(), valor: 9.1 },
-                    Ponto { rotulo: "qua".into(), valor: 7.4 },
-                    Ponto { rotulo: "qui".into(), valor: 10.3 },
+                    Ponto {
+                        rotulo: "seg".into(),
+                        valor: 8.2,
+                    },
+                    Ponto {
+                        rotulo: "ter".into(),
+                        valor: 9.1,
+                    },
+                    Ponto {
+                        rotulo: "qua".into(),
+                        valor: 7.4,
+                    },
+                    Ponto {
+                        rotulo: "qui".into(),
+                        valor: 10.3,
+                    },
                 ],
             },
         ],
@@ -557,24 +587,39 @@ mod tests {
         let tipos: Vec<String> = TODOS_OS_GATILHOS
             .iter()
             .flat_map(|g| cartoes_de_demonstracao(*g))
-            .map(|c| serde_json::to_value(&c).unwrap()["tipo"].as_str().unwrap().to_string())
+            .map(|c| {
+                serde_json::to_value(&c).unwrap()["tipo"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
 
         for esperado in ["texto", "metrica", "grafico", "imagem", "lista"] {
-            assert!(tipos.contains(&esperado.to_string()), "faltou o cartão {esperado}");
+            assert!(
+                tipos.contains(&esperado.to_string()),
+                "faltou o cartão {esperado}"
+            );
         }
 
         let graficos: Vec<String> = TODOS_OS_GATILHOS
             .iter()
             .flat_map(|g| cartoes_de_demonstracao(*g))
             .filter_map(|c| match c {
-                Cartao::Grafico { grafico, .. } => {
-                    Some(serde_json::to_value(grafico).unwrap().as_str().unwrap().to_string())
-                }
+                Cartao::Grafico { grafico, .. } => Some(
+                    serde_json::to_value(grafico)
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_string(),
+                ),
                 _ => None,
             })
             .collect();
-        assert!(graficos.contains(&"barras".to_string()), "faltou o gráfico de barras");
+        assert!(
+            graficos.contains(&"barras".to_string()),
+            "faltou o gráfico de barras"
+        );
         assert!(graficos.contains(&"linha".to_string()), "faltou o de linha");
     }
 

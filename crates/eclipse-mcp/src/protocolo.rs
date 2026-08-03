@@ -35,7 +35,10 @@ pub fn ferramenta_em_mcp(f: &Ferramenta) -> Value {
 /// tem resposta — `notifications/initialized` é o caso que aparece na prática.
 pub async fn atender(registro: &Registro, requisicao: &Value) -> Option<Value> {
     let id = requisicao.get("id").cloned();
-    let metodo = requisicao.get("method").and_then(Value::as_str).unwrap_or("");
+    let metodo = requisicao
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let params = requisicao.get("params").cloned().unwrap_or(json!({}));
 
     // Notificação: sem `id`, sem resposta. Responder mesmo assim quebra
@@ -96,9 +99,12 @@ mod tests {
 
     #[tokio::test]
     async fn tools_list_sai_no_formato_do_mcp() {
-        let r = atender(&registro(), &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }))
-            .await
-            .unwrap();
+        let r = atender(
+            &registro(),
+            &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        )
+        .await
+        .unwrap();
 
         let ferramenta = &r["result"]["tools"][0];
         assert_eq!(ferramenta["name"], "carro_telemetria");
@@ -162,9 +168,12 @@ mod tests {
 
     #[tokio::test]
     async fn metodo_desconhecido_vira_erro_de_rpc() {
-        let r = atender(&registro(), &json!({ "jsonrpc": "2.0", "id": 4, "method": "voar" }))
-            .await
-            .unwrap();
+        let r = atender(
+            &registro(),
+            &json!({ "jsonrpc": "2.0", "id": 4, "method": "voar" }),
+        )
+        .await
+        .unwrap();
         assert_eq!(r["error"]["code"], ERRO_METODO);
     }
 }

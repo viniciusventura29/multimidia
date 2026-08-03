@@ -1,0 +1,131 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # O frontend não tinha nenhuma checagem automática: `tsc` só rodava dentro do
+  # `npm run build`, que ninguém rodava antes de gerar APK.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 3
+
+  # Os 251 testes que já existiam e nunca rodavam sozinhos.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: dependências do Tauri no Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: host
+      - run: cargo fmt --all --check
+      - run: cargo test --workspace --locked
+      # `-D warnings` porque medimos antes de opinar: o workspace inteiro tinha
+      # TRÊS avisos de clippy (um `RangeInclusive::contains` manual, um
+      # `filter().next_back()` que virou `rfind`, e um `clone()` desnecessário
+      # num teste). Todos corrigidos neste commit. Com o placar em zero o gate é
+      # de graça — e sem ele o zero vira três de novo na semana que vem.
+      #
+      # `clippy::all`, e só. Nada de `pedantic`: aí sim brigaria com decisões
+      # deliberadas e comentadas deste código.
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # O job que paga a conta: as bifurcações `#[cfg(mobile)]` que nenhum teste de
+  # desktop alcança, e a garantia de que o APK não sobe vazio.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+      - name: apontar o clang do NDK
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$NDK/llvm-nm" || { echo "::error::NDK não encontrado em $NDK"; exit 1; }
+          {
+            echo "CC_aarch64_linux_android=$NDK/aarch64-linux-android24-clang"
+            echo "AR_aarch64_linux_android=$NDK/llvm-ar"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$NDK/aarch64-linux-android24-clang"
+            echo "NDK_BIN=$NDK"
+          } >> "$GITHUB_ENV"
+
+      # `build`, não `check`: a checagem abaixo precisa do .so linkado.
+      # Debug de propósito — em release o `generate_context!` exigiria o dist/,
+      # e em debug ele cai no devUrl (tauri-codegen/src/context.rs).
+      - name: compilar a lib para o Android
+        run: cargo build --target aarch64-linux-android -p eclipse-os --lib
+      - name: compilar o plugin de Bluetooth
+        run: cargo build --target aarch64-linux-android -p tauri-plugin-obd-bt
+
+      # ------------------------------------------------------------------
+      # O bug do #19/#22: "o APK abre e não faz nada".
+      #
+      # Se o `#[cfg_attr(mobile, tauri::mobile_entry_point)]` se desgruda do
+      # `run()`, o atributo vai para a função vizinha, o `run()` fica
+      # inalcançável e o linker joga fora o app INTEIRO por código morto.
+      #
+      # ⚠️ Isto NÃO se detecta pela tabela de símbolos exportados: o
+      # `mobile_entry_point` expande o `android_binding!` esteja ele em qualquer
+      # função, então os 24 símbolos `Java_*` continuam lá, idênticos. Foi
+      # medido — com o bug presente o `diff` das tabelas é vazio.
+      #
+      # O que muda é o binário sumir: 61 MB → 21 MB, 114.262 símbolos → 38.625,
+      # e zero símbolo do Supervisor, do Builder do Tauri ou dos módulos. É essa
+      # ausência total (não um limiar difuso) que se afere aqui.
+      #
+      # O `tests_ponto_de_entrada` em src-tauri/src/lib.rs pega a mesma coisa
+      # pelo fonte e roda no Mac; este pega pelo artefato, e pega também
+      # qualquer outra causa de o app virar código morto.
+      # ------------------------------------------------------------------
+      - name: o APK não subiu vazio
+        run: |
+          SO=target/aarch64-linux-android/debug/libeclipse_os_lib.so
+          test -f "$SO" || { echo "::error::$SO não existe"; exit 1; }
+          SIMBOLOS=$("$NDK_BIN/llvm-nm" --defined-only "$SO")
+          falhou=0
+          for marcador in 'eclipse_core.*Supervisor' 'tauri.*Builder' 'eclipse_os_lib.*modules'; do
+            n=$(printf '%s\n' "$SIMBOLOS" | grep -cE "$marcador" || true)
+            echo "  $marcador: $n símbolos"
+            if [ "$n" -eq 0 ]; then
+              echo "::error::nenhum símbolo de '$marcador' no .so — o app virou código morto. \
+          O #[cfg_attr(mobile, tauri::mobile_entry_point)] se desgrudou do pub fn run()? \
+          Foi esse o bug do #19/#22: o APK sobe, o logger liga, e nada mais existe."
+              falhou=1
+            fi
+          done
+          exit $falhou

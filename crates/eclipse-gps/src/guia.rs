@@ -235,8 +235,7 @@ impl Guia {
         let (i, marco) = MARCOS_DE_AVISO
             .iter()
             .enumerate()
-            .filter(|(_, &marco)| p.distancia_para_manobra_m <= marco)
-            .next_back()?;
+            .rfind(|(_, &marco)| p.distancia_para_manobra_m <= marco)?;
 
         if self.marcos_ditos[i] {
             return None;

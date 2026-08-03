@@ -465,6 +465,8 @@ mod tests {
     #[test]
     fn modulo_que_nao_interessa_e_ignorado() {
         let mut d = Detector::novo();
-        assert!(d.observar(&env("music", json!({ "nowPlaying": null }))).is_none());
+        assert!(d
+            .observar(&env("music", json!({ "nowPlaying": null })))
+            .is_none());
     }
 }

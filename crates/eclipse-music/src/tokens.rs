@@ -248,7 +248,9 @@ mod tests {
 
         // Muitas renovações ao longo dos meses...
         for i in 0..50 {
-            store.renovou(perfil, Some(&format!("refresh-{i}"))).unwrap();
+            store
+                .renovou(perfil, Some(&format!("refresh-{i}")))
+                .unwrap();
         }
 
         let guardado = store.get(perfil).unwrap();
@@ -302,10 +304,15 @@ mod tests {
 
         let p = caminho();
         let mut store = TokenStore::load(&p);
-        store.autorizou(Uuid::new_v4(), "segredo", Utc::now()).unwrap();
+        store
+            .autorizou(Uuid::new_v4(), "segredo", Utc::now())
+            .unwrap();
 
         let modo = fs::metadata(&p).unwrap().permissions().mode() & 0o777;
-        assert_eq!(modo, 0o600, "segredo de longa duração não pode ficar aberto");
+        assert_eq!(
+            modo, 0o600,
+            "segredo de longa duração não pode ficar aberto"
+        );
 
         limpar(&p);
     }

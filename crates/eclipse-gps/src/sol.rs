@@ -16,8 +16,8 @@ fn elevacao_solar(lat: f64, lon: f64, unix_s: u64) -> f64 {
     // órbita (anomalia média `g`), depois projetada em declinação e ascensão
     // reta pela inclinação do eixo da Terra.
     let g = (357.528 + 0.985_600_3 * n).to_radians();
-    let lambda = ((280.460 + 0.985_647_4 * n) + 1.915 * g.sin() + 0.020 * (2.0 * g).sin())
-        .to_radians();
+    let lambda =
+        ((280.460 + 0.985_647_4 * n) + 1.915 * g.sin() + 0.020 * (2.0 * g).sin()).to_radians();
     let epsilon = (23.439 - 0.000_000_4 * n).to_radians();
 
     let declinacao = (epsilon.sin() * lambda.sin()).asin();
@@ -69,8 +69,16 @@ mod tests {
         const DEZ_15: u64 = 1_797_292_800; // 2026-12-15 00:00 UTC
         let dezoito_e_meia_local = 21 * 3600 + 1800; // 21:30 UTC
 
-        assert!(e_noite(SAO_PAULO.0, SAO_PAULO.1, JUN_15 + dezoito_e_meia_local));
-        assert!(!e_noite(SAO_PAULO.0, SAO_PAULO.1, DEZ_15 + dezoito_e_meia_local));
+        assert!(e_noite(
+            SAO_PAULO.0,
+            SAO_PAULO.1,
+            JUN_15 + dezoito_e_meia_local
+        ));
+        assert!(!e_noite(
+            SAO_PAULO.0,
+            SAO_PAULO.1,
+            DEZ_15 + dezoito_e_meia_local
+        ));
     }
 
     #[test]

@@ -168,7 +168,11 @@ mod tests {
         inbox.recebeu(chegou("Bruno", "e aí"));
         inbox.recebeu(chegou("Ana", "cadê você"));
 
-        let nomes: Vec<_> = inbox.conversations.iter().map(|c| c.name.as_str()).collect();
+        let nomes: Vec<_> = inbox
+            .conversations
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
         assert_eq!(nomes, vec!["Ana", "Bruno"]);
         assert_eq!(
             inbox.conversations[0].messages.len(),
@@ -240,7 +244,11 @@ mod tests {
         inbox.marcou_lida("Ana");
 
         assert_eq!(inbox.nao_lidas(), 1);
-        let ana = inbox.conversations.iter().find(|c| c.name == "Ana").unwrap();
+        let ana = inbox
+            .conversations
+            .iter()
+            .find(|c| c.name == "Ana")
+            .unwrap();
         assert_eq!(ana.unread, 0);
     }
 }

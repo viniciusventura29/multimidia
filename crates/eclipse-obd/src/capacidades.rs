@@ -114,7 +114,7 @@ fn bit(pid: u8) -> u128 {
 
 /// Em qual bloco de 32 PIDs este PID cai, se estiver dentro da cobertura.
 fn bloco_de(pid: u8) -> Option<u8> {
-    (pid >= 1 && pid <= COBERTURA).then(|| (pid - 1) / 32)
+    (1..=COBERTURA).contains(&pid).then(|| (pid - 1) / 32)
 }
 
 /// A UI não quer uma máscara, quer saber o que o carro tem — e se já foi descoberto.

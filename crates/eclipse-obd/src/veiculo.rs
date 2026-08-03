@@ -72,8 +72,12 @@ impl Veiculo {
         self.afr = clamp_ou(self.afr, 6.0, 20.0, padrao.afr);
         self.densidade_g_l = clamp_ou(self.densidade_g_l, 600.0, 1000.0, padrao.densidade_g_l);
         self.calibracao = clamp_ou(self.calibracao, 0.5, 2.0, padrao.calibracao);
-        self.km_por_litro_padrao =
-            clamp_ou(self.km_por_litro_padrao, 1.0, 40.0, padrao.km_por_litro_padrao);
+        self.km_por_litro_padrao = clamp_ou(
+            self.km_por_litro_padrao,
+            1.0,
+            40.0,
+            padrao.km_por_litro_padrao,
+        );
         self
     }
 }
@@ -200,7 +204,11 @@ mod tests {
     fn o_padrao_e_o_eclipse_e_e_plausivel() {
         let v = Veiculo::default();
         assert_eq!(v.capacidade_l, 61.0, "16 galões");
-        assert_eq!(v.saneado(), v, "o padrão não pode ser saneado para outra coisa");
+        assert_eq!(
+            v.saneado(),
+            v,
+            "o padrão não pode ser saneado para outra coisa"
+        );
     }
 
     #[test]
