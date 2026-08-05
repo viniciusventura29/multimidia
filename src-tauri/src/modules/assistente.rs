@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use eclipse_core::{Module, ModuleCtx, ModuleId, ModuleResult, StateEnvelope, Supervisor};
 use eclipse_ia::{
-    Agente, Cartao, Config as ConfigAgente, IaError, McpRemoto, ProvedorQuadro, Tom, Turno,
+    Agente, Cartao, Config as ConfigAgente, IaError, McpRemoto, Modelo, ProvedorQuadro, Tom, Turno,
 };
 use eclipse_mcp::Registro;
 use serde::Serialize;
@@ -376,7 +376,9 @@ impl AssistenteModule {
             return;
         };
 
-        let mut cfg = ConfigAgente::nova(gatilho.modelo());
+        // O modelo é sempre o Haiku: barato e rápido, o que um computador de
+        // bordo precisa. O Opus foi removido por custo (ver eclipse_ia::Modelo).
+        let mut cfg = ConfigAgente::nova(Modelo::Haiku);
         cfg.estrito = config.estrito;
         cfg.mcp_remotos = mcp_remotos.to_vec();
 
@@ -396,9 +398,9 @@ impl AssistenteModule {
 
 /// `ECLIPSE_IA_GATILHO=rota` força um gatilho na subida.
 ///
-/// Sem isto, ver o caminho do Opus (rota, alerta, chegada) exigiria sair
-/// dirigindo até traçar um destino ou até o motor esquentar — o que é caro de
-/// fazer a cada ajuste de texto. Rota e chegada usam um destino de mentira; o
+/// Sem isto, ver os gatilhos que pesquisam (rota, alerta, chegada) exigiria
+/// sair dirigindo até traçar um destino ou até o motor esquentar — o que é caro
+/// de fazer a cada ajuste de texto. Rota e chegada usam um destino de mentira; o
 /// resto o modelo busca sozinho, como faria de verdade.
 fn gatilho_forcado() -> Option<Acionamento> {
     use crate::assistente::gatilho::Alerta;
