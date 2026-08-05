@@ -12,7 +12,6 @@
 use std::collections::HashSet;
 
 use eclipse_core::StateEnvelope;
-use eclipse_ia::Modelo;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -32,20 +31,6 @@ pub enum Gatilho {
 }
 
 impl Gatilho {
-    /// Qual modelo atende.
-    ///
-    /// O critério é quanto trabalho de pesquisa o gatilho pede, não a
-    /// importância dele. Saudação e comentário de estrada são resumo de coisas
-    /// que as ferramentas já entregam prontas — Haiku dá conta. Destino novo e
-    /// alerta do carro exigem cruzar telemetria, clima e caminho, e aí a
-    /// qualidade da leitura paga o preço do Opus.
-    pub fn modelo(self) -> Modelo {
-        match self {
-            Self::Ignicao | Self::Periodico => Modelo::Haiku,
-            Self::RotaDefinida | Self::AlertaCarro | Self::Chegada => Modelo::Opus,
-        }
-    }
-
     /// Quanto tempo tem que passar antes de este gatilho poder disparar de novo.
     pub fn descanso_min(self) -> i64 {
         match self {
@@ -452,14 +437,6 @@ mod tests {
 
         // O segundo já está registrado como aceso, então não redispara.
         assert!(d.observar(&obd(Some(120.0), Some(5.0), None)).is_none());
-    }
-
-    #[test]
-    fn gatilho_barato_usa_haiku_e_o_que_pesquisa_usa_opus() {
-        assert_eq!(Gatilho::Ignicao.modelo(), Modelo::Haiku);
-        assert_eq!(Gatilho::Periodico.modelo(), Modelo::Haiku);
-        assert_eq!(Gatilho::RotaDefinida.modelo(), Modelo::Opus);
-        assert_eq!(Gatilho::AlertaCarro.modelo(), Modelo::Opus);
     }
 
     #[test]
