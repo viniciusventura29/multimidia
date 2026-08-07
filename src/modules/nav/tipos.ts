@@ -37,8 +37,9 @@ export interface Progresso {
 }
 
 export interface MapaState {
-  apiKey: string;
-  mapId: string | null;
+  /** A chave do Google, para sugestão de endereço e busca de postos. `null` é
+   *  estado de trabalho: o mapa vem do OpenStreetMap e não pede chave. */
+  apiKey: string | null;
   fix: Fix | null;
   rota: Rota | null;
   progresso: Progresso | null;

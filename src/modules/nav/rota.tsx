@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
-import { useMap } from "@vis.gl/react-google-maps";
+import type { GeoJSONSource } from "maplibre-gl";
 
 import { dispatchAction } from "../../core/actions";
+import { NOSSO, useMapa } from "./mapaContexto";
 import { destacar, useSugestoes } from "./sugestoes";
 import { calarSe } from "./voz";
 import type { Fix, Rota } from "./tipos";
 
 const NAV = "nav";
+
+/** Fonte e camada da rota, no estilo do mapa. */
+const FONTE = `${NOSSO}rota`;
 
 /**
  * A rota desenhada no mapa.
@@ -21,8 +25,7 @@ const NAV = "nav";
  * que se dirige.
  */
 export function RotaDesenhada({ rota }: { rota: Rota | null }) {
-  const map = useMap();
-  const desenho = useRef<google.maps.Polyline | null>(null);
+  const map = useMapa();
   // Que traçado já está desenhado. O envelope do Rust chega a cada leitura de
   // GPS com um objeto novinho em folha, então comparar identidade acusaria
   // mudança 1x por segundo e redesenharia a rota inteira à toa — numa head unit
@@ -32,27 +35,44 @@ export function RotaDesenhada({ rota }: { rota: Rota | null }) {
   useEffect(() => {
     if (!map) return;
 
-    desenho.current ??= new google.maps.Polyline({
-      strokeColor: "#4da3ff",
-      strokeOpacity: 0.75,
-      strokeWeight: 9,
-      zIndex: 1,
-    });
-
-    // Religa em vez de criar presa ao mapa: a troca de tema (dia/noite)
-    // destrói e recria a instância, e a rota precisa sobreviver a isso.
-    desenho.current.setMap(map);
+    // A camada é criada uma vez e sobrevive à troca de tema: quem a reconduz
+    // para o estilo novo é o `transformStyle` em `mapa.tsx`, pelo prefixo.
+    if (!map.getSource(FONTE)) {
+      map.addSource(FONTE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: FONTE,
+        type: "line",
+        source: FONTE,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#4da3ff",
+          "line-width": 9,
+          "line-opacity": 0.75,
+        },
+      });
+      desenhado.current = null;
+    }
 
     const assinatura = rota ? `${rota.destino}:${rota.pontos.length}` : null;
     if (assinatura === desenhado.current) return;
     desenhado.current = assinatura;
 
-    desenho.current.setPath(
-      (rota?.pontos ?? []).map(([lat, lng]) => ({ lat, lng })),
-    );
-  }, [map, rota]);
+    const fonte = map.getSource<GeoJSONSource>(FONTE);
+    if (!fonte) return;
 
-  useEffect(() => () => desenho.current?.setMap(null), []);
+    fonte.setData({
+      type: "Feature",
+      properties: {},
+      // GeoJSON é [longitude, latitude]; o Rust manda (lat, lon).
+      geometry: {
+        type: "LineString",
+        coordinates: (rota?.pontos ?? []).map(([lat, lng]) => [lng, lat]),
+      },
+    });
+  }, [map, rota]);
 
   return null;
 }

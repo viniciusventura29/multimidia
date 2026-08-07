@@ -58,17 +58,18 @@ fn agora_unix() -> u64 {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Mapa {
-    /// A chave da Maps JavaScript API.
+    /// A chave do Google, para o que ainda passa por ele: sugestão de endereço
+    /// e busca de postos, ambas chamadas do WebView.
+    ///
+    /// `None` é um estado de trabalho, não uma falha: o mapa é desenhado com
+    /// tiles do OpenStreetMap, que não pedem chave nenhuma. Sem ela o painel
+    /// continua mostrando onde o carro está — só não traça rota nem lista
+    /// postos.
     ///
     /// Vai para o WebView de propósito: numa API de mapa web a chave é pública
-    /// por natureza, ela viaja em toda requisição de tile. Quem protege não é o
-    /// sigilo, é o teto de cota configurado no Google Cloud.
-    api_key: String,
-
-    /// O Map ID. Sem ele o mapa é raster, e mapa raster **ignora** `heading` —
-    /// fica sempre olhando para o norte. Girar para o sentido da marcha exige
-    /// um Map ID configurado como vetorial.
-    map_id: Option<String>,
+    /// por natureza. Quem protege não é o sigilo, é o teto de cota do Google
+    /// Cloud.
+    api_key: Option<String>,
 
     /// Onde o carro está, **já encaixado na rua** quando há rota e ele está
     /// sobre ela (ver `Guia::grudar`). `None` enquanto o GPS não fixa — e isso
@@ -105,7 +106,6 @@ struct Mapa {
 
 pub struct NavModule {
     api_key: Option<String>,
-    map_id: Option<String>,
     gps: Box<dyn LocationSource>,
     guia: Option<Guia>,
     /// Congela a posição com o carro parado — sem ele, o jitter do GPS
@@ -132,14 +132,9 @@ pub struct NavModule {
 }
 
 impl NavModule {
-    pub fn new(
-        api_key: Option<String>,
-        map_id: Option<String>,
-        gps: Box<dyn LocationSource>,
-    ) -> Self {
+    pub fn new(api_key: Option<String>, gps: Box<dyn LocationSource>) -> Self {
         Self {
             api_key,
-            map_id,
             gps,
             guia: None,
             filtro: FiltroDeParada::novo(),
@@ -155,18 +150,18 @@ impl NavModule {
 #[async_trait]
 impl Module for NavModule {
     async fn run(&mut self, mut ctx: ModuleCtx) -> ModuleResult {
-        let Some(api_key) = self.api_key.clone() else {
-            ctx.degraded(
-                "falta a chave do Google Maps — defina ECLIPSE_MAPS_API_KEY \
-                 ou crie maps_api_key.txt no diretório de dados",
+        // Faltar a chave do Google não é mais motivo para o módulo desistir: o
+        // mapa vem do OpenStreetMap e a posição vem do aparelho. Só a busca de
+        // destino e a lista de postos ficam de fora, e a tela sabe dizer isso.
+        if self.api_key.is_none() {
+            tracing::info!(
+                "sem chave do Google — mapa e posição seguem, sem rota nem postos; \
+                 defina ECLIPSE_MAPS_API_KEY ou crie maps_api_key.txt"
             );
-            while ctx.next_command().await.is_some() {}
-            return Ok(());
-        };
+        }
 
         let mut estado = Mapa {
-            api_key,
-            map_id: self.map_id.clone(),
+            api_key: self.api_key.clone(),
             fix: None,
             rota: None,
             progresso: None,
@@ -342,7 +337,11 @@ impl NavModule {
         estado.buscando = true;
 
         let cliente = self.cliente.clone();
-        let chave = estado.api_key.clone();
+        let Some(chave) = estado.api_key.clone() else {
+            estado.buscando = false;
+            estado.erro = Some("falta a chave do Google para traçar rota".into());
+            return false;
+        };
         let tx = tx.clone();
         tokio::spawn(async move {
             let rota = directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo).await;
