@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
 
 import type { TileView } from "../../core/types";
+import { metros } from "./geo";
 import { Manobra } from "./manobra";
 import { Pois } from "./pois";
-import { BuscarRota } from "./rota";
+import { BuscarRota, RotaViva } from "./rota";
 import { falar } from "./voz";
 import type { Fix, MapaState, Rota } from "./tipos";
 
@@ -26,16 +27,6 @@ const INTERVALO_GPS_MS = 1000;
 function interpolarRumo(de: number, para: number, t: number): number {
   const delta = ((para - de + 540) % 360) - 180;
   return (de + delta * t + 360) % 360;
-}
-
-/** Distância aproximada em metros entre dois pontos (equirretangular — a
- *  precisão sobra para distinguir jitter de GPS de movimento real). */
-function metros(a: Fix, b: Fix): number {
-  const R = 6_371_000;
-  const rad = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * rad;
-  const dLon = (b.lon - a.lon) * rad * Math.cos(((a.lat + b.lat) / 2) * rad);
-  return R * Math.hypot(dLat, dLon);
 }
 
 /**
@@ -228,17 +219,24 @@ function SeguirCarro({
  * são pequenos demais para dedo de motorista — e porque arrastar o mapa agora
  * solta o seguimento (senão a câmera brigava com o dedo): alguém precisa
  * oferecer o caminho de volta.
+ *
+ * No tile pequeno sobra só o recentrar, e mesmo ele só aparece depois de o dedo
+ * arrastar o mapa: dirigindo, um mapinha do tamanho de um cartão com seis botões
+ * em cima não é controle, é obstáculo. O resto está a um toque de distância, na
+ * tela cheia.
  */
 function Controles({
   seguindo,
   temFix,
   rota,
+  expandido,
   aoRecentrar,
   aoSoltar,
 }: {
   seguindo: boolean;
   temFix: boolean;
   rota: Rota | null;
+  expandido: boolean;
   aoRecentrar: () => void;
   aoSoltar: () => void;
 }) {
@@ -272,16 +270,28 @@ function Controles({
   // Só os botões: quem dá o lugar deles na tela é a coluna de ferramentas.
   return (
     <>
-      <button className="mapa__botao" onClick={(e) => ajustarZoom(e, 1)} aria-label="Aproximar">
-        +
-      </button>
-      <button className="mapa__botao" onClick={(e) => ajustarZoom(e, -1)} aria-label="Afastar">
-        −
-      </button>
-      {rota && (
-        <button className="mapa__botao" onClick={verRota}>
-          rota
-        </button>
+      {expandido && (
+        <>
+          <button
+            className="mapa__botao"
+            onClick={(e) => ajustarZoom(e, 1)}
+            aria-label="Aproximar"
+          >
+            +
+          </button>
+          <button
+            className="mapa__botao"
+            onClick={(e) => ajustarZoom(e, -1)}
+            aria-label="Afastar"
+          >
+            −
+          </button>
+          {rota && (
+            <button className="mapa__botao" onClick={verRota}>
+              rota
+            </button>
+          )}
+        </>
       )}
       {!seguindo && temFix && (
         <button className="mapa__recentrar" onClick={recentrar}>
@@ -299,11 +309,19 @@ function Controles({
  * componente serve de widget e de tela cheia, e a transição é só o CSS mudando
  * de tamanho. Era exatamente isso que o SDK nativo do Android não permitiria.
  *
+ * O que muda entre os dois tamanhos não é o mapa, é quanta tralha vive por
+ * cima dele — ver `Controles`. O tile pequeno é para olhar de relance; a tela
+ * cheia é onde se mexe.
+ *
  * A guiagem (rota, manobras, voz, recálculo) é própria — ver `guia.rs` e
  * `rota.tsx`. O que continua fora de alcance é orientação de faixa e trânsito
  * ao vivo desviando a rota: isso é o Navigation SDK, que é enterprise.
  */
-export function Mapa({ data, status }: TileView<MapaState>) {
+function Painel({
+  data,
+  status,
+  expandido,
+}: TileView<MapaState> & { expandido: boolean }) {
   const [navegando, setNavegando] = useState(true);
   // A câmera está colada no carro? Arrastar o mapa solta; "recentrar" volta.
   // Cada instância do tile (grid e tela cheia) tem a sua — são câmeras
@@ -346,41 +364,68 @@ export function Mapa({ data, status }: TileView<MapaState>) {
         <SeguirCarro fix={data.fix} navegando={modoNavegacao} seguindo={seguindo} />
         {/* Uma coluna só para todos os botões de mapa: empilhados não
             disputam lugar com a manobra (topo) nem com a busca (embaixo). */}
-        <div className="mapa__ferramentas" onClick={(e) => e.stopPropagation()}>
-          <Pois fix={data.fix} apiKey={data.apiKey} />
+        <div
+          className={`mapa__ferramentas${expandido ? "" : " mapa__ferramentas--enxuta"}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {expandido && <Pois fix={data.fix} apiKey={data.apiKey} />}
           <Controles
             seguindo={seguindo}
             temFix={Boolean(data.fix)}
             rota={data.rota}
+            expandido={expandido}
             aoRecentrar={() => setSeguindo(true)}
             aoSoltar={() => setSeguindo(false)}
           />
         </div>
-        <BuscarRota
+
+        {/* Só a instância compacta obedece ao recálculo — ela é a única que
+            está sempre montada. As duas obedecendo (que era o caso com o tile
+            expandido) davam duas requisições ao Directions por recálculo. */}
+        <RotaViva
           fix={data.fix}
           rota={data.rota}
-          recalcular={data.progresso?.recalcular ?? false}
-          apiKey={data.apiKey}
+          recalcular={!expandido && (data.progresso?.recalcular ?? false)}
         />
+
+        {expandido && (
+          <BuscarRota fix={data.fix} rota={data.rota} apiKey={data.apiKey} />
+        )}
       </APIProvider>
 
-      {data.progresso && <Manobra progresso={data.progresso} />}
+      {expandido && data.progresso && <Manobra progresso={data.progresso} />}
 
-      {data.mapId ? (
-        <button
-          className="mapa__modo"
-          onClick={(e) => {
-            e.stopPropagation();
-            setNavegando((v) => !v);
-          }}
-        >
-          {navegando ? "norte no topo" : "girar com o carro"}
-        </button>
-      ) : (
-        // Sem Map ID não há como girar o mapa. Dizer isso é melhor que
-        // deixar o usuário achar que o modo navegação está quebrado.
-        <span className="mapa__aviso">sem Map ID vetorial — mapa chapado</span>
-      )}
+      {expandido &&
+        (data.mapId ? (
+          <button
+            className="mapa__modo"
+            onClick={(e) => {
+              e.stopPropagation();
+              setNavegando((v) => !v);
+            }}
+          >
+            {navegando ? "norte no topo" : "girar com o carro"}
+          </button>
+        ) : (
+          // Sem Map ID não há como girar o mapa. Dizer isso é melhor que
+          // deixar o usuário achar que o modo navegação está quebrado.
+          <span className="mapa__aviso">sem Map ID vetorial — mapa chapado</span>
+        ))}
     </div>
   );
+}
+
+/**
+ * O mapa no painel: só o caminho, o carro e — depois de arrastar — o recentrar.
+ *
+ * É esta instância que continua montada quando a tela cheia abre por cima, e é
+ * por isso que ela, e não a outra, é a dona do recálculo de rota.
+ */
+export function Mapa(props: TileView<MapaState>) {
+  return <Painel {...props} expandido={false} />;
+}
+
+/** O mapa em tela cheia: aqui cabe tudo — busca, POIs, zoom e manobra. */
+export function MapaCheio(props: TileView<MapaState>) {
+  return <Painel {...props} expandido />;
 }

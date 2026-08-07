@@ -2427,6 +2427,12 @@ body {
   gap: 0.4rem;
 }
 
+/* No tile pequeno não existe botão de modo embaixo para desviar — a coluna
+   desce e ocupa o canto, em vez de flutuar num vão que não é de ninguém. */
+.mapa__ferramentas--enxuta {
+  bottom: 0.7rem;
+}
+
 /* A mesma receita do botão de modo — mínimo de 2,4 rem porque é dedo de
    motorista, e fundo escuro que continua legível sobre o mapa claro de dia. */
 .mapa__botao,

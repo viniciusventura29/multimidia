@@ -33,6 +33,20 @@ pub fn rumo(a: (f64, f64), b: (f64, f64)) -> f32 {
     (y.atan2(x).to_degrees() as f32).rem_euclid(360.0)
 }
 
+/// Menor ângulo entre dois rumos, em graus — sempre de 0 a 180.
+///
+/// Comparar rumos com subtração crua diria que 350° e 10° estão a 340° um do
+/// outro, quando na verdade são 20°. Quem pergunta "esses dois apontam para o
+/// mesmo lado?" precisa desta conta, não daquela.
+pub fn diferenca_angular(a: f32, b: f32) -> f32 {
+    let d = (a - b).rem_euclid(360.0);
+    if d > 180.0 {
+        360.0 - d
+    } else {
+        d
+    }
+}
+
 /// Distância entre dois pontos em metros (haversine).
 pub fn distancia_m(a: (f64, f64), b: (f64, f64)) -> f64 {
     const RAIO_TERRA_M: f64 = 6_371_000.0;
@@ -77,6 +91,16 @@ mod tests {
         let oeste = (PAULISTA.0, PAULISTA.1 - 0.01);
         let r = rumo(PAULISTA, oeste);
         assert!((0.0..360.0).contains(&r), "rumo fora da faixa: {r}");
+    }
+
+    /// A conta que a subtração crua erra: 350° e 10° apontam quase para o mesmo
+    /// lado, não para lados opostos.
+    #[test]
+    fn diferenca_angular_atravessa_o_norte() {
+        assert!((diferenca_angular(350.0, 10.0) - 20.0).abs() < 0.01);
+        assert!((diferenca_angular(10.0, 350.0) - 20.0).abs() < 0.01);
+        assert!((diferenca_angular(0.0, 180.0) - 180.0).abs() < 0.01);
+        assert!(diferenca_angular(90.0, 90.0).abs() < 0.01);
     }
 
     #[test]

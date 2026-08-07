@@ -1,6 +1,18 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { metros, rumoEntre } from "./geo";
+
+/** Abaixo disto o GPS é considerado parado — o mesmo 1,4 m/s (~5 km/h) que o
+ *  `FiltroDeParada` usa no Rust, para os dois lados discordarem o mínimo. */
+const VELOCIDADE_MINIMA_MS = 1.4;
+
+/** Piso do deslocamento que autoriza deduzir rumo do movimento.
+ *
+ *  Menos que isto pode ser jitter, e rumo tirado de jitter é uma seta girando
+ *  sozinha — pior que uma seta parada apontando para o lado errado. */
+const DESLOCAMENTO_MINIMO_M = 10;
+
 /**
  * Liga a geolocalização de verdade do navegador ao módulo `nav`.
  *
@@ -17,6 +29,9 @@ export function useLocalizacaoReal(): void {
   // está parado (é o caso normal aqui), e sem isso o mapa perderia a direção
   // toda vez que o GPS relatasse velocidade zero.
   const ultimoRumo = useRef(0);
+  // A última posição usada para deduzir rumo. Não é a última leitura: é a
+  // última que ficou longe o bastante da anterior para a dedução valer.
+  const ultimoPonto = useRef<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) {
@@ -28,13 +43,31 @@ export function useLocalizacaoReal(): void {
       (posicao) => {
         const { latitude, longitude, heading, speed, accuracy } = posicao.coords;
 
+        const aqui = { lat: latitude, lon: longitude };
+
         // Só aceita rumo novo quando há movimento de verdade. Parado, o GPS
         // devolve `heading` não-nulo porém ruidoso (gira sozinho a cada
         // leitura) — era isso que fazia o carro "sambar" no mapa. Abaixo de
         // ~5 km/h congela o último rumo bom.
-        const emMovimento = speed !== null && !Number.isNaN(speed) && speed > 1.4;
+        const emMovimento =
+          speed !== null && !Number.isNaN(speed) && speed > VELOCIDADE_MINIMA_MS;
+
         if (emMovimento && heading !== null && !Number.isNaN(heading)) {
           ultimoRumo.current = heading;
+          ultimoPonto.current = aqui;
+        } else if (
+          // Nem todo provedor sabe dizer para onde se está indo: geolocalização
+          // por Wi-Fi e vários GPS de head unit entregam `heading` nulo mesmo
+          // andando. Sem isto o rumo ficaria em 0 para sempre e a seta apontaria
+          // para o norte a viagem inteira — que é exatamente o que acontecia.
+          // Dois pontos afastados dizem a direção que o sensor não disse.
+          ultimoPonto.current &&
+          metros(ultimoPonto.current, aqui) > Math.max(DESLOCAMENTO_MINIMO_M, accuracy)
+        ) {
+          ultimoRumo.current = rumoEntre(ultimoPonto.current, aqui);
+          ultimoPonto.current = aqui;
+        } else {
+          ultimoPonto.current ??= aqui;
         }
 
         void invoke("push_location", {

@@ -12,6 +12,9 @@ const NAV = "nav";
  * Maps, que o `APIProvider` dispara ao montar — do caminho do primeiro paint.
  */
 const Mapa = lazy(() => import("./mapa").then((m) => ({ default: m.Mapa })));
+const MapaCheio = lazy(() =>
+  import("./mapa").then((m) => ({ default: m.MapaCheio })),
+);
 
 export { useLocalizacaoReal } from "./localizacao";
 
@@ -22,5 +25,5 @@ export const navTile: AnyTileSpec = defineTile<MapaState>({
   area: "maps",
   icon: <Navigation size="1em" />,
   Compact: Mapa,
-  Expanded: Mapa,
+  Expanded: MapaCheio,
 });
