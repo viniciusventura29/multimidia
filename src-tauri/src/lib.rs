@@ -188,12 +188,6 @@ fn maps_api_key(dir_dados: &std::path::Path) -> Option<String> {
         .or_else(|| embutida(option_env!("ECLIPSE_MAPS_API_KEY")))
 }
 
-/// Sem Map ID o mapa é raster, e raster ignora inclinação e rotação.
-fn maps_map_id(dir_dados: &std::path::Path) -> Option<String> {
-    credencial(dir_dados, "ECLIPSE_MAPS_MAP_ID", "maps_map_id.txt")
-        .or_else(|| embutida(option_env!("ECLIPSE_MAPS_MAP_ID")))
-}
-
 /// A chave da API da Anthropic, que move o assistente.
 ///
 /// ⚠️ Diferente da chave do Maps, esta **não** é pública por natureza: quem a
@@ -665,7 +659,6 @@ pub fn run() {
                 });
 
             let chave_mapa = maps_api_key(&dir);
-            let id_mapa = maps_map_id(&dir);
 
             // Criado uma vez só, fora da closure do `factory`: um
             // `watch::Receiver` clona, e é isso que permite o supervisor
@@ -696,7 +689,6 @@ pub fn run() {
                 supervisor.spawn(factory(modules::nav::NAV, move || {
                     modules::nav::NavModule::new(
                         chave_mapa.clone(),
-                        id_mapa.clone(),
                         Box::new(eclipse_gps::PushedLocation::nova(receptor_local.clone())),
                     )
                 }));

@@ -2,6 +2,7 @@ import { memo, Suspense, useCallback, useState } from "react";
 
 import { useModuleEnvelope } from "../core/moduleStore";
 import type { AnyTileSpec, Status } from "../core/types";
+import { Barreira } from "./Barreira";
 import { TILES } from "./registry";
 import { Tile } from "./Tile";
 
@@ -43,9 +44,11 @@ const TileHost = memo(function TileHost({
       reason={reason}
       onExpand={spec.Expanded ? () => aoExpandir(spec.id) : undefined}
     >
-      <Suspense fallback={<TileSkeleton />}>
-        <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
-      </Suspense>
+      <Barreira titulo={spec.title}>
+        <Suspense fallback={<TileSkeleton />}>
+          <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+        </Suspense>
+      </Barreira>
     </Tile>
   );
 });
@@ -84,9 +87,11 @@ function Expandido({
         </header>
 
         <div className="overlay__body">
-          <Suspense fallback={<TileSkeleton />}>
-            <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
-          </Suspense>
+          <Barreira titulo={spec.title}>
+            <Suspense fallback={<TileSkeleton />}>
+              <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+            </Suspense>
+          </Barreira>
         </div>
 
         {reason && <p className="tile__reason">{reason}</p>}

@@ -2466,9 +2466,43 @@ body {
   font-size: 0.76rem;
 }
 
-/* O carro agora é um marcador do próprio mapa (ancorado na coordenada do
-   GPS, em `mapa.tsx`) — um triângulo de CSS no centro da tela "andava"
-   junto com o dedo quando o mapa era arrastado. */
+/* O carro é um marcador ancorado na coordenada do GPS (em `mapa.tsx`) — um
+   triângulo de CSS no centro da tela "andava" junto com o dedo quando o mapa
+   era arrastado. */
+.mapa__carro {
+  display: grid;
+  place-items: center;
+  /* A seta é a única coisa no mapa que não se toca: ela não é controle, é
+     onde você está. Deixar o clique passar mantém o toque no mapa abrindo a
+     tela cheia mesmo quando o dedo cai em cima do carro. */
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+}
+
+/* Pino de posto/estacionamento. */
+.mapa__pino {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid #07090d;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* A atribuição do OpenStreetMap é a licença dos dados, não enfeite: ela fica.
+   Só encolhe para caber num painel de carro sem roubar a tela. */
+.mapa .maplibregl-ctrl-bottom-right {
+  font-size: 0.6rem;
+}
+
+.mapa .maplibregl-ctrl-attrib {
+  background: rgba(7, 9, 13, 0.6);
+  border-radius: 0.35rem 0 0 0;
+}
+
+.mapa .maplibregl-ctrl-attrib a {
+  color: var(--muted);
+}
 
 /* ------------------------------------------------------------------ */
 /* Rota e manobra                                                      */
@@ -2712,4 +2746,30 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Quadro que caiu                                                     */
+/* ------------------------------------------------------------------ */
+
+/* O equivalente na tela ao supervisor do Rust: o quadro que quebrou diz o que
+   houve e some sozinho, em vez de levar o painel inteiro junto. */
+.barreira {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  justify-content: center;
+  height: 100%;
+  padding: 0.6rem;
+}
+
+.barreira__aviso {
+  font-size: 0.72rem;
+  color: var(--warn);
+}
+
+.barreira__motivo {
+  font-size: 0.66rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }

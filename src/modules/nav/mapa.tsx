@@ -1,22 +1,55 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
-import { APIProvider, Map, useMap } from "@vis.gl/react-google-maps";
+import {
+  config as configMapLibre,
+  LngLatBounds,
+  Map as MapaGL,
+  Marker,
+  type GeoJSONSource,
+} from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+// O worker do MapLibre é um arquivo à parte desde a v6, e a biblioteca o
+// procura em `new URL("./maplibre-gl-worker.mjs", import.meta.url)`. Isso
+// resolve para o diretório do bundle — que, no pré-empacotamento do Vite, não
+// contém o worker. O resultado é o pior tipo de falha: o worker 404 em
+// silêncio, nenhum tile é decodificado, o estilo nunca termina de carregar e
+// **nenhum erro é emitido** — um mapa cinza sem explicação. Apontar a URL na
+// mão faz o bundler emitir o arquivo e resolve em dev e no APK igual.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+
+configMapLibre.WORKER_URL = workerUrl;
 
 import type { TileView } from "../../core/types";
 import { metros } from "./geo";
 import { Manobra } from "./manobra";
+import { MapaContexto, NOSSO, useMapa } from "./mapaContexto";
 import { Pois } from "./pois";
 import { BuscarRota, RotaDesenhada } from "./rota";
 import { falar } from "./voz";
 import type { Fix, MapaState, Rota } from "./tipos";
 
 /** Enquanto o GPS não fixa, o mapa nasce olhando para São Paulo. */
-const CENTRO_PADRAO = { lat: -23.5505, lng: -46.6333 };
+const CENTRO_PADRAO: [number, number] = [-46.6333, -23.5505];
+
+/**
+ * Os estilos do OpenFreeMap — sem chave, sem cota, sem cadastro.
+ *
+ * Trocar de fornecedor de tile agora é trocar estas duas linhas, e é isso que
+ * abre a porta do mapa offline: um arquivo `.pmtiles` na memória do aparelho
+ * entra aqui do mesmo jeito, e aí o mapa funciona em túnel e garagem.
+ */
+const ESTILOS = {
+  dia: "https://tiles.openfreemap.org/styles/positron",
+  noite: "https://tiles.openfreemap.org/styles/dark",
+} as const;
 
 /** Quantos pontos do caminho já andado manter desenhados. */
 const RASTRO_MAXIMO = 120;
 
 /** De quanto em quanto tempo chega uma posição nova. */
 const INTERVALO_GPS_MS = 1000;
+
+/** O nível de zoom de quem está dirigindo. */
+const ZOOM_DE_RUA = 17;
 
 /**
  * Interpola dois rumos pelo caminho mais curto.
@@ -29,6 +62,18 @@ function interpolarRumo(de: number, para: number, t: number): number {
   return (de + delta * t + 360) % 360;
 }
 
+/** A seta do carro. Um elemento do DOM, não um ícone do estilo — assim ela
+ *  sobrevive à troca de tema sem nenhum cuidado especial. */
+function setaDoCarro(): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "mapa__carro";
+  el.innerHTML =
+    '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">' +
+    '<path d="M12 2 L20 21 L12 16.5 L4 21 Z" fill="#3ddc97" stroke="#07090d" ' +
+    'stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  return el;
+}
+
 /**
  * Faz o mapa seguir o carro.
  *
@@ -38,13 +83,9 @@ function interpolarRumo(de: number, para: number, t: number): number {
  * leitura anterior e a atual. É o que todo navegador faz, e é a diferença entre
  * "um mapa que atualiza" e "um mapa que anda".
  *
- * Fica num componente separado porque só quem está dentro do `APIProvider`
- * consegue pegar a instância do mapa com `useMap`.
- *
- * A câmera é sempre de cima (sem `tilt` — 3D atrapalhava mais que ajudava) e
- * não impõe `zoom`: o nível é do motorista, ajustado pelos botões, e forçá-lo
- * a cada quadro desfaria o ajuste. `heading` só tem efeito em mapa
- * **vetorial**, que exige um Map ID configurado como tal.
+ * A câmera é sempre de cima (sem inclinação — 3D atrapalhava mais que ajudava)
+ * e não impõe zoom: o nível é do motorista, ajustado pelos botões, e forçá-lo a
+ * cada quadro desfaria o ajuste.
  */
 function SeguirCarro({
   fix,
@@ -55,19 +96,18 @@ function SeguirCarro({
   navegando: boolean;
   seguindo: boolean;
 }) {
-  const map = useMap();
+  const map = useMapa();
   const trecho = useRef<{ de: Fix; para: Fix; inicio: number } | null>(null);
-  const rastro = useRef<google.maps.Polyline | null>(null);
   // O carro é um marcador ancorado no MUNDO, não um enfeite no centro da
   // tela: com o seguimento solto (dedo arrastando), ele fica parado na
   // geografia enquanto o mapa desliza por baixo — mexer a tela não pode
   // mexer o carro.
-  const carro = useRef<google.maps.Marker | null>(null);
-  const pontos = useRef<google.maps.LatLngLiteral[]>([]);
+  const carro = useRef<Marker | null>(null);
+  const pontos = useRef<[number, number][]>([]);
   // O quadro agendado, ou 0 = loop dormindo. O loop só roda enquanto há trecho
   // a percorrer: com o carro parado não chega trecho novo (zona morta) e o rAF
-  // se auto-encerra — numa head unit, 60 moveCamera/s à toa é o maior gasto
-  // contínuo de CPU do painel.
+  // se auto-encerra — numa head unit, 60 movimentos de câmera por segundo à toa
+  // é o maior gasto contínuo de CPU do painel.
   const quadro = useRef(0);
   const navegandoRef = useRef(navegando);
   const seguindoRef = useRef(seguindo);
@@ -84,26 +124,21 @@ function SeguirCarro({
     // honesto — é exatamente o que o aparelho conhece.
     const t = Math.min(1, (performance.now() - atual.inicio) / INTERVALO_GPS_MS);
 
-    const posicao = {
-      lat: atual.de.lat + (atual.para.lat - atual.de.lat) * t,
-      lng: atual.de.lon + (atual.para.lon - atual.de.lon) * t,
-    };
+    const lng = atual.de.lon + (atual.para.lon - atual.de.lon) * t;
+    const lat = atual.de.lat + (atual.para.lat - atual.de.lat) * t;
     const rumo = interpolarRumo(atual.de.heading, atual.para.heading, t);
 
-    // O marcador anda sempre — é o carro no mundo. A rotação do símbolo é
-    // relativa ao norte do mapa, então funciona igual girando ou não.
-    carro.current?.setPosition(posicao);
-    const icone = carro.current?.getIcon() as google.maps.Symbol | undefined;
-    if (icone && icone.rotation !== rumo) {
-      carro.current?.setIcon({ ...icone, rotation: rumo });
-    }
+    // O marcador anda sempre — é o carro no mundo. Com `rotationAlignment` no
+    // mapa, a rotação é relativa ao norte geográfico, então funciona igual com
+    // o mapa girando ou parado.
+    mostrarCarro(map, carro, [lng, lat], rumo);
 
     // A câmera só acompanha se o motorista não estiver segurando o mapa —
     // mexer a câmera durante o gesto seria brigar com o dedo.
     if (seguindoRef.current) {
-      map.moveCamera({
-        center: posicao,
-        ...(navegandoRef.current ? { heading: rumo } : {}),
+      map.jumpTo({
+        center: [lng, lat],
+        ...(navegandoRef.current ? { bearing: rumo } : {}),
       });
     }
 
@@ -135,20 +170,19 @@ function SeguirCarro({
       inicio: performance.now(),
     };
 
-    pontos.current = [...pontos.current, { lat: fix.lat, lng: fix.lon }].slice(
-      -RASTRO_MAXIMO,
-    );
-    rastro.current?.setPath(pontos.current);
+    const ponto: [number, number] = [fix.lon, fix.lat];
+    pontos.current = [...pontos.current, ponto].slice(-RASTRO_MAXIMO);
+    rastro(map, pontos.current);
     acordar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix]);
 
-  // Trocar de modo redesenha uma vez (heading muda) mesmo parado.
+  // Trocar de modo redesenha uma vez (o rumo muda) mesmo parado.
   useEffect(() => {
     navegandoRef.current = navegando;
     // Sair do modo seguir endireita o norte na hora — sem isto o mapa ficava
     // travado girado com o rumo da última leitura, parecendo quebrado.
-    if (!navegando) map?.moveCamera({ heading: 0, tilt: 0 });
+    if (!navegando) map?.jumpTo({ bearing: 0, pitch: 0 });
     acordar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navegando]);
@@ -163,35 +197,11 @@ function SeguirCarro({
   useEffect(() => {
     if (!map) return;
 
-    rastro.current ??= new google.maps.Polyline({
-      strokeColor: "#a06bff",
-      strokeOpacity: 0.9,
-      strokeWeight: 6,
-    });
-
-    carro.current ??= new google.maps.Marker({
-      // A seta dos navegadores, na cor de destaque do painel, por cima da
-      // rota e do rastro.
-      icon: {
-        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-        scale: 7,
-        fillColor: "#3ddc97",
-        fillOpacity: 1,
-        strokeColor: "#07090d",
-        strokeWeight: 2,
-        rotation: 0,
-      },
-      zIndex: 3,
-    });
-
-    // Religa em vez de criar preso ao mapa: a troca de tema (dia/noite)
-    // destrói e recria a instância, e os overlays sobrevivem por fora — sem
-    // isto o rastro e o carro sumiriam no primeiro pôr do sol.
-    rastro.current.setMap(map);
-    rastro.current.setPath(pontos.current);
-    carro.current.setMap(map);
     const conhecido = trecho.current?.para;
-    if (conhecido) carro.current.setPosition({ lat: conhecido.lat, lng: conhecido.lon });
+    if (conhecido) {
+      mostrarCarro(map, carro, [conhecido.lon, conhecido.lat], conhecido.heading);
+    }
+    rastro(map, pontos.current);
 
     acordar();
     return () => {
@@ -203,8 +213,7 @@ function SeguirCarro({
 
   useEffect(
     () => () => {
-      rastro.current?.setMap(null);
-      carro.current?.setMap(null);
+      carro.current?.remove();
     },
     [],
   );
@@ -213,17 +222,55 @@ function SeguirCarro({
 }
 
 /**
+ * Põe (ou move) o carro no mapa.
+ *
+ * O marcador só entra no mapa **depois** de ter uma posição, e é por isso que
+ * ele não é criado junto com o mapa: um `Marker` do MapLibre lê o próprio
+ * `LngLat` ao ser anexado, e anexar sem posição estoura. Com o Google isso
+ * passava — o marcador nascia sem lugar nenhum e ficava invisível. Aqui não
+ * passa, e o resultado prático é melhor: sem posição, sem seta. Um carro
+ * desenhado num centro padrão seria uma mentira do tamanho de uma cidade.
+ */
+function mostrarCarro(
+  map: MapaGL | null,
+  carro: { current: Marker | null },
+  onde: [number, number],
+  rumo: number,
+) {
+  if (!map) return;
+
+  carro.current ??= new Marker({
+    element: setaDoCarro(),
+    rotationAlignment: "map",
+  });
+  carro.current.setLngLat(onde).setRotation(rumo);
+  carro.current.addTo(map);
+}
+
+/** Redesenha o caminho já andado. */
+function rastro(map: MapaGL | null, pontos: [number, number][]) {
+  const fonte = map?.getSource<GeoJSONSource>(`${NOSSO}rastro`);
+  if (!fonte) return;
+
+  fonte.setData({
+    type: "Feature",
+    properties: {},
+    geometry: { type: "LineString", coordinates: pontos },
+  });
+}
+
+/**
  * Botões de câmera: zoom, visão geral da rota e recentrar.
  *
- * Existem porque o mapa nasce com `disableDefaultUI` — os controles do Google
- * são pequenos demais para dedo de motorista — e porque arrastar o mapa agora
- * solta o seguimento (senão a câmera brigava com o dedo): alguém precisa
- * oferecer o caminho de volta.
+ * Existem porque o mapa nasce sem controle nenhum — os padrões são pequenos
+ * demais para dedo de motorista — e porque arrastar o mapa solta o seguimento
+ * (senão a câmera brigava com o dedo): alguém precisa oferecer o caminho de
+ * volta.
  *
  * No tile pequeno sobra só o recentrar, e mesmo ele só aparece depois de o dedo
- * arrastar o mapa: dirigindo, um mapinha do tamanho de um cartão com seis botões
- * em cima não é controle, é obstáculo. O resto está a um toque de distância, na
- * tela cheia.
+ * arrastar o mapa: dirigindo, um mapinha do tamanho de um cartão com seis
+ * botões em cima não é controle, é obstáculo. O resto está a um toque de
+ * distância, na tela cheia.
  */
 function Controles({
   seguindo,
@@ -240,30 +287,30 @@ function Controles({
   aoRecentrar: () => void;
   aoSoltar: () => void;
 }) {
-  const map = useMap();
+  const map = useMapa();
   if (!map) return null;
 
   const ajustarZoom = (event: MouseEvent, delta: number) => {
     event.stopPropagation();
-    map.setZoom((map.getZoom() ?? 18) + delta);
+    map.setZoom(map.getZoom() + delta);
   };
 
   const verRota = (event: MouseEvent) => {
     event.stopPropagation();
-    if (!rota) return;
+    if (!rota?.pontos.length) return;
     // Enquadrar solta o seguimento — senão o próximo quadro devolveria a
     // câmera para cima do carro e o enquadramento duraria um piscar.
     aoSoltar();
-    const limites = new google.maps.LatLngBounds();
-    for (const [lat, lng] of rota.pontos) limites.extend({ lat, lng });
-    map.fitBounds(limites, 48);
+    const limites = new LngLatBounds();
+    for (const [lat, lng] of rota.pontos) limites.extend([lng, lat]);
+    map.fitBounds(limites, { padding: 48, bearing: 0 });
   };
 
   const recentrar = (event: MouseEvent) => {
     event.stopPropagation();
     // Devolve o zoom de rua junto: quem recentra quer voltar a dirigir com o
     // mapa, não continuar no zoom em que largou o enquadramento.
-    map.moveCamera({ zoom: 18 });
+    map.setZoom(ZOOM_DE_RUA);
     aoRecentrar();
   };
 
@@ -303,19 +350,114 @@ function Controles({
 }
 
 /**
+ * Cria o mapa e o mantém vivo.
+ *
+ * A troca de tema é `setStyle`, que substitui o documento de estilo inteiro e
+ * levaria junto a rota e o rastro. O `transformStyle` reconduz para o estilo
+ * novo tudo que for nosso (prefixo `eclipse-`) — é a resposta certa para a
+ * mesma armadilha que o `colorScheme` do Google criava, e que ali só tinha
+ * remendo. Marcadores (carro, POIs) são DOM e não passam por isso.
+ */
+function useMapaGL(noite: boolean, aoArrastar: () => void) {
+  const caixa = useRef<HTMLDivElement | null>(null);
+  const [map, setMap] = useState<MapaGL | null>(null);
+  // Qual estilo já está no mapa. Sem isto o efeito de tema disparava um
+  // `setStyle` completo no primeiro render — recarregando um estilo idêntico
+  // ao que o construtor acabou de aplicar.
+  const estiloAtual = useRef(noite ? ESTILOS.noite : ESTILOS.dia);
+  const arrastar = useRef(aoArrastar);
+  arrastar.current = aoArrastar;
+
+  useEffect(() => {
+    if (!caixa.current) return;
+
+    const mapa = new MapaGL({
+      container: caixa.current,
+      style: noite ? ESTILOS.noite : ESTILOS.dia,
+      center: CENTRO_PADRAO,
+      zoom: ZOOM_DE_RUA,
+      // Sem 3D e sem rotação pelo dedo: quem gira o mapa é o rumo do carro.
+      pitch: 0,
+      pitchWithRotate: false,
+      dragRotate: false,
+      // A atribuição do OpenStreetMap não é enfeite, é a licença — fica.
+      attributionControl: { compact: true },
+    });
+
+    mapa.on("dragstart", () => arrastar.current());
+    // Falha de tile ou de estilo não pode ser silenciosa: sem isto, um mapa
+    // que não pinta é indistinguível de um mapa vazio.
+    mapa.on("error", (e) => console.error("[eclipse] maplibre", e.error ?? e));
+
+    mapa.on("load", () => {
+      mapa.addSource(`${NOSSO}rastro`, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      mapa.addLayer({
+        id: `${NOSSO}rastro`,
+        type: "line",
+        source: `${NOSSO}rastro`,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#a06bff",
+          "line-width": 6,
+          "line-opacity": 0.9,
+        },
+      });
+      setMap(mapa);
+    });
+
+    return () => {
+      setMap(null);
+      mapa.remove();
+    };
+    // O estilo inicial é só o de partida; daí em diante quem troca é o efeito
+    // abaixo. Recriar o mapa a cada pôr do sol é exatamente o que se quer evitar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // O tema acompanha o sol (calculado no Rust — ver `sol.rs`).
+  useEffect(() => {
+    const alvo = noite ? ESTILOS.noite : ESTILOS.dia;
+    if (!map || alvo === estiloAtual.current) return;
+    estiloAtual.current = alvo;
+
+    map.setStyle(alvo, {
+      transformStyle: (anterior, novo) => {
+        if (!anterior) return novo;
+
+        const fontes = Object.fromEntries(
+          Object.entries(anterior.sources).filter(([id]) => id.startsWith(NOSSO)),
+        );
+        const camadas = anterior.layers.filter((c) => c.id.startsWith(NOSSO));
+
+        return {
+          ...novo,
+          sources: { ...novo.sources, ...fontes },
+          layers: [...novo.layers, ...camadas],
+        };
+      },
+    });
+  }, [map, noite]);
+
+  return { caixa, map };
+}
+
+/**
  * O mapa.
  *
  * Como a UI roda num WebView, ele é um elemento comum da página: o mesmo
  * componente serve de widget e de tela cheia, e a transição é só o CSS mudando
  * de tamanho. Era exatamente isso que o SDK nativo do Android não permitiria.
  *
- * O que muda entre os dois tamanhos não é o mapa, é quanta tralha vive por
- * cima dele — ver `Controles`. O tile pequeno é para olhar de relance; a tela
- * cheia é onde se mexe.
+ * Quem desenha é o MapLibre sobre tiles do OpenStreetMap: sem chave, sem cota,
+ * e com o tema sendo um documento que a gente controla em vez de dois valores
+ * que o Google aceita. O Google continua no que faz melhor aqui — buscar
+ * endereço, traçar a rota com trânsito e listar postos.
  *
- * A guiagem (rota, manobras, voz, recálculo) é própria — ver `guia.rs` e
- * `rota.tsx`. O que continua fora de alcance é orientação de faixa e trânsito
- * ao vivo desviando a rota: isso é o Navigation SDK, que é enterprise.
+ * O que muda entre os dois tamanhos não é o mapa, é quanta tralha vive por
+ * cima dele — ver `Controles`.
  */
 function Painel({
   data,
@@ -328,60 +470,46 @@ function Painel({
   // independentes, e é isso que se quer.
   const [seguindo, setSeguindo] = useState(true);
 
+  // Segurar o mapa é assumir a câmera: o seguimento solta na hora e o botão
+  // "recentrar" vira o caminho de volta.
+  const { caixa, map } = useMapaGL(data?.noite ?? true, () => setSeguindo(false));
+
   // O Rust decide o que e quando falar; aqui só se pronuncia.
   useEffect(() => {
     falar(data?.fala ?? null);
   }, [data?.fala]);
 
-  if (!data?.apiKey) {
-    return (
-      <div className="mapa">
-        <span className="mapa__marca">mapa</span>
-      </div>
-    );
-  }
-
-  const modoNavegacao = navegando && Boolean(data.mapId);
-
   return (
     <div className={`mapa mapa--vivo${status === "degraded" ? " mapa--sem-sinal" : ""}`}>
-      <APIProvider apiKey={data.apiKey} language="pt-BR" region="BR">
-        <Map
-          className="mapa__canvas"
-          defaultCenter={CENTRO_PADRAO}
-          defaultZoom={18}
-          mapId={data.mapId ?? undefined}
-          // O tema acompanha o sol (calculado no Rust — ver `sol.rs`). Só o
-          // canvas clareia de dia; o resto do painel continua escuro.
-          colorScheme={data.noite ? "DARK" : "LIGHT"}
-          disableDefaultUI
-          gestureHandling="greedy"
-          reuseMaps
-          // Segurar o mapa é assumir a câmera: o seguimento solta na hora e
-          // o botão "recentrar" vira o caminho de volta.
-          onDragstart={() => setSeguindo(false)}
-        />
-        <SeguirCarro fix={data.fix} navegando={modoNavegacao} seguindo={seguindo} />
+      <div className="mapa__canvas" ref={caixa} />
+
+      <MapaContexto.Provider value={map}>
+        <SeguirCarro fix={data?.fix ?? null} navegando={navegando} seguindo={seguindo} />
+        <RotaDesenhada rota={data?.rota ?? null} />
+
         {/* Uma coluna só para todos os botões de mapa: empilhados não
             disputam lugar com a manobra (topo) nem com a busca (embaixo). */}
         <div
           className={`mapa__ferramentas${expandido ? "" : " mapa__ferramentas--enxuta"}`}
           onClick={(e) => e.stopPropagation()}
         >
-          {expandido && <Pois fix={data.fix} apiKey={data.apiKey} />}
+          {expandido && data?.apiKey && (
+            <Pois fix={data.fix} apiKey={data.apiKey} />
+          )}
           <Controles
             seguindo={seguindo}
-            temFix={Boolean(data.fix)}
-            rota={data.rota}
+            temFix={Boolean(data?.fix)}
+            rota={data?.rota ?? null}
             expandido={expandido}
             aoRecentrar={() => setSeguindo(true)}
             aoSoltar={() => setSeguindo(false)}
           />
         </div>
+      </MapaContexto.Provider>
 
-        <RotaDesenhada rota={data.rota} />
-
-        {expandido && (
+      {expandido &&
+        data &&
+        (data.apiKey ? (
           <BuscarRota
             fix={data.fix}
             rota={data.rota}
@@ -389,36 +517,34 @@ function Painel({
             buscando={data.buscando}
             erro={data.erro}
           />
-        )}
-      </APIProvider>
-
-      {expandido && data.progresso && <Manobra progresso={data.progresso} />}
-
-      {expandido &&
-        (data.mapId ? (
-          <button
-            className="mapa__modo"
-            onClick={(e) => {
-              e.stopPropagation();
-              setNavegando((v) => !v);
-            }}
-          >
-            {navegando ? "norte no topo" : "girar com o carro"}
-          </button>
         ) : (
-          // Sem Map ID não há como girar o mapa. Dizer isso é melhor que
-          // deixar o usuário achar que o modo navegação está quebrado.
-          <span className="mapa__aviso">sem Map ID vetorial — mapa chapado</span>
+          // O mapa não precisa de chave nenhuma; a busca de endereço precisa.
+          // Dizer isso é melhor que deixar o motorista procurar um campo que
+          // não existe.
+          <span className="mapa__aviso">
+            sem chave do Google — mapa e posição sim, busca de destino não
+          </span>
         ))}
+
+      {expandido && data?.progresso && <Manobra progresso={data.progresso} />}
+
+      {expandido && (
+        <button
+          className="mapa__modo"
+          onClick={(e) => {
+            e.stopPropagation();
+            setNavegando((v) => !v);
+          }}
+        >
+          {navegando ? "norte no topo" : "girar com o carro"}
+        </button>
+      )}
     </div>
   );
 }
 
 /**
  * O mapa no painel: só o caminho, o carro e — depois de arrastar — o recentrar.
- *
- * É esta instância que continua montada quando a tela cheia abre por cima, e é
- * por isso que ela, e não a outra, é a dona do recálculo de rota.
  */
 export function Mapa(props: TileView<MapaState>) {
   return <Painel {...props} expandido={false} />;
