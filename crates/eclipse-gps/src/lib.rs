@@ -7,6 +7,7 @@
 //! sendo a mesma API do WebView, ou virar um plugin Kotlin sobre o
 //! `LocationManager`, dependendo de como a WebView tratar a permissão.
 
+pub mod directions;
 pub mod fix;
 pub mod guia;
 pub mod parada;
@@ -14,6 +15,7 @@ pub mod pushed;
 pub mod sol;
 pub mod source;
 
+pub use directions::{Alvo, DirectionsError};
 pub use fix::Fix;
 pub use guia::{Guia, Passo, Progresso, Route};
 pub use parada::FiltroDeParada;

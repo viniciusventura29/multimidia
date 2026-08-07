@@ -5,7 +5,7 @@ import type { TileView } from "../../core/types";
 import { metros } from "./geo";
 import { Manobra } from "./manobra";
 import { Pois } from "./pois";
-import { BuscarRota, RotaViva } from "./rota";
+import { BuscarRota, RotaDesenhada } from "./rota";
 import { falar } from "./voz";
 import type { Fix, MapaState, Rota } from "./tipos";
 
@@ -379,17 +379,16 @@ function Painel({
           />
         </div>
 
-        {/* Só a instância compacta obedece ao recálculo — ela é a única que
-            está sempre montada. As duas obedecendo (que era o caso com o tile
-            expandido) davam duas requisições ao Directions por recálculo. */}
-        <RotaViva
-          fix={data.fix}
-          rota={data.rota}
-          recalcular={!expandido && (data.progresso?.recalcular ?? false)}
-        />
+        <RotaDesenhada rota={data.rota} />
 
         {expandido && (
-          <BuscarRota fix={data.fix} rota={data.rota} apiKey={data.apiKey} />
+          <BuscarRota
+            fix={data.fix}
+            rota={data.rota}
+            apiKey={data.apiKey}
+            buscando={data.buscando}
+            erro={data.erro}
+          />
         )}
       </APIProvider>
 
