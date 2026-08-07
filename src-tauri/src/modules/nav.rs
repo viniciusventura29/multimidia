@@ -10,13 +10,23 @@
 //! para widget e cresce para tela cheia sem truque nenhum. Foi por isso que a
 //! Maps JavaScript API venceu o SDK nativo, que seria uma View Java *fora* da
 //! nossa árvore e exigiria recortar um buraco transparente no WebView.
+//!
+//! A rota é buscada **daqui** (ver `directions.rs` no `eclipse-gps`), não do
+//! JavaScript: quem responde "quanto falta" e "saí do caminho" precisa da rota
+//! e da posição ao mesmo tempo, e as duas moram deste lado. Como consequência
+//! o recálculo virou uma chamada, não um pedido — antes o Rust levantava uma
+//! bandeira e torcia para a tela obedecer.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_gps::{sol, FiltroDeParada, Fix, Guia, LocationSource, Progresso, Route};
+use eclipse_gps::{
+    directions, sol, Alvo, DirectionsError, FiltroDeParada, Fix, Guia, LocationSource, Progresso,
+    Route,
+};
 use serde::Serialize;
+use tokio::sync::mpsc;
 
 pub const NAV: ModuleId = ModuleId::new("nav");
 
@@ -28,6 +38,15 @@ const CENTRO_PADRAO: (f64, f64) = (-23.5505, -46.6333);
 /// De quanto em quanto tempo reavaliar o tema sem depender de fix novo —
 /// parado na garagem o sol se põe do mesmo jeito.
 const RELOGIO_DO_SOL: Duration = Duration::from_secs(60);
+
+/// Intervalo mínimo entre duas buscas **automáticas** de rota.
+///
+/// O recálculo que falha precisa poder tentar de novo — senão uma queda de rede
+/// de dez segundos deixa o motorista sem rota até ele mesmo perceber. Mas
+/// tentar a cada leitura de GPS seria uma requisição por segundo enquanto a
+/// rede estiver fora. Vale só para o automático: o toque em "ir" é do
+/// motorista e nunca espera.
+const DESCANSO_ENTRE_RECALCULOS: Duration = Duration::from_secs(10);
 
 fn agora_unix() -> u64 {
     SystemTime::now()
@@ -75,6 +94,13 @@ struct Mapa {
     /// no `eclipse-gps`). Calculado aqui e não na tela porque é aqui que dá
     /// para testar — e o painel inteiro lê estado, não relógio.
     noite: bool,
+
+    /// Tem uma rota sendo calculada agora. A tela usa para não deixar o
+    /// motorista tocar "ir" duas vezes achando que não pegou.
+    buscando: bool,
+
+    /// Por que a última busca não deu certo, se não deu.
+    erro: Option<String>,
 }
 
 pub struct NavModule {
@@ -92,6 +118,17 @@ pub struct NavModule {
     /// avaliada contra o que o GPS diz, não contra a posição já encaixada na
     /// rota **anterior** — senão a rota velha influenciaria a nova.
     ultimo_fix: Option<Fix>,
+    /// Para onde o motorista pediu para ir. Guardado porque o recálculo é a
+    /// mesma pergunta feita de outro lugar: o destino não muda, a origem sim.
+    alvo: Option<Alvo>,
+    /// Já disparamos o recálculo deste desvio? Sem esta marca, o pedido do
+    /// `Guia` — que fica de pé enquanto o carro estiver fora da rota — viraria
+    /// uma requisição por segundo até ele voltar. É zerada quando a busca
+    /// falha, para uma queda de rede não deixar o motorista sem rota nova.
+    recalculo_disparado: bool,
+    /// Quando saiu a última busca automática. Ver `DESCANSO_ENTRE_RECALCULOS`.
+    ultimo_recalculo: Option<Instant>,
+    cliente: reqwest::Client,
 }
 
 impl NavModule {
@@ -107,6 +144,10 @@ impl NavModule {
             guia: None,
             filtro: FiltroDeParada::novo(),
             ultimo_fix: None,
+            alvo: None,
+            recalculo_disparado: false,
+            ultimo_recalculo: None,
+            cliente: reqwest::Client::new(),
         }
     }
 }
@@ -131,10 +172,18 @@ impl Module for NavModule {
             progresso: None,
             fala: None,
             noite: sol::e_noite(CENTRO_PADRAO.0, CENTRO_PADRAO.1, agora_unix()),
+            buscando: false,
+            erro: None,
         };
         ctx.ready(&estado);
 
         let mut relogio = tokio::time::interval(RELOGIO_DO_SOL);
+
+        // A busca de rota leva perto de um segundo. Fazê-la no meio do laço
+        // seguraria as leituras de GPS por esse tempo — o carro congelaria no
+        // mapa justo quando o motorista está esperando o caminho aparecer.
+        // Então ela roda numa tarefa e volta por aqui, como o assistente faz.
+        let (tx_rota, mut rx_rota) = mpsc::channel::<Result<Route, DirectionsError>>(2);
 
         loop {
             tokio::select! {
@@ -160,6 +209,20 @@ impl Module for NavModule {
                                 fix
                             }
                         });
+
+                        // Saímos do caminho tempo suficiente: a rota nova parte
+                        // de onde o carro está agora, para o mesmo destino. Uma
+                        // vez por desvio — a bandeira fica de pé enquanto ele
+                        // durar, e obedecer a cada leitura seria uma requisição
+                        // por segundo.
+                        let fora = estado.progresso.as_ref().is_some_and(|p| p.recalcular);
+                        if !fora {
+                            self.recalculo_disparado = false;
+                        } else if !self.recalculo_disparado && self.descansou() {
+                            self.ultimo_recalculo = Some(Instant::now());
+                            self.recalculo_disparado = self.tracar(&mut estado, &tx_rota);
+                        }
+
                         ctx.ready(&estado);
                     }
                     // Perder sinal não apaga o mapa: ele fica no último ponto
@@ -182,47 +245,60 @@ impl Module for NavModule {
                     }
                 },
 
+                // A rota ficou pronta (ou não deu).
+                recebido = rx_rota.recv() => {
+                    estado.buscando = false;
+                    match recebido {
+                        Some(Ok(rota)) => {
+                            estado.erro = None;
+                            self.assumir(rota, &mut estado);
+                        }
+                        Some(Err(err)) => {
+                            tracing::warn!(%err, "não deu para traçar a rota");
+                            estado.erro = Some(err.to_string());
+                            // Falhou: o desvio continua de pé e merece outra
+                            // tentativa. Quem impede a enxurrada é o descanso.
+                            self.recalculo_disparado = false;
+                        }
+                        // O emissor é nosso e vive tanto quanto o laço.
+                        None => {}
+                    }
+                    ctx.ready(&estado);
+                },
+
                 comando = ctx.next_command() => match comando {
                     None => return Ok(()),
 
                     Some(ModuleCommand::Action { payload, .. }) => {
                         match payload.get("acao").and_then(|v| v.as_str()) {
-                            // A rota vem pronta do lado JavaScript, que é onde
-                            // mora o DirectionsService. Daqui pra frente ela é
-                            // do Rust, junto com a posição — que é o que permite
-                            // raciocinar sobre as duas juntas.
+                            // A tela manda só **para onde** ir; quem busca é
+                            // este módulo. O que chega daqui em diante — a
+                            // rota, o progresso, o recálculo — é tudo derivado
+                            // aqui, junto da posição.
                             Some("rota") => {
-                                match serde_json::from_value::<Route>(
-                                    payload.get("rota").cloned().unwrap_or_default(),
+                                match serde_json::from_value::<Alvo>(
+                                    payload.get("alvo").cloned().unwrap_or_default(),
                                 ) {
-                                    Ok(rota) => {
-                                        estado.rota = Some(rota.clone());
-                                        let mut guia = Guia::nova(rota);
-
-                                        // Traçar a rota já encaixa o carro nela:
-                                        // esperar a próxima leitura para isso
-                                        // deixaria o carro um segundo ao lado da
-                                        // linha que acabou de aparecer.
-                                        if let Some(fix) = &self.ultimo_fix {
-                                            let (progresso, fala) = guia.avaliar(fix);
-                                            estado.progresso = Some(progresso);
-                                            estado.fala = fala;
-                                            estado.fix = Some(guia.grudar(fix));
-                                        }
-
-                                        self.guia = Some(guia);
+                                    Ok(alvo) => {
+                                        self.alvo = Some(alvo);
+                                        self.recalculo_disparado = false;
+                                        estado.erro = None;
+                                        self.tracar(&mut estado, &tx_rota);
                                         ctx.ready(&estado);
                                     }
                                     Err(err) => {
-                                        tracing::warn!(%err, "rota malformada");
+                                        tracing::warn!(%err, "destino malformado");
                                     }
                                 }
                             }
                             Some("cancelar") => {
                                 self.guia = None;
+                                self.alvo = None;
+                                self.recalculo_disparado = false;
                                 estado.rota = None;
                                 estado.progresso = None;
                                 estado.fala = None;
+                                estado.erro = None;
                                 // Sem rota não há em que encaixar: o carro volta
                                 // para onde o sensor diz, em vez de ficar preso
                                 // na linha de uma rota que não existe mais.
@@ -237,5 +313,58 @@ impl Module for NavModule {
                 }
             }
         }
+    }
+}
+
+impl NavModule {
+    /// Já passou tempo bastante desde a última busca automática?
+    fn descansou(&self) -> bool {
+        self.ultimo_recalculo
+            .is_none_or(|quando| quando.elapsed() >= DESCANSO_ENTRE_RECALCULOS)
+    }
+
+    /// Dispara a busca de rota numa tarefa à parte. Devolve se disparou mesmo.
+    ///
+    /// Silencioso quando não há para onde ir, de onde sair, ou já há uma busca
+    /// em curso: são as três formas de gastar uma requisição à toa.
+    fn tracar(
+        &mut self,
+        estado: &mut Mapa,
+        tx: &mpsc::Sender<Result<Route, DirectionsError>>,
+    ) -> bool {
+        if estado.buscando {
+            return false;
+        }
+        let (Some(alvo), Some(fix)) = (self.alvo.clone(), self.ultimo_fix) else {
+            return false;
+        };
+
+        estado.buscando = true;
+
+        let cliente = self.cliente.clone();
+        let chave = estado.api_key.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let rota = directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo).await;
+            let _ = tx.send(rota).await;
+        });
+        true
+    }
+
+    /// Passa a guiar por uma rota recém-chegada.
+    fn assumir(&mut self, rota: Route, estado: &mut Mapa) {
+        estado.rota = Some(rota.clone());
+        let mut guia = Guia::nova(rota);
+
+        // Traçar a rota já encaixa o carro nela: esperar a próxima leitura
+        // deixaria o carro um segundo ao lado da linha que acabou de aparecer.
+        if let Some(fix) = &self.ultimo_fix {
+            let (progresso, fala) = guia.avaliar(fix);
+            estado.progresso = Some(progresso);
+            estado.fala = fala;
+            estado.fix = Some(guia.grudar(fix));
+        }
+
+        self.guia = Some(guia);
     }
 }

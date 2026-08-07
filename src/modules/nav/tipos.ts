@@ -45,4 +45,8 @@ export interface MapaState {
   fala: string | null;
   /** O sol já se pôs onde o carro está? Decide o tema do mapa. */
   noite: boolean;
+  /** Tem rota sendo calculada agora — quem calcula é o Rust. */
+  buscando: boolean;
+  /** Por que a última busca de rota não deu certo, se não deu. */
+  erro: string | null;
 }
