@@ -135,12 +135,20 @@ export function Carrinho() {
       aria-hidden
     >
       {/*
-        A cena é em retrato porque a coluna é. Um carro de perfil é largo por
-        natureza; sozinho, numa coluna estreita e alta, ele viraria uma tirinha
-        no meio de muito vazio. Com morro e horizonte atrás, a mesma faixa vira
-        uma cena que ocupa a coluna inteira.
+        A cena virou paisagem, e o carro virou o assunto dela.
+
+        Em retrato ela existia para resolver um problema de forma: um carro de
+        perfil é largo, e sozinho numa coluna estreita e alta viraria uma
+        tirinha no meio de muito vazio — daí morro e horizonte enchendo os dois
+        terços de cima. Com o assistente promovido a herói largo do painel, o
+        problema se inverteu: agora sobra largura, e é o carro que deve tomá-la.
+
+        Então a cena encolheu na vertical e esticou na horizontal. O carro
+        passou de ~14% da altura para metade dela, e os morros voltaram ao lugar
+        de onde nunca deviam ter saído: uma faixa fina atrás, para dar
+        profundidade e nada mais.
       */}
-      <svg className="carrinho__svg" viewBox="0 0 200 360" role="presentation">
+      <svg className="carrinho__svg" viewBox="0 0 240 106" role="presentation">
         <defs>
           {/* O brilho do horizonte. Abstrato de propósito: lua e estrelas
               diriam "é noite", e o painel fica ligado o dia inteiro. */}
@@ -149,25 +157,36 @@ export function Carrinho() {
             <stop offset="55%" stopColor="var(--accent)" stopOpacity="0.06" />
             <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
           </radialGradient>
+
+          {/* A sombra no chão. É ela que assenta o carro na cena em vez de o
+              deixar boiando — e some junto com a luz nas bordas, para não virar
+              uma mancha de contorno duro debaixo dele. */}
+          <radialGradient id="ia-sombra" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#000" stopOpacity="0.55" />
+            <stop offset="70%" stopColor="#000" stopOpacity="0.18" />
+            <stop offset="100%" stopColor="#000" stopOpacity="0" />
+          </radialGradient>
         </defs>
 
-        {/* Sobe até o topo da cena: sem isso o céu vira um retângulo morto
-            ocupando metade da coluna. */}
-        <rect x="0" y="0" width="200" height="318" fill="url(#ia-brilho)" />
+        {/* Sobe até o topo da cena: sem isso o céu vira um retângulo morto. */}
+        <rect x="0" y="0" width="240" height="62" fill="url(#ia-brilho)" />
 
         {/* Dois planos de morro atrás, com o horizonte na base dos dois. */}
         <path
           className="carrinho__morro carrinho__morro--fundo"
-          d="M0,318 L26,236 L52,278 L88,206 L124,262 L158,222 L200,268 L200,318 Z"
+          d="M0,62 L31,40 L62,51 L106,32 L149,47 L190,36 L240,49 L240,62 Z"
         />
         <path
           className="carrinho__morro"
-          d="M0,318 L34,268 L74,300 L112,246 L150,290 L200,258 L200,318 Z"
+          d="M0,62 L41,49 L89,57 L134,43 L180,55 L240,46 L240,62 Z"
         />
-        <line className="carrinho__horizonte" x1="0" y1="318" x2="200" y2="318" />
+        <line className="carrinho__horizonte" x1="0" y1="62" x2="240" y2="62" />
 
-        {/* O carro e a pista, encaixados na faixa de baixo da cena. */}
-        <g transform="translate(4, 245) scale(0.96)">
+        {/* Debaixo do carro e antes dele: a lataria passa por cima da sombra. */}
+        <ellipse cx="127" cy="91" rx="98" ry="7" fill="url(#ia-sombra)" />
+
+        {/* O carro e a pista. */}
+        <g transform="translate(25, 12)">
           {/* Fumaça do escapamento: só existe com o motor em marcha lenta. */}
           {parado && (
             <g className="carrinho__fumaca">
@@ -184,7 +203,13 @@ export function Carrinho() {
           */}
           <g className="carrinho__eixo">
             <circle className="carrinho__pneu" cx="48" cy="65" r="14.5" />
-            <g className="carrinho__roda" style={{ transformOrigin: "48px 65px" }}>
+            {/* Sem `transform-origin`: o CSS põe `transform-box: fill-box`, e
+                aí o padrão (`50% 50%`) já é o centro da própria roda. Um par de
+                coordenadas em px seria medido a partir do canto da caixa da
+                roda, e não da cena — a roda giraria em órbita, longe do carro,
+                que é exatamente o que acontecia. Só ficou óbvio quando a cena
+                virou paisagem e o carro dobrou de tamanho. */}
+            <g className="carrinho__roda">
               <circle className="carrinho__aro" cx="48" cy="65" r="8" />
               {/* Cinco raios, como a roda do blueprint. */}
               <path
@@ -195,7 +220,7 @@ export function Carrinho() {
             </g>
 
             <circle className="carrinho__pneu" cx="151" cy="65" r="14.5" />
-            <g className="carrinho__roda" style={{ transformOrigin: "151px 65px" }}>
+            <g className="carrinho__roda">
               <circle className="carrinho__aro" cx="151" cy="65" r="8" />
               <path
                 className="carrinho__raio"
@@ -288,9 +313,9 @@ export function Carrinho() {
           {/* A pista. Andando ela corre; parada, fica. */}
           <line
             className="carrinho__pista"
-            x1="-10"
+            x1="-40"
             y1="80"
-            x2="210"
+            x2="230"
             y2="80"
             strokeDasharray="18 14"
           />

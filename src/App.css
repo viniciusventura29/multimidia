@@ -1,13 +1,31 @@
 :root {
   --bg: #07090d;
   --tile: #12161d;
-  --tile-alto: #171c25;
+  --tile-alto: #1b212b;
   --line: #232a35;
   --text: #e8edf5;
   --muted: #7c8899;
   --warn: #f5a524;
   /* Sobrescrita em runtime pela cor do perfil ativo — ver `useTema`. */
   --accent: #3ddc97;
+
+  /*
+   * Raio e respiro.
+   *
+   * O painel media tudo em `rem` mas escolhia cada canto e cada padding no
+   * olho, e o resultado era um raio diferente por componente — o que lê como
+   * desleixo mesmo quando cada peça, sozinha, está certa. Três degraus bastam:
+   * o card, o chip dentro dele, e o selo redondo.
+   *
+   * Em `rem` de propósito: a fonte-base já é `clamp()` sobre a altura da tela
+   * (ver `html`), então o painel inteiro encolhe junto num celular deitado em
+   * vez de manter cantos de head unit numa tela pela metade.
+   */
+  --r-lg: 1.5rem;
+  --r-md: 0.9rem;
+  --r-sm: 0.6rem;
+  --pad: 0.95rem;
+  --gap: 0.6rem;
 
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -58,12 +76,6 @@ body {
 /* Grid                                                                */
 /* ------------------------------------------------------------------ */
 
-/*
- * O layout do mockup: mapa ocupando a faixa de cima, e dois blocos de três
- * embaixo. As áreas são nomeadas para que cada tile diga onde mora sem depender
- * da ordem em que foi registrado.
- */
-/* Header fininho em cima, painel ocupando o resto. */
 .app {
   /* `dvh`, não `vh`: no Android o `vh` conta a área que a barra de navegação
      cobre, e a última linha do grid ficava atrás dela (era o corte de baixo). */
@@ -72,104 +84,146 @@ body {
   flex-direction: column;
 }
 
+/*
+ * Duas colunas de assunto: o carro à esquerda, a viagem à direita.
+ *
+ * Antes eram quatro colunas de linhas iguais, e o problema era esse: com todas
+ * as células do mesmo tamanho e da mesma moldura, nada dizia por onde começar a
+ * olhar. Agora cada lado tem seu cabeçalho — o motorista à esquerda, a faixa de
+ * status por cima do mapa — e uma hierarquia clara embaixo: o Assistente é o
+ * herói largo, carro e Spotify são os dois cards, e o mapa domina a direita
+ * inteira sem moldura nenhuma.
+ *
+ * O `perfil` e a `barra` entram como filhos diretos do grid, e não como tiles:
+ * são cabeçalhos, não quadros. Foi o que devolveu ao painel a faixa de altura
+ * que a antiga barra de sistema comia de ponta a ponta da tela.
+ *
+ * O WhatsApp não tem área aqui: ele virou notificação que sobe da base (ver
+ * `shell/Notificacoes.tsx`), e o espaço que era dele foi para o mapa — que
+ * agora desce até o rodapé.
+ */
 .dashboard {
   flex: 1;
   min-height: 0;
   display: grid;
-  /*
-   * O painel do Assistente ocupa toda a coluna estreita da esquerda; velocidade
-   * (com RPM e temperatura encaixados) e Spotify no meio; o mapa domina o bloco
-   * inteiro da direita. O WhatsApp saiu do grid — virou notificação que sobe da
-   * base (ver `shell/Notificacoes.tsx`) — e o mapa cresceu para o espaço dele.
-   */
   grid-template-areas:
-    "ia velocidade  maps  maps"
-    "ia velocidade  maps  maps"
-    "ia spotify     maps  maps"
-    "ia spotify     maps  maps";
-  grid-template-columns: 0.75fr 1fr 1fr 1fr;
-  grid-template-rows: repeat(4, 1fr);
-  gap: 0.6rem;
+    "perfil  perfil   barra"
+    "ia      ia       maps"
+    "carro   spotify  maps";
+  grid-template-columns: 1fr 1fr 1.95fr;
+  /* A primeira linha é `auto` porque cabeçalho tem a altura do seu texto — dar
+     uma fração a ele tiraria altura de quem precisa. */
+  grid-template-rows: auto 1.5fr 2.35fr;
+  gap: var(--gap);
   /* `max(...)` com a safe-area: respeita a barra de gestos do Android sem
      encolher a margem onde ela não existe (head unit). Idem nas laterais, por
      causa do notch quando o aparelho está deitado. */
-  padding: 0 max(0.6rem, env(safe-area-inset-right)) max(0.6rem, env(safe-area-inset-bottom))
-    max(0.6rem, env(safe-area-inset-left));
+  padding: 0 max(var(--gap), env(safe-area-inset-right))
+    max(var(--gap), env(safe-area-inset-bottom)) max(var(--gap), env(safe-area-inset-left));
 }
 
 /* ------------------------------------------------------------------ */
-/* Header (barra de status)                                            */
+/* Cabeçalhos: o motorista e a faixa de status                         */
 /* ------------------------------------------------------------------ */
 
-.topbar {
+/* Título da coluna da esquerda: quem está dirigindo. Botão sem cara de botão —
+   a área toda é tocável, mas o desenho é de cabeçalho, porque trocar de perfil
+   é raro e ler o nome é o tempo todo. */
+.motorista {
+  grid-area: perfil;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 1.1rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.05rem;
+  padding: 0.35rem 0.2rem 0.35rem 0.6rem;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
 }
 
-.topbar__infos {
-  display: flex;
-  align-items: center;
-  gap: 1.4rem;
-  min-width: 0;
+.motorista:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.topbar__item {
+.motorista__saudacao {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.motorista__nome {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.95rem;
+  gap: 0.45rem;
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.motorista__ponto {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* A faixa de status, por cima do mapa. Cápsula própria em vez de barra que
+   atravessa a tela: é o cabeçalho da coluna da direita, e não do sistema. */
+.barra {
+  grid-area: barra;
+  display: flex;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  background: var(--tile);
+}
+
+.barra__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--tom, var(--text));
 }
 
 /* A hora não é telemetria — fica na cor do texto, sem tom por faixa. */
-.topbar__hora {
+.barra__hora {
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.topbar__icone {
-  font-size: 1.25rem;
-}
-
-.topbar__nome {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: none;
-  min-height: 2.2rem;
-  padding: 0.25rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--tile-alto);
-  color: var(--text);
-  font-size: 0.95rem;
-  cursor: pointer;
-  transition: border-color 140ms ease;
-}
-
-.topbar__nome:hover,
-.topbar__nome:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-
-.topbar__ponto {
-  width: 0.7rem;
-  height: 0.7rem;
-  flex: none;
-  border-radius: 50%;
+.barra__icone {
+  font-size: 1.15rem;
 }
 
 /* ------------------------------------------------------------------ */
 /* Tile                                                                */
 /* ------------------------------------------------------------------ */
 
+/*
+ * O card.
+ *
+ * A borda de 1px saiu: com ela, todo quadro tinha exatamente o mesmo contorno e
+ * o painel lia como uma planilha. O que separa o card do fundo agora é a cor —
+ * `--tile` contra `--bg` —, que é separação suficiente e não desenha uma grade
+ * por cima da tela.
+ */
 .tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -177,11 +231,25 @@ body {
      PRÓPRIO quadro, não ao da tela. É o que deixa o mesmo card servir a uma
      célula baixa (celular deitado) e a uma alta (head unit) sem recortar nada. */
   container-type: size;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 1.25rem;
+  padding: 0.7rem var(--pad);
+  border: 0;
+  border-radius: var(--r-lg);
   background: var(--tile);
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+/*
+ * A célula nua: sem fundo, sem padding, sem cabeçalho. Quem entra aqui é quem
+ * **é** a imagem que mostra (o mapa, o carro do assistente) — moldura em volta
+ * de imagem só faz a imagem parecer menor.
+ *
+ * O `overflow: hidden` com o mesmo raio dos cards é o que mantém a família:
+ * o mapa sangra até a beirada, mas a beirada continua sendo a do painel.
+ */
+.tile--nu {
+  padding: 0;
+  background: none;
+  overflow: hidden;
 }
 
 .tile--clicavel {
@@ -192,6 +260,13 @@ body {
 .tile--clicavel:focus-visible {
   background: var(--tile-alto);
   outline: none;
+}
+
+/* Nu não tem fundo para clarear, então o retorno ao toque é um anel. */
+.tile--nu.tile--clicavel:hover,
+.tile--nu.tile--clicavel:focus-visible {
+  background: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .tile__head {
@@ -232,6 +307,18 @@ body {
   color: var(--warn);
 }
 
+/* Sem cabeçalho onde morar, o aviso flutua por cima do conteúdo. Fundo próprio
+   porque ele pousa sobre um mapa, e texto laranja sobre rua não se lê. */
+.tile__badge--solto {
+  position: absolute;
+  z-index: 2;
+  top: 0.5rem;
+  left: 0.6rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
 .tile__body {
   flex: 1;
   min-height: 0;
@@ -248,6 +335,38 @@ body {
   margin: 0.5rem 0 0;
   font-size: 0.72rem;
   color: var(--warn);
+}
+
+/*
+ * Num quadro nu o motivo não pode empurrar o conteúdo para cima — o mapa
+ * encolheria toda vez que o GPS tossisse. Ele pousa por baixo, com fundo.
+ *
+ * Duas linhas e corta. O motivo às vezes é o corpo de erro de uma API inteiro,
+ * e sem limite ele vira um parágrafo por cima do herói: o motorista lê menos
+ * ainda, e perde o desenho junto. Duas linhas dizem o que houve; o resto é para
+ * o log.
+ */
+.tile--nu .tile__reason {
+  position: absolute;
+  z-index: 2;
+  right: 0.6rem;
+  bottom: 0.5rem;
+  left: 0.6rem;
+  margin: 0;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  /* O `line-clamp` põe as reticências, mas quem garante que nada vaza para fora
+     da cápsula é o par altura + `overflow` — sem eles sobra meia terceira linha
+     pintada por baixo do fundo, na WebView. */
+  line-height: 1.35;
+  /* A folga extra é para os descendentes (`g`, `p`, `q`) da segunda linha
+     caberem: cortar em exatamente duas alturas de linha come o rabo delas. */
+  max-height: calc(2 * 1.35em + 0.2em);
+  overflow: hidden;
 }
 
 /* O miolo de um tile cujo chunk lazy ainda não chegou: um bloco respirando,
@@ -269,8 +388,10 @@ body {
   }
 }
 
+/* Sem borda, o sinal de degradado virou um anel por dentro — mesma leitura de
+   "esta caixa está com problema", sem reintroduzir contorno em todo mundo. */
 .tile--degraded {
-  border-color: var(--warn);
+  box-shadow: inset 0 0 0 1px var(--warn);
 }
 
 /*
@@ -369,23 +490,46 @@ body {
 /* Dado (rótulo + número + unidade)                                    */
 /* ------------------------------------------------------------------ */
 
-/* O primitivo que era o chip do rodapé da velocidade. Vive aqui, junto do Gauge,
-   porque a tela do carro usa a mesma anatomia uma dúzia de vezes. */
+/*
+ * O primitivo que era o chip do rodapé da velocidade. Vive aqui, junto do Gauge,
+ * porque a tela do carro usa a mesma anatomia uma dúzia de vezes.
+ *
+ * A anatomia mudou: selo redondo ao lado do rótulo miúdo, número grande
+ * embaixo. Antes o ícone era um caractere colado no rótulo em corpo 0,58rem —
+ * do tamanho de um til, invisível de relance. Num disco próprio ele vira a
+ * âncora que o olho acha antes de ler, que é o serviço que ícone tem para
+ * prestar num painel de carro.
+ *
+ * O selo fica na própria linha, e não ao lado do rótulo. Lado a lado ele comia
+ * a largura de que "AUTONOMIA" precisa, e num chip de ~100 px o rótulo virava
+ * "AUTONO…" — trocar a palavra pelo ícone é perder as duas coisas. Empilhado,
+ * cada um fica inteiro. Nas telas cheias, onde não há ícone, sobram as mesmas
+ * duas linhas de sempre e nada engorda.
+ */
 .dado {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: 0.8rem;
+  display: grid;
+  align-content: center;
+  gap: 0.2rem;
+  padding: 0.45rem 0.65rem;
+  border: 0;
+  border-radius: var(--r-md);
   background: var(--tile-alto);
 }
 
-.dado__rotulo {
+.dado__selo {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tom, var(--accent)) 16%, transparent);
+  color: var(--tom, var(--accent));
+  font-size: 0.88rem;
+}
+
+.dado__rotulo {
   font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -396,14 +540,9 @@ body {
   text-overflow: ellipsis;
 }
 
-.dado__icone {
-  display: inline-flex;
-  font-size: 1.1em;
-}
-
 .dado__valor {
-  font-size: 1.35rem;
-  font-weight: 300;
+  font-size: 1.45rem;
+  font-weight: 400;
   line-height: 1;
   color: var(--tom, var(--text));
   font-variant-numeric: tabular-nums;
@@ -430,10 +569,11 @@ body {
   font-size: 2rem;
 }
 
-/* Alerta não é um dado: ele grita. Borda e fundo no tom, e um pulso lento — a
-   visão periférica pega o pulso antes de o motorista virar a cabeça. */
+/* Alerta não é um dado: ele grita. Anel e fundo no tom, e um pulso lento — a
+   visão periférica pega o pulso antes de o motorista virar a cabeça. Anel por
+   dentro, e não borda, porque o `.dado` deixou de ter contorno. */
 .dado--alerta {
-  border-color: var(--tom);
+  box-shadow: inset 0 0 0 1px var(--tom);
   background: color-mix(in srgb, var(--tom) 16%, var(--tile-alto));
   animation: alerta-pulsa 1.4s ease-in-out infinite;
 }
@@ -450,7 +590,7 @@ body {
 
 /* Degradado manda na cor, como no Gauge: tom de métrica não disfarça "sem sinal". */
 .tile--degraded .dado__valor,
-.tile--degraded .dado__icone {
+.tile--degraded .dado__selo {
   color: var(--warn);
 }
 
@@ -513,25 +653,35 @@ body {
   gap: 0.5rem;
 }
 
-/* Número grande e centralizado; sem barra — a velocidade não precisa de nível. */
+/*
+ * Número grande, encostado no canto de cima à esquerda; sem barra — a
+ * velocidade não precisa de nível.
+ *
+ * Ancorado no topo, e não centrado no vão: a velocidade é a resposta que o
+ * título do quadro promete, e ela sai logo embaixo dele. O vazio fica entre a
+ * velocidade e os chips, que é onde vazio não atrapalha — centrar o número
+ * deixava três blocos boiando cada um no seu meio, sem eixo nenhum em comum.
+ */
 .velo__medidor {
   flex: 1;
   min-height: 0;
   display: grid;
-  place-items: center;
+  place-items: start start;
 }
 
 .velo__medidor .gauge {
-  align-items: center;
-  text-align: center;
+  align-items: flex-start;
 }
 
+/* O card ficou mais alto que largo no layout novo, e a velocidade é o que ele
+   existe para responder: o número cresce para ocupar a folga em vez de deixar
+   um vazio entre ele e os chips. */
 .velo__medidor .gauge__value {
-  font-size: 2.3rem;
+  font-size: 3.6rem;
 }
 
 .velo__medidor .gauge__icone {
-  font-size: 1.35rem;
+  font-size: 1.7rem;
 }
 
 /* Consumo e autonomia moram encaixados no rodapé do quadro da velocidade. A
@@ -805,13 +955,24 @@ body {
 /* Assistente                                                          */
 /* ------------------------------------------------------------------ */
 
+/*
+ * O herói do painel.
+ *
+ * O quadro é nu (ver `chrome` no `TileSpec`), então o padding que o card daria
+ * de graça mora aqui — e só onde há texto. Quando o que está na tela é o
+ * carrinho, ele vai até a beirada de propósito: é o único elemento do painel
+ * que ganha em ser grande, e uma margem em volta o devolveria à condição de
+ * figurinha.
+ */
 .ia {
   position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 0.4rem;
   min-height: 0;
+  padding: 0 0.2rem;
 }
 
 .ia--pensando {
@@ -852,18 +1013,41 @@ body {
   animation: ia-respira 1.6s ease-in-out infinite;
 }
 
+/*
+ * Os cartões, agora lado a lado.
+ *
+ * Empilhavam em coluna porque o assistente morava numa faixa estreita e alta.
+ * No herói largo, empilhar deixaria três cartões curtos com meia tela de vazio
+ * à direita; em linha, cada um ganha largura para o texto respirar e o quadro
+ * lê como uma fileira de recados, que é o que ele é.
+ *
+ * Continua rolando — agora na horizontal, e só quando a IA escreve mais do que
+ * cabe.
+ */
 .ia__cartoes {
   display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  /* A coluna é alta, mas finita: quadro cheio rola em vez de vazar. */
-  overflow-y: auto;
-  min-height: 0;
+  gap: 0.5rem;
+  align-items: stretch;
+  overflow-x: auto;
+  min-width: 0;
   scrollbar-width: none;
 }
 
 .ia__cartoes::-webkit-scrollbar {
   display: none;
+}
+
+/* Divide o herói em partes iguais, sem deixar um cartão de uma linha ficar
+   magrinho ao lado de um de quatro. */
+.ia__cartoes > * {
+  flex: 1 1 0;
+  min-width: 9rem;
+}
+
+/* Um cartão só não vira uma faixa de ponta a ponta com a frase perdida no meio:
+   ele fica do tamanho de dois, encostado à esquerda. */
+.ia__cartoes > :only-child {
+  flex: 0 1 min(50%, 22rem);
 }
 
 /* ---- Cartões ---- */
@@ -1046,10 +1230,18 @@ body {
   text-align: center;
 }
 
+/*
+ * Em tela cheia a caixa é larga, e a cena tem que tomá-la.
+ *
+ * O `align-items: center` do pai encolhia o carrinho até a largura do conteúdo,
+ * e a cena — que agora é paisagem — ficava uma miniatura no meio de uma tela
+ * vazia. O `align-self: stretch` devolve a largura; o teto de altura continua
+ * existindo para o carro não virar um ônibus numa tela alta.
+ */
 .ia-completa--vazia .carrinho {
-  /* Em tela cheia a caixa é larga; sem teto de altura a cena esticaria para a
-     tela inteira e o carro ficaria do tamanho de um ônibus. */
-  max-height: 60vh;
+  align-self: stretch;
+  min-height: 0;
+  max-height: 55vh;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1070,9 +1262,9 @@ body {
   justify-content: center;
 }
 
-/* A cena é em retrato justamente para encher a coluna. O `preserveAspectRatio`
-   padrão do SVG (`xMidYMid meet`) já centra o que sobrar quando a caixa é mais
-   larga que alta — que é o caso da tela cheia. */
+/* A cena é em paisagem para encher o herói. O `preserveAspectRatio` padrão do
+   SVG (`xMidYMid meet`) centra o que sobrar quando a caixa não bate com a
+   proporção da cena — o que acontece na tela cheia e no celular deitado. */
 .carrinho__svg {
   width: 100%;
   height: 100%;
@@ -1412,7 +1604,7 @@ body {
   width: 100%;
   min-height: 0;
   overflow: hidden;
-  border-radius: 0.5rem;
+  border-radius: var(--r-md);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1447,18 +1639,21 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.6rem;
+  gap: 0.55rem;
+  padding: 0.7rem;
 }
 
 .player__texto {
   min-width: 0;
 }
 
+/* O quadro cresceu no layout novo, e o texto cresce junto: capa maior com a
+   mesma letrinha de antes deixaria a música parecendo legenda de foto. */
 .player__track {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
   font-weight: 600;
+  line-height: 1.2;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
@@ -1467,7 +1662,7 @@ body {
 
 .player__artist {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   color: rgba(255, 255, 255, 0.72);
   white-space: nowrap;
   overflow: hidden;
@@ -1547,28 +1742,38 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2.6rem;
-  min-height: 2.6rem;
+  min-width: 2.9rem;
+  min-height: 2.9rem;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
-  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text);
-  font-size: 1.15rem;
+  font-size: 1.25rem;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
 .controles__botao:hover,
 .controles__botao:focus-visible {
-  background: var(--tile-alto);
+  background: rgba(255, 255, 255, 0.2);
   outline: none;
 }
 
+/* O play é o único que se procura sem olhar: disco cheio no acento, maior que
+   os vizinhos. Redondo, e não retângulo arredondado, para o dedo achar a forma
+   diferente antes de ler o ícone. */
 .controles__botao--principal {
-  min-width: 3.2rem;
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-  color: var(--accent);
+  min-width: 3.6rem;
+  min-height: 3.6rem;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 1.45rem;
+}
+
+.controles__botao--principal:hover,
+.controles__botao--principal:focus-visible {
+  background: color-mix(in srgb, var(--accent) 82%, #fff);
 }
 
 
@@ -1823,6 +2028,15 @@ body {
 .overlay {
   position: fixed;
   inset: 0;
+  /*
+   * Precisa vencer os avisos flutuantes dos quadros nus (`tile__badge--solto` e
+   * o motivo do mapa), que são posicionados com `z-index` próprio. Sem isto
+   * eles atravessavam a tela cheia e ficavam pousados por cima dela — "sem
+   * sinal" do mapa aparecendo em cima do diagnóstico do carro. Ordem no DOM não
+   * resolve: elemento posicionado com `z-index` explícito ganha de elemento
+   * posicionado sem, venha ele antes ou depois.
+   */
+  z-index: 10;
   display: grid;
   /*
    * `minmax(0, 1fr)`, não a linha implícita `auto`. Linha `auto` é medida pelo

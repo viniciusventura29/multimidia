@@ -122,6 +122,9 @@ export const assistenteTile: AnyTileSpec = defineTile<AssistenteState>({
   title: "Assistente",
   area: "ia",
   icon: <Sparkles size="1em" />,
+  // O herói do painel. O carro precisa flutuar sobre o fundo, com brilho e
+  // sombra no chão — dentro de um card ele viraria uma figurinha numa caixa.
+  chrome: "nu",
   Compact: Assistente,
   Expanded: AssistenteCompleto,
 });

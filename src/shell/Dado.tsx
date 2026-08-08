@@ -53,10 +53,16 @@ export function Dado({
 
   return (
     <div className={classes} style={tone ? ({ "--tom": tone } as CSSProperties) : undefined}>
-      <span className="dado__rotulo">
-        {icon && <span className="dado__icone">{icon}</span>}
-        {rotulo}
-      </span>
+      {/* O ícone saiu de dentro do rótulo e virou um selo redondo à parte.
+          Colado no texto minúsculo do rótulo ele era só mais um caractere; num
+          disco próprio, ele vira a âncora que o olho encontra antes de ler —
+          que é o serviço que um ícone tem para prestar num painel de carro. */}
+      {icon && (
+        <span className="dado__selo" aria-hidden>
+          {icon}
+        </span>
+      )}
+      <span className="dado__rotulo">{rotulo}</span>
       <span className="dado__valor">
         {/* Sem valor não há o que ressalvar: `~ --` só faria barulho. */}
         {estimado && !vazio && (
