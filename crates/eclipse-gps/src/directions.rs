@@ -405,7 +405,10 @@ mod tests {
 
     #[test]
     fn manobra_desconhecida_vira_kebab_minusculo() {
-        assert_eq!(manobra("ROUNDABOUT_LEFT").as_deref(), Some("roundabout-left"));
+        assert_eq!(
+            manobra("ROUNDABOUT_LEFT").as_deref(),
+            Some("roundabout-left")
+        );
         assert_eq!(manobra("MERGE").as_deref(), Some("merge"));
         assert_eq!(manobra("MANEUVER_UNSPECIFIED"), None);
         assert_eq!(manobra(""), None);
