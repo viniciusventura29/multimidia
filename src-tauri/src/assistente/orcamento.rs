@@ -172,8 +172,18 @@ impl Orcamento {
         self.gravar();
     }
 
-    pub fn chamadas_hoje(&self) -> u32 {
-        self.uso.chamadas
+    /// Quantas chamadas já saíram **hoje**.
+    ///
+    /// Recebe o relógio em vez de olhar o contador cru: virada a meia-noite, o
+    /// número gravado ainda é o de ontem até alguém chamar `pode_falar`, e o log
+    /// diria "39/40" num dia que começou zerado.
+    pub fn chamadas_hoje(&self, agora: DateTime<Utc>) -> u32 {
+        let hoje = agora.with_timezone(&Local).date_naive();
+        if self.uso.dia == Some(hoje) {
+            self.uso.chamadas
+        } else {
+            0
+        }
     }
 
     /// Grava com arquivo temporário e `rename`, como o cofre de perfis: um corte
@@ -270,7 +280,7 @@ mod tests {
 
         // O app subiu de novo — instância nova, mesmo diretório.
         let mut depois = Orcamento::carregar(&d, Config::default());
-        assert_eq!(depois.chamadas_hoje(), 1);
+        assert_eq!(depois.chamadas_hoje(quando(10, 8)), 1);
         assert_eq!(
             depois.pode_falar(Gatilho::Ignicao, quando(10, 8) + Duration::minutes(15)),
             Err(Recusa::Descansando),
@@ -349,7 +359,7 @@ mod tests {
         fs::write(d.join("assistente_uso.json"), b"lixo").unwrap();
 
         let mut o = Orcamento::carregar(&d, Config::default());
-        assert_eq!(o.chamadas_hoje(), 0);
+        assert_eq!(o.chamadas_hoje(quando(10, 8)), 0);
         assert!(o.pode_falar(Gatilho::Ignicao, quando(10, 8)).is_ok());
     }
 }

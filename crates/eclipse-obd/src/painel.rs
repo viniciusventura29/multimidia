@@ -113,9 +113,11 @@ impl<S: ObdSource> Painel<S> {
         self.poller.step().await?;
 
         // A varredura pode ter se remontado sozinha (um PID parou de responder), e aí
-        // a fonte de vazão desce um degrau da cascata junto.
+        // a fonte de vazão desce um degrau da cascata junto — e o nível de
+        // combustível pode ter saído da roda.
         if self.poller.replanejou() {
-            self.medidor.recalcular_metodo(self.poller.capacidades());
+            self.medidor
+                .atualizar_capacidades(self.poller.capacidades());
         }
 
         let dt = match self.ultima.replace(agora) {

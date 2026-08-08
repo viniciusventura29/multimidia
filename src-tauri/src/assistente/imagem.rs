@@ -29,6 +29,12 @@ use super::orcamento::Orcamento;
 /// O painel fica horas ligado e o armazenamento de uma head unit é pequeno.
 const ARQUIVOS_GUARDADOS: usize = 20;
 
+/// A imagem da demonstração (`ECLIPSE_IA_DEMO=1`).
+///
+/// Mora aqui, e não no módulo que a grava, porque quem precisa **não** apagá-la
+/// é a poda — e uma constante duplicada é uma constante que um dia diverge.
+pub const ARQUIVO_DEMO: &str = "demonstracao.svg";
+
 const URL_BUSCA_LUGAR: &str = "https://places.googleapis.com/v1/places:searchText";
 const URL_IMAGENS_OPENROUTER: &str = "https://openrouter.ai/api/v1/images";
 
@@ -78,12 +84,18 @@ impl ProvedorImagem {
 
     /// Apaga as mais antigas. Melhor esforço: falhar em limpar não pode
     /// derrubar a ferramenta que acabou de dar certo.
+    ///
+    /// A imagem da demonstração é a mais antiga do diretório por construção (é
+    /// gravada na subida do módulo) e some na primeira poda — deixando o modo
+    /// demo, que existe justamente para trabalhar no layout, sem o cartão de
+    /// imagem. Ela fica de fora da conta.
     fn podar(&self) {
         let Ok(entradas) = std::fs::read_dir(&self.dir) else {
             return;
         };
         let mut arquivos: Vec<(std::time::SystemTime, PathBuf)> = entradas
             .flatten()
+            .filter(|e| e.file_name() != ARQUIVO_DEMO)
             .filter_map(|e| {
                 let quando = e.metadata().ok()?.modified().ok()?;
                 Some((quando, e.path()))

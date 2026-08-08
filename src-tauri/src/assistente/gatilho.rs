@@ -250,14 +250,18 @@ impl Detector {
             let esta = alerta.ativo(valor, estava);
 
             match (estava, esta) {
-                (false, true) => {
+                // Um acionamento por rodada, e **só ele** é marcado como aceso.
+                // Marcar os outros junto era o bug: eles passavam a constar como
+                // já avisados sem nunca ter avisado, e só voltariam a existir se
+                // normalizassem antes. Combustível cruzando 15% na mesma leitura
+                // em que o motor cruza 105 °C sumia calado.
+                (false, true) if acionamento.is_none() => {
                     self.alertas.insert(alerta);
-                    // Um acionamento por rodada. Se dois alertas acenderem
-                    // juntos, o segundo dispara na leitura seguinte — e o modelo
-                    // vê os dois de qualquer jeito, porque consulta a telemetria
-                    // inteira antes de escrever.
-                    acionamento.get_or_insert_with(|| Acionamento::alerta(alerta, valor));
+                    acionamento = Some(Acionamento::alerta(alerta, valor));
                 }
+                // Acendeu junto com outro: fica de fora do conjunto para acender
+                // sozinho na leitura seguinte, que chega em ~300 ms.
+                (false, true) => {}
                 (true, false) => {
                     self.alertas.remove(&alerta);
                 }
@@ -429,13 +433,30 @@ mod tests {
         assert!(d.observar(&obd(Some(106.0), None, None)).is_none());
     }
 
+    /// Dois alertas acendendo na mesma leitura saem em rodadas seguidas — os
+    /// dois, e não só o primeiro.
+    ///
+    /// O bug era marcar ambos como acesos e emitir um: o segundo constava como
+    /// já avisado sem nunca ter avisado, e ficava mudo até normalizar. Motor a
+    /// 120 °C com o tanque em 5% é justamente quando não se pode perder aviso.
     #[test]
-    fn dois_alertas_juntos_saem_um_por_rodada() {
+    fn dois_alertas_juntos_saem_em_rodadas_seguidas() {
         let mut d = Detector::novo();
-        let primeiro = d.observar(&obd(Some(120.0), Some(5.0), None));
-        assert!(primeiro.is_some());
 
-        // O segundo já está registrado como aceso, então não redispara.
+        let primeiro = d
+            .observar(&obd(Some(120.0), Some(5.0), None))
+            .expect("o primeiro alerta tem que sair na hora");
+        assert_eq!(primeiro.gatilho, Gatilho::AlertaCarro);
+
+        let segundo = d
+            .observar(&obd(Some(120.0), Some(5.0), None))
+            .expect("o segundo alerta não pode sumir por ter acendido junto");
+        assert_ne!(
+            primeiro.pedido, segundo.pedido,
+            "os dois avisos têm que ser sobre coisas diferentes"
+        );
+
+        // Com os dois acesos, a terceira leitura já não tem o que anunciar.
         assert!(d.observar(&obd(Some(120.0), Some(5.0), None)).is_none());
     }
 

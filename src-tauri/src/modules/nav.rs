@@ -48,6 +48,18 @@ const RELOGIO_DO_SOL: Duration = Duration::from_secs(60);
 /// motorista e nunca espera.
 const DESCANSO_ENTRE_RECALCULOS: Duration = Duration::from_secs(10);
 
+/// Teto de uma busca de rota, ponta a ponta.
+///
+/// O `reqwest` **não tem timeout por padrão**, e um socket meio aberto é o
+/// estado normal de um celular entrando em túnel: a conexão não cai, ela para
+/// de responder. Sem teto, a task nunca volta pelo canal, `buscando` fica de pé
+/// para sempre, o botão "ir" fica preso no `…` e o recálculo automático — que
+/// desiste enquanto houver busca em curso — não sai mais pelo resto da ignição.
+///
+/// Vinte segundos: a Routes API responde em ~1 s, então isto é folga para rede
+/// ruim, não para rede morta.
+const TETO_DA_BUSCA: Duration = Duration::from_secs(20);
+
 fn agora_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -142,7 +154,13 @@ impl NavModule {
             alvo: None,
             recalculo_disparado: false,
             ultimo_recalculo: None,
-            cliente: reqwest::Client::new(),
+            // Cliente com teto próprio, além do `TETO_DA_BUSCA` que envolve a
+            // task: um socket que não responde precisa ser cortado nas duas
+            // camadas, senão o `reqwest` segura a conexão viva sem nunca voltar.
+            cliente: reqwest::Client::builder()
+                .timeout(TETO_DA_BUSCA)
+                .build()
+                .unwrap_or_default(),
         }
     }
 }
@@ -178,7 +196,11 @@ impl Module for NavModule {
         // seguraria as leituras de GPS por esse tempo — o carro congelaria no
         // mapa justo quando o motorista está esperando o caminho aparecer.
         // Então ela roda numa tarefa e volta por aqui, como o assistente faz.
-        let (tx_rota, mut rx_rota) = mpsc::channel::<Result<Route, DirectionsError>>(2);
+        //
+        // O `Alvo` volta junto com o resultado porque o destino pode ter mudado
+        // no meio do caminho: sem ele não há como saber se a rota que chegou
+        // ainda é a que se pediu.
+        let (tx_rota, mut rx_rota) = mpsc::channel::<(Alvo, Result<Route, DirectionsError>)>(2);
 
         loop {
             tokio::select! {
@@ -244,11 +266,23 @@ impl Module for NavModule {
                 recebido = rx_rota.recv() => {
                     estado.buscando = false;
                     match recebido {
-                        Some(Ok(rota)) => {
+                        // O destino mudou enquanto esta busca corria. Quem tocou
+                        // duas vezes quer o segundo lugar, não o primeiro — e o
+                        // pedido novo tinha sido engolido em silêncio, porque
+                        // `tracar` desiste enquanto há busca em curso.
+                        Some((alvo, _)) if self.alvo.as_ref() != Some(&alvo) => {
+                            tracing::info!(
+                                antes = %alvo.rotulo,
+                                "o destino mudou durante a busca; refazendo"
+                            );
+                            estado.erro = None;
+                            self.tracar(&mut estado, &tx_rota);
+                        }
+                        Some((_, Ok(rota))) => {
                             estado.erro = None;
                             self.assumir(rota, &mut estado);
                         }
-                        Some(Err(err)) => {
+                        Some((_, Err(err))) => {
                             tracing::warn!(%err, "não deu para traçar a rota");
                             estado.erro = Some(err.to_string());
                             // Falhou: o desvio continua de pé e merece outra
@@ -325,7 +359,7 @@ impl NavModule {
     fn tracar(
         &mut self,
         estado: &mut Mapa,
-        tx: &mpsc::Sender<Result<Route, DirectionsError>>,
+        tx: &mpsc::Sender<(Alvo, Result<Route, DirectionsError>)>,
     ) -> bool {
         if estado.buscando {
             return false;
@@ -344,8 +378,22 @@ impl NavModule {
         };
         let tx = tx.clone();
         tokio::spawn(async move {
-            let rota = directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo).await;
-            let _ = tx.send(rota).await;
+            // Teto por fora do cliente também: o que não pode acontecer é a
+            // task morrer sem responder. Enquanto o canal não devolve nada,
+            // `buscando` fica de pé e trava a busca e o recálculo juntos.
+            let rota = match tokio::time::timeout(
+                TETO_DA_BUSCA,
+                directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo),
+            )
+            .await
+            {
+                Ok(rota) => rota,
+                Err(_) => {
+                    tracing::warn!(destino = %alvo.rotulo, "a busca de rota estourou o tempo");
+                    Err(DirectionsError::Rede)
+                }
+            };
+            let _ = tx.send((alvo, rota)).await;
         });
         true
     }

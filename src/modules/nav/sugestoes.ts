@@ -59,6 +59,20 @@ export function useSugestoes(
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([]);
   const sessao = useRef<string>(crypto.randomUUID());
 
+  // A posição entra por referência, e **não** por dependência do efeito.
+  //
+  // Com o carro andando ela muda a cada leitura de GPS (~1x/s): como
+  // dependência, ela reiniciava o debounce e disparava uma requisição cobrada
+  // por segundo enquanto houvesse texto no campo — exatamente o que o debounce
+  // existe para impedir. Parado isso não aparecia, porque o `FiltroDeParada` do
+  // Rust congela a posição e o barramento deduplica o estado idêntico; era
+  // digitando em movimento que a conta corria.
+  //
+  // Ler por referência é honesto aqui: o viés é um raio de 30 km, e trinta
+  // metros a mais ou a menos não mudam sugestão nenhuma.
+  const posicao = useRef(fix);
+  posicao.current = fix;
+
   const limpar = () => {
     setSugestoes([]);
     sessao.current = crypto.randomUUID();
@@ -76,6 +90,7 @@ export function useSugestoes(
     let abortado = false;
 
     const timer = setTimeout(async () => {
+      const fix = posicao.current;
       try {
         const resposta = await fetch(
           "https://places.googleapis.com/v1/places:autocomplete",
@@ -130,7 +145,7 @@ export function useSugestoes(
       abortado = true;
       clearTimeout(timer);
     };
-  }, [texto, apiKey, fix?.lat, fix?.lon]);
+  }, [texto, apiKey]);
 
   return { sugestoes, limpar };
 }
