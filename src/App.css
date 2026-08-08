@@ -2387,21 +2387,6 @@ body {
 
 
 
-.mapa__modo {
-  position: absolute;
-  right: 0.7rem;
-  bottom: 0.7rem;
-  min-height: 2.4rem;
-  padding: 0 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.78);
-  color: var(--text);
-  font-size: 0.76rem;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-}
-
 .mapa__aviso {
   position: absolute;
   right: 0.7rem;
@@ -2420,17 +2405,14 @@ body {
 .mapa__ferramentas {
   position: absolute;
   right: 0.7rem;
-  bottom: 3.6rem;
+  /* Acima da atribuição do OpenStreetMap, que é obrigatória e mora no canto
+     inferior direito. Antes o botão de modo dividia esse canto com ela e os
+     dois se atropelavam em tela de 600 px de altura. */
+  bottom: 2.4rem;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.4rem;
-}
-
-/* No tile pequeno não existe botão de modo embaixo para desviar — a coluna
-   desce e ocupa o canto, em vez de flutuar num vão que não é de ninguém. */
-.mapa__ferramentas--enxuta {
-  bottom: 0.7rem;
 }
 
 /* A mesma receita do botão de modo — mínimo de 2,4 rem porque é dedo de

@@ -8,6 +8,13 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // O worker do MapLibre é ESM e importa outro módulo. Empacotá-lo como ES
+  // (e não como IIFE, que é o padrão) mantém o arquivo coerente com o
+  // `type: "module"` que a própria biblioteca usa ao criar o Worker.
+  worker: {
+    format: "es",
+  },
+
   build: {
     // O alvo real é o Android System WebView da head unit (Chromium). 105 é o
     // baseline que o próprio Tauri usa para WebViews Chromium — conferir a

@@ -8,13 +8,18 @@ import {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // O worker do MapLibre é um arquivo à parte desde a v6, e a biblioteca o
-// procura em `new URL("./maplibre-gl-worker.mjs", import.meta.url)`. Isso
-// resolve para o diretório do bundle — que, no pré-empacotamento do Vite, não
-// contém o worker. O resultado é o pior tipo de falha: o worker 404 em
-// silêncio, nenhum tile é decodificado, o estilo nunca termina de carregar e
-// **nenhum erro é emitido** — um mapa cinza sem explicação. Apontar a URL na
-// mão faz o bundler emitir o arquivo e resolve em dev e no APK igual.
-import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+// procura em `new URL("./maplibre-gl-worker.mjs", import.meta.url)` — que
+// resolve para o diretório do bundle, onde ele não está. O worker 404 **em
+// silêncio**: nenhum tile é decodificado, o estilo nunca termina de carregar e
+// nenhum erro é emitido. Um mapa preto sem explicação nenhuma.
+//
+// `?worker&url` e não `?url`: o worker **importa** `maplibre-gl-shared.mjs`, e
+// `?url` copiaria só o arquivo apontado, sem seguir os imports dele. Em dev
+// isso passa (o Vite serve `node_modules` sob demanda) e no APK quebra, porque
+// o protocolo do Tauri devolve o `index.html` para o arquivo que falta e o
+// carregador de módulo recusa por MIME. Com `?worker&url` o Vite **empacota** o
+// worker inteiro, dependências dentro, e devolve a URL do resultado.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 configMapLibre.WORKER_URL = workerUrl;
 
@@ -490,7 +495,7 @@ function Painel({
         {/* Uma coluna só para todos os botões de mapa: empilhados não
             disputam lugar com a manobra (topo) nem com a busca (embaixo). */}
         <div
-          className={`mapa__ferramentas${expandido ? "" : " mapa__ferramentas--enxuta"}`}
+          className="mapa__ferramentas"
           onClick={(e) => e.stopPropagation()}
         >
           {expandido && data?.apiKey && (
@@ -504,6 +509,17 @@ function Painel({
             aoRecentrar={() => setSeguindo(true)}
             aoSoltar={() => setSeguindo(false)}
           />
+          {expandido && (
+            <button
+              className="mapa__botao"
+              onClick={(e) => {
+                e.stopPropagation();
+                setNavegando((v) => !v);
+              }}
+            >
+              {navegando ? "norte no topo" : "girar com o carro"}
+            </button>
+          )}
         </div>
       </MapaContexto.Provider>
 
@@ -527,18 +543,6 @@ function Painel({
         ))}
 
       {expandido && data?.progresso && <Manobra progresso={data.progresso} />}
-
-      {expandido && (
-        <button
-          className="mapa__modo"
-          onClick={(e) => {
-            e.stopPropagation();
-            setNavegando((v) => !v);
-          }}
-        >
-          {navegando ? "norte no topo" : "girar com o carro"}
-        </button>
-      )}
     </div>
   );
 }
