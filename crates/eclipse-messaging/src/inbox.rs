@@ -35,6 +35,10 @@ pub struct Message {
     pub sender: String,
     pub body: String,
     pub at: DateTime<Utc>,
+    /// Foto de quem mandou, quando a notificação do Android traz o ícone grande.
+    /// `None` é comum — nem toda notificação tem foto — e a tela cai numa
+    /// inicial nesses casos.
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -55,6 +59,8 @@ pub struct IncomingMessage {
     pub body: String,
     pub at: DateTime<Utc>,
     pub can_reply: bool,
+    /// Foto de quem mandou, se a notificação trouxe. `None` quando não há.
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -87,6 +93,7 @@ impl Inbox {
             sender: msg.sender,
             body: msg.body,
             at: msg.at,
+            avatar: msg.avatar,
         });
         conversa.unread += 1;
         conversa.can_reply = msg.can_reply;
@@ -113,6 +120,7 @@ impl Inbox {
             sender: "eu".to_string(),
             body: texto.to_string(),
             at: quando,
+            avatar: None,
         });
         // Responder é ler.
         alvo.unread = 0;
@@ -147,6 +155,7 @@ mod tests {
             body: corpo.to_string(),
             at: Utc::now(),
             can_reply: true,
+            avatar: None,
         }
     }
 

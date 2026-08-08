@@ -13,12 +13,43 @@ use chrono::Utc;
 use crate::inbox::IncomingMessage;
 use crate::source::{MessageSource, MessagingError};
 
-const ROTEIRO: [(&str, &str, &str); 5] = [
-    ("Ana", "Ana", "oi, você já saiu?"),
-    ("Ana", "Ana", "tô te esperando aqui"),
-    ("Churrasco sábado", "Bruno", "levo a carne"),
-    ("Churrasco sábado", "Carla", "eu levo a bebida então"),
-    ("Ana", "Ana", "avisa quando estiver chegando"),
+/// `(conversa, remetente, corpo, foto)`.
+///
+/// A foto é uma URL de placeholder: o mock só roda em dev, onde o WebView tem
+/// internet. Na fonte real ela virá do ícone grande da notificação do Android —
+/// e quando não vier (`None`), a tela cai numa inicial. Fixamos `?u=<nome>` para
+/// cada pessoa ter sempre o mesmo rosto entre as mensagens.
+const ROTEIRO: [(&str, &str, &str, Option<&str>); 5] = [
+    (
+        "Ana",
+        "Ana",
+        "oi, você já saiu?",
+        Some("https://i.pravatar.cc/150?u=ana"),
+    ),
+    (
+        "Ana",
+        "Ana",
+        "tô te esperando aqui",
+        Some("https://i.pravatar.cc/150?u=ana"),
+    ),
+    (
+        "Churrasco sábado",
+        "Bruno",
+        "levo a carne",
+        Some("https://i.pravatar.cc/150?u=bruno"),
+    ),
+    (
+        "Churrasco sábado",
+        "Carla",
+        "eu levo a bebida então",
+        Some("https://i.pravatar.cc/150?u=carla"),
+    ),
+    (
+        "Ana",
+        "Ana",
+        "avisa quando estiver chegando",
+        Some("https://i.pravatar.cc/150?u=ana"),
+    ),
 ];
 
 pub struct MockMessageSource {
@@ -44,7 +75,7 @@ impl Default for MockMessageSource {
 #[async_trait]
 impl MessageSource for MockMessageSource {
     async fn next_message(&mut self) -> Option<IncomingMessage> {
-        let (conversation, sender, body) = *ROTEIRO.get(self.proxima)?;
+        let (conversation, sender, body, avatar) = *ROTEIRO.get(self.proxima)?;
         self.proxima += 1;
 
         tokio::time::sleep(self.intervalo).await;
@@ -55,6 +86,7 @@ impl MessageSource for MockMessageSource {
             body: body.to_string(),
             at: Utc::now(),
             can_reply: true,
+            avatar: avatar.map(|u| u.to_string()),
         })
     }
 
