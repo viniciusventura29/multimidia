@@ -3,6 +3,8 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { shallowEqual, useModuleSelector } from "../core/moduleStore";
 import { corBateria, corFuel, voltagemPct } from "../core/telemetria";
 import type { ObdReadings, Profile } from "../core/types";
+import type { Clima, MapaState } from "../modules/nav/tipos";
+import { ClimaIcon } from "./clima";
 import { BateriaIcon, GasolinaIcon } from "./indicadores";
 
 interface Props {
@@ -35,6 +37,18 @@ export function Header({ profile, aoTrocar }: Props) {
     shallowEqual,
   );
 
+  // Do `nav`, e não de um módulo próprio: quem sabe "que tempo faz aqui" é
+  // quem sabe onde é o "aqui". O `noite` vem de carona porque é ele que decide
+  // entre sol e lua — e já estava sendo calculado ali para o tema do mapa.
+  const { clima, noite } = useModuleSelector<
+    MapaState,
+    { clima: Clima | null; noite: boolean }
+  >(
+    "nav",
+    (nav) => ({ clima: nav?.clima ?? null, noite: nav?.noite ?? false }),
+    shallowEqual,
+  );
+
   const hora = useHora();
 
   return (
@@ -60,6 +74,20 @@ export function Header({ profile, aoTrocar }: Props) {
               ? `${fuel.toFixed(0)}%`
               : "--"}
         </span>
+
+        {/* Sem clima o chip não aparece: um `--°` ao lado do ícone de sol não
+            informa nada e ainda ocupa a barra. Bateria e gasolina merecem o
+            `--` porque a ausência delas é notícia — a do clima não é. */}
+        {clima && (
+          <span className="topbar__item" title={clima.rotulo}>
+            <ClimaIcon
+              familia={clima.familia}
+              noite={noite}
+              className="topbar__icone"
+            />
+            {`${clima.tempC.toFixed(0)}°`}
+          </span>
+        )}
       </div>
 
       <button className="topbar__nome" onClick={aoTrocar}>

@@ -20,10 +20,11 @@
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use eclipse_clima::{Clima, ClimaError};
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
 use eclipse_gps::{
-    directions, sol, Alvo, DirectionsError, FiltroDeParada, Fix, Guia, LocationSource, Progresso,
-    Route,
+    directions, fix::distancia_m, sol, Alvo, DirectionsError, FiltroDeParada, Fix, Guia,
+    LocationSource, Progresso, Route,
 };
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -59,6 +60,19 @@ const DESCANSO_ENTRE_RECALCULOS: Duration = Duration::from_secs(10);
 /// Vinte segundos: a Routes API responde em ~1 s, então isto é folga para rede
 /// ruim, não para rede morta.
 const TETO_DA_BUSCA: Duration = Duration::from_secs(20);
+
+/// De quanto em quanto tempo perguntar o tempo de novo.
+///
+/// O Open-Meteo publica de quinze em quinze minutos; perguntar mais miúdo que
+/// isso é gastar rede da head unit para receber o mesmo número.
+const VALIDADE_DO_CLIMA: Duration = Duration::from_secs(15 * 60);
+
+/// Quanto o carro precisa andar para o clima de onde ele estava não servir mais.
+///
+/// Vinte e cinco quilômetros é a ordem de grandeza em que a frente de chuva
+/// muda numa viagem de estrada — e, dentro da cidade, é longe o bastante para
+/// atravessá-la inteira sem disparar busca nenhuma.
+const DERIVA_DO_CLIMA_M: f64 = 25_000.0;
 
 fn agora_unix() -> u64 {
     SystemTime::now()
@@ -112,6 +126,16 @@ struct Mapa {
     /// motorista tocar "ir" duas vezes achando que não pegou.
     buscando: bool,
 
+    /// Que tempo faz onde o carro está.
+    ///
+    /// Mora no `nav` e não num módulo próprio porque a pergunta "que tempo faz
+    /// aqui" precisa do "aqui", e o "aqui" é deste módulo. Um módulo de clima
+    /// separado teria que espiar o estado do vizinho — coisa que só o
+    /// assistente faz, e por um motivo declarado.
+    ///
+    /// `None` até a primeira resposta; a barra de status mostra `--` e segue.
+    clima: Option<Clima>,
+
     /// Por que a última busca não deu certo, se não deu.
     erro: Option<String>,
 }
@@ -140,6 +164,16 @@ pub struct NavModule {
     recalculo_disparado: bool,
     /// Quando saiu a última busca automática. Ver `DESCANSO_ENTRE_RECALCULOS`.
     ultimo_recalculo: Option<Instant>,
+    /// Quando e onde o clima foi buscado pela última vez.
+    ///
+    /// Guarda o ponto junto do instante porque as duas condições de reforço são
+    /// "faz tempo" e "estou longe" — e o ponto é o de **onde a busca saiu**,
+    /// não o de onde ela chegou: se ela falhar, a próxima leitura de GPS deve
+    /// poder tentar de novo sem esperar os quinze minutos.
+    clima_buscado: Option<(Instant, (f64, f64))>,
+    /// Tem uma consulta de clima em voo. Sem isto, uma sequência de fixes
+    /// dispararia várias antes da primeira responder.
+    buscando_clima: bool,
     cliente: reqwest::Client,
 }
 
@@ -154,9 +188,13 @@ impl NavModule {
             alvo: None,
             recalculo_disparado: false,
             ultimo_recalculo: None,
+            clima_buscado: None,
+            buscando_clima: false,
             // Cliente com teto próprio, além do `TETO_DA_BUSCA` que envolve a
             // task: um socket que não responde precisa ser cortado nas duas
             // camadas, senão o `reqwest` segura a conexão viva sem nunca voltar.
+            // Vale para o clima pela mesma razão — é o mesmo cliente, e um
+            // Open-Meteo mudo deixaria `buscando_clima` de pé para sempre.
             cliente: reqwest::Client::builder()
                 .timeout(TETO_DA_BUSCA)
                 .build()
@@ -187,6 +225,7 @@ impl Module for NavModule {
             noite: sol::e_noite(CENTRO_PADRAO.0, CENTRO_PADRAO.1, agora_unix()),
             buscando: false,
             erro: None,
+            clima: None,
         };
         ctx.ready(&estado);
 
@@ -201,6 +240,9 @@ impl Module for NavModule {
         // no meio do caminho: sem ele não há como saber se a rota que chegou
         // ainda é a que se pediu.
         let (tx_rota, mut rx_rota) = mpsc::channel::<(Alvo, Result<Route, DirectionsError>)>(2);
+        // Mesmo arranjo para o clima, e pelo mesmo motivo: uma consulta HTTP no
+        // meio do laço seguraria o mapa parado enquanto ela não voltasse.
+        let (tx_clima, mut rx_clima) = mpsc::channel::<Result<Clima, ClimaError>>(2);
 
         loop {
             tokio::select! {
@@ -240,6 +282,10 @@ impl Module for NavModule {
                             self.recalculo_disparado = self.tracar(&mut estado, &tx_rota);
                         }
 
+                        // O primeiro fix é o que estreia o clima na barra; daí
+                        // em diante só a distância percorrida força a mão.
+                        self.talvez_clima((fix.lat, fix.lon), &tx_clima);
+
                         ctx.ready(&estado);
                     }
                     // Perder sinal não apaga o mapa: ele fica no último ponto
@@ -260,6 +306,9 @@ impl Module for NavModule {
                         estado.noite = noite;
                         ctx.ready(&estado);
                     }
+                    // O relógio é também quem envelhece o clima: parado na
+                    // garagem não chega fix novo, mas a chuva chega.
+                    self.talvez_clima((lat, lon), &tx_clima);
                 },
 
                 // A rota ficou pronta (ou não deu).
@@ -293,6 +342,31 @@ impl Module for NavModule {
                         None => {}
                     }
                     ctx.ready(&estado);
+                },
+
+                // O clima chegou (ou não deu).
+                recebido = rx_clima.recv() => {
+                    self.buscando_clima = false;
+                    match recebido {
+                        Some(Ok(clima)) => {
+                            let mudou = estado.clima.as_ref() != Some(&clima);
+                            estado.clima = Some(clima);
+                            // Publicar só na mudança: de quinze em quinze
+                            // minutos a temperatura costuma vir igual, e acordar
+                            // o WebView para redesenhar o mesmo "22°" é IPC à toa.
+                            if mudou {
+                                ctx.ready(&estado);
+                            }
+                        }
+                        // **Clima que falha não degrada o `nav`.** O mapa é o
+                        // que este módulo existe para entregar; virar "sem
+                        // sinal" porque a previsão não respondeu seria trocar o
+                        // essencial pelo enfeite. Some o chip, fica o resto — e
+                        // o `clima_buscado` já marcou o instante, então a
+                        // próxima tentativa espera o mesmo descanso de sempre.
+                        Some(Err(err)) => tracing::warn!(%err, "sem clima desta vez"),
+                        None => {}
+                    }
                 },
 
                 comando = ctx.next_command() => match comando {
@@ -350,6 +424,38 @@ impl NavModule {
     fn descansou(&self) -> bool {
         self.ultimo_recalculo
             .is_none_or(|quando| quando.elapsed() >= DESCANSO_ENTRE_RECALCULOS)
+    }
+
+    /// Pergunta o tempo em (`lat`, `lon`) — se ainda valer a pena perguntar.
+    ///
+    /// Chamado de dois lugares (a cada fix e a cada minuto do relógio do sol),
+    /// então a decisão de *não* perguntar mora aqui dentro: é o único jeito de
+    /// as duas chamadas não precisarem repetir a regra.
+    fn talvez_clima(&mut self, onde: (f64, f64), tx: &mpsc::Sender<Result<Clima, ClimaError>>) {
+        if self.buscando_clima {
+            return;
+        }
+
+        let vale = match self.clima_buscado {
+            None => true,
+            Some((quando, ponto)) => {
+                quando.elapsed() >= VALIDADE_DO_CLIMA
+                    || distancia_m(ponto, onde) >= DERIVA_DO_CLIMA_M
+            }
+        };
+        if !vale {
+            return;
+        }
+
+        self.buscando_clima = true;
+        self.clima_buscado = Some((Instant::now(), onde));
+
+        let cliente = self.cliente.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            let clima = eclipse_clima::buscar(&cliente, onde.0, onde.1).await;
+            let _ = tx.send(clima).await;
+        });
     }
 
     /// Dispara a busca de rota numa tarefa à parte. Devolve se disparou mesmo.
