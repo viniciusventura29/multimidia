@@ -363,7 +363,7 @@ function Controles({
  * mesma armadilha que o `colorScheme` do Google criava, e que ali só tinha
  * remendo. Marcadores (carro, POIs) são DOM e não passam por isso.
  */
-function useMapaGL(noite: boolean, aoArrastar: () => void) {
+function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
   const caixa = useRef<HTMLDivElement | null>(null);
   const [map, setMap] = useState<MapaGL | null>(null);
   // Qual estilo já está no mapa. Sem isto o efeito de tema disparava um
@@ -374,7 +374,16 @@ function useMapaGL(noite: boolean, aoArrastar: () => void) {
   arrastar.current = aoArrastar;
 
   useEffect(() => {
-    if (!caixa.current) return;
+    // Coberto pela tela cheia, o mapa some de vez em vez de ficar rodando
+    // atrás dela. Não é economia teórica: **duas instâncias do MapLibre vivas
+    // ao mesmo tempo não funcionam neste WebView** — a segunda a nascer baixa
+    // estilo, sprite e fontes, fica com o tamanho certo, não emite erro
+    // nenhum e nunca termina de carregar. Um retângulo preto mudo.
+    //
+    // Com uma instância por vez o problema deixa de existir, e de quebra a
+    // head unit para de segurar dois contextos WebGL, dois caches de tile e
+    // dois conjuntos de worker para mostrar um mapa só.
+    if (!caixa.current || pausado) return;
 
     const mapa = new MapaGL({
       container: caixa.current,
@@ -420,7 +429,7 @@ function useMapaGL(noite: boolean, aoArrastar: () => void) {
     // O estilo inicial é só o de partida; daí em diante quem troca é o efeito
     // abaixo. Recriar o mapa a cada pôr do sol é exatamente o que se quer evitar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pausado]);
 
   // O tema acompanha o sol (calculado no Rust — ver `sol.rs`).
   useEffect(() => {
@@ -467,6 +476,7 @@ function useMapaGL(noite: boolean, aoArrastar: () => void) {
 function Painel({
   data,
   status,
+  coberto,
   expandido,
 }: TileView<MapaState> & { expandido: boolean }) {
   const [navegando, setNavegando] = useState(true);
@@ -477,7 +487,9 @@ function Painel({
 
   // Segurar o mapa é assumir a câmera: o seguimento solta na hora e o botão
   // "recentrar" vira o caminho de volta.
-  const { caixa, map } = useMapaGL(data?.noite ?? true, () => setSeguindo(false));
+  const { caixa, map } = useMapaGL(data?.noite ?? true, coberto, () =>
+    setSeguindo(false),
+  );
 
   // O Rust decide o que e quando falar; aqui só se pronuncia.
   useEffect(() => {
