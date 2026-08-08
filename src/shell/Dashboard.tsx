@@ -138,6 +138,10 @@ export function Dashboard({
       <main className="dashboard">
         <Motorista profile={profile} aoTrocar={aoTrocarPerfil} />
         <BarraStatus />
+        {/* O filete entre a coluna do carro e a da viagem. É desenho, não
+            conteúdo — mas mora numa coluna do grid, então precisa de um
+            elemento. Ver `.risco` no CSS. */}
+        <span className="risco" aria-hidden />
 
         {TILES.map((spec) => (
           <TileHost
