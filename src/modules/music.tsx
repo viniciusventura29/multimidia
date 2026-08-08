@@ -6,6 +6,7 @@ import {
   defineTile,
   type AnyTileSpec,
   type MusicState,
+  type Playlist,
   type TileView,
 } from "../core/types";
 import {
@@ -277,6 +278,52 @@ function ProgressoTocando({
 }
 
 /**
+ * Nada tocando: as playlists de quem dirige, em capas.
+ *
+ * Antes isto era a frase "toque para buscar e tocar" boiando no meio de um
+ * quadro vazio — que é o pior uso possível de um terço da coluna. As playlists
+ * já existem do outro lado (a tela cheia lista todas); trazê-las para cá troca
+ * um convite por um atalho: tocar a capa **toca**, sem abrir nada.
+ *
+ * Quatro é o que cabe sem a capa virar selo. Quem quiser as outras abre o
+ * quadro, que é o que o resto da coluna já convida a fazer.
+ */
+function Playlists({ playlists }: { playlists: Playlist[] }) {
+  const tocar = (event: MouseEvent, p: Playlist) => {
+    // Sem isto o toque sobe para o tile e abre a tela cheia por cima — o
+    // motorista pediu música, não uma tela.
+    event.stopPropagation();
+    dispatchAction(MUSIC, {
+      acao: "tocar",
+      uri: p.uri,
+      nome: p.nome,
+      subtitulo: "playlist",
+      albumArt: p.albumArt,
+    });
+  };
+
+  return (
+    <div className="musica-atalhos">
+      {playlists.slice(0, 4).map((p) => (
+        <button
+          key={p.uri}
+          className="musica-atalho"
+          onClick={(e) => tocar(e, p)}
+          title={p.nome}
+        >
+          {p.albumArt ? (
+            <img className="musica-atalho__capa" src={p.albumArt} alt="" />
+          ) : (
+            <span className="musica-atalho__capa musica-atalho__capa--vazia" />
+          )}
+          <span className="musica-atalho__nome">{p.nome}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Compacto: o que toca + controles, ou o caminho para resolver o problema.
  *
  * A capa preenche o quadro e derrete (fade) num painel escuro embaixo, onde ficam
@@ -285,8 +332,20 @@ function ProgressoTocando({
 function Compacto({ data }: TileView<MusicState>) {
   const local = useEstadoLocal();
   const problema = data?.problema ?? null;
+  const playlists = data?.playlists ?? [];
+  const np = local ?? data?.nowPlaying ?? null;
+  const precisaLogin = problema?.tipo === "precisaLogin";
 
-  if (problema?.tipo === "precisaLogin") {
+  // Sem nada tocando, o quadro mostra as playlists — então ele precisa pedi-las.
+  // Antes só a tela cheia pedia, e quem nunca a tinha aberto via um quadro vazio
+  // para sempre. Sob demanda de propósito: com música tocando, a capa já enche o
+  // quadro e a lista não serviria para nada.
+  const faltaLista = !precisaLogin && !np && playlists.length === 0;
+  useEffect(() => {
+    if (faltaLista) dispatchAction(MUSIC, { acao: "playlists" });
+  }, [faltaLista]);
+
+  if (precisaLogin) {
     return (
       <div className="musica">
         <Conectar />
@@ -294,9 +353,12 @@ function Compacto({ data }: TileView<MusicState>) {
     );
   }
 
-  const np = local ?? data?.nowPlaying ?? null;
   if (!np) {
-    return <p className="musica__vazio">toque para buscar e tocar</p>;
+    return playlists.length > 0 ? (
+      <Playlists playlists={playlists} />
+    ) : (
+      <p className="musica__vazio">toque para buscar e tocar</p>
+    );
   }
 
   const { posicaoMs, duracaoMs } = progresso(local, data);

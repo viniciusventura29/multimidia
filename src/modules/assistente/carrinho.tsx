@@ -34,6 +34,37 @@ interface Fix {
 /** Abaixo disto o carro conta como parado. GPS parado treme uns décimos. */
 const LIMIAR_PARADO = 2;
 
+/** Onde o carro é encaixado dentro da cena. */
+const CARRO_X = 25;
+const CARRO_Y = 12;
+
+/** Os eixos, no sistema de coordenadas do carro. Ver `origemDaRoda`. */
+const EIXO_TRASEIRO_X = 48;
+const EIXO_DIANTEIRO_X = 151;
+const EIXO_Y = 65;
+
+/**
+ * O ponto em volta do qual a roda gira.
+ *
+ * Aqui mora uma pegadinha que custou caro. O giro é um `rotate` de CSS, e todo
+ * `rotate` de CSS gira em volta do `transform-origin` — que por sua vez é medido
+ * a partir de uma "caixa de referência". O CSS pedia `transform-box: fill-box`,
+ * que escolheria a caixa da própria roda e deixaria o centro dela ser a origem;
+ * **esta WebView ignora `fill-box` em `<g>`**. Com a declaração no CSS e as
+ * coordenadas escritas como se ela valesse, a origem caía longe do eixo e o
+ * `rotate` deixava de ser giro para virar órbita: a roda desgarrava do para-lama
+ * e passeava pelo quadro — quando não saía inteira da tela.
+ *
+ * Sem `fill-box`, a caixa de referência é o `viewBox`, ancorado na origem do
+ * sistema de coordenadas em que a própria roda é desenhada. Ou seja: a origem é
+ * o eixo, escrito exatamente como está no `d` dos raios. É simples — só não era
+ * o que o CSS estava mandando fazer.
+ *
+ * Verificado na tela, e não no papel: duas capturas seguidas, os raios em
+ * ângulos diferentes e o aro no mesmo lugar.
+ */
+const origemDaRoda = (eixoX: number) => `${eixoX}px ${EIXO_Y}px`;
+
 function limitar(valor: number, minimo: number, maximo: number): number {
   return Math.max(minimo, Math.min(maximo, valor));
 }
@@ -186,7 +217,7 @@ export function Carrinho() {
         <ellipse cx="127" cy="91" rx="98" ry="7" fill="url(#ia-sombra)" />
 
         {/* O carro e a pista. */}
-        <g transform="translate(25, 12)">
+        <g transform={`translate(${CARRO_X}, ${CARRO_Y})`}>
           {/* Fumaça do escapamento: só existe com o motor em marcha lenta. */}
           {parado && (
             <g className="carrinho__fumaca">
@@ -201,15 +232,22 @@ export function Carrinho() {
             a lataria por cima que recorta esse vão. Desenhando a roda depois,
             ela ficaria colada por fora, como um adesivo.
           */}
+          {/*
+            As rodas vêm ANTES da lataria de propósito. Com a soleira baixa que o
+            blueprint pede, metade da roda fica dentro do vão do para-lama — e é
+            a lataria por cima que recorta esse vão. Desenhando a roda depois,
+            ela ficaria colada por fora, como um adesivo.
+
+            O pneu fica FORA do grupo que gira: girar um círculo liso não muda
+            nada na tela, e deixá-lo parado torna óbvio, ao depurar, se o que
+            saiu do lugar foi a roda ou o carro inteiro.
+          */}
           <g className="carrinho__eixo">
             <circle className="carrinho__pneu" cx="48" cy="65" r="14.5" />
-            {/* Sem `transform-origin`: o CSS põe `transform-box: fill-box`, e
-                aí o padrão (`50% 50%`) já é o centro da própria roda. Um par de
-                coordenadas em px seria medido a partir do canto da caixa da
-                roda, e não da cena — a roda giraria em órbita, longe do carro,
-                que é exatamente o que acontecia. Só ficou óbvio quando a cena
-                virou paisagem e o carro dobrou de tamanho. */}
-            <g className="carrinho__roda">
+            <g
+              className="carrinho__roda"
+              style={{ transformOrigin: origemDaRoda(EIXO_TRASEIRO_X) }}
+            >
               <circle className="carrinho__aro" cx="48" cy="65" r="8" />
               {/* Cinco raios, como a roda do blueprint. */}
               <path
@@ -220,7 +258,10 @@ export function Carrinho() {
             </g>
 
             <circle className="carrinho__pneu" cx="151" cy="65" r="14.5" />
-            <g className="carrinho__roda">
+            <g
+              className="carrinho__roda"
+              style={{ transformOrigin: origemDaRoda(EIXO_DIANTEIRO_X) }}
+            >
               <circle className="carrinho__aro" cx="151" cy="65" r="8" />
               <path
                 className="carrinho__raio"

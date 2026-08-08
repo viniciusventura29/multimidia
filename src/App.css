@@ -24,7 +24,10 @@
   --r-lg: 1.5rem;
   --r-md: 0.9rem;
   --r-sm: 0.6rem;
-  --pad: 0.95rem;
+  /* Respiro do card. Subiu de 0,7/0,95 para um valor só e maior: o painel
+     estava apertado contra as próprias bordas, e aperto é o que mais separa uma
+     tela que parece desenhada de uma que parece montada. */
+  --pad: 1.05rem;
   --gap: 0.6rem;
 
   color-scheme: dark;
@@ -231,7 +234,7 @@ body {
      PRÓPRIO quadro, não ao da tela. É o que deixa o mesmo card servir a uma
      célula baixa (celular deitado) e a uma alta (head unit) sem recortar nada. */
   container-type: size;
-  padding: 0.7rem var(--pad);
+  padding: var(--pad);
   border: 0;
   border-radius: var(--r-lg);
   background: var(--tile);
@@ -274,7 +277,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.65rem;
 }
 
 .tile__rotulo {
@@ -663,7 +666,6 @@ body {
  * deixava três blocos boiando cada um no seu meio, sem eixo nenhum em comum.
  */
 .velo__medidor {
-  flex: 1;
   min-height: 0;
   display: grid;
   place-items: start start;
@@ -671,6 +673,16 @@ body {
 
 .velo__medidor .gauge {
   align-items: flex-start;
+}
+
+/* O conta-giros no meio do quadro: ele é quem toma o vão que sobrava entre a
+   velocidade e os chips. `flex: 1` com o conteúdo centrado — assim a barra fica
+   no meio do vazio em vez de colada em cima ou embaixo. */
+.velo__giro {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  align-content: center;
 }
 
 /* O card ficou mais alto que largo no layout novo, e a velocidade é o que ele
@@ -1419,8 +1431,19 @@ body {
   transition: transform 320ms ease-out;
 }
 
+/*
+ * `view-box`, e NÃO `fill-box` — de propósito, e escrito explícito para ninguém
+ * "consertar" de volta.
+ *
+ * `fill-box` pediria a caixa da própria roda, e aí o centro dela seria a origem
+ * do giro. Seria o certo, se funcionasse: esta WebView **ignora `fill-box` em
+ * `<g>`**. Com ele declarado, a roda saía girando em órbita pelo quadro.
+ *
+ * A origem vem do JSX — ver `origemDaRoda` no `carrinho.tsx`, que é onde a conta
+ * e o motivo dela estão escritos.
+ */
 .carrinho__roda {
-  transform-box: fill-box;
+  transform-box: view-box;
 }
 
 /* `--line` some no fundo do tile: a pista é o que dá a sensação de movimento,
@@ -1585,6 +1608,62 @@ body {
 .musica__vazio {
   margin: 0;
   color: var(--muted);
+}
+
+/*
+ * Os atalhos de playlist, quando não há nada tocando.
+ *
+ * Grade de duas por duas em vez de lista: no quadro compacto, uma lista de
+ * quatro linhas seria quatro tirinhas de texto com uma miniatura do tamanho de
+ * um selo. Em grade, a capa vira a coisa que se reconhece — que é como se
+ * escolhe música — e o nome fica de legenda embaixo.
+ */
+.musica-atalhos {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.musica-atalho {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.musica-atalho__capa {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+  background: var(--tile-alto);
+  transition: opacity 120ms ease;
+}
+
+.musica-atalho:hover .musica-atalho__capa,
+.musica-atalho:focus-visible .musica-atalho__capa {
+  opacity: 0.75;
+  outline: none;
+}
+
+.musica-atalho__nome {
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .controles {
