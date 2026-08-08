@@ -50,6 +50,24 @@
    */
   --vidro: color-mix(in srgb, var(--tile) 80%, transparent);
   --desfoque: 10px;
+
+  /*
+   * A luz vem de cima.
+   *
+   * Uma superfície chapada não tem lado nenhum: ela é uma cor recortada. Um
+   * degradê de cima para baixo, mesmo fraquíssimo, dá a ela uma face iluminada e
+   * uma face na sombra — e é só isso que faz o olho ler "objeto" em vez de
+   * "retângulo pintado".
+   *
+   * Some antes da metade de propósito. Degradê que vai até o fim vira efeito e
+   * chama atenção para si; este some antes de alguém notar que ele existe, e o
+   * que fica é só a impressão de volume.
+   */
+  --luz-de-cima: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--text) 4%, transparent),
+    transparent 46%
+  );
   --text: #e8edf5;
   --muted: #7c8899;
   --warn: #f5a524;
@@ -110,9 +128,34 @@ html {
   font-size: clamp(9px, min(2.7vh, 1.6vw), 17px);
 }
 
+/*
+ * O fundo tem luz, e ela vem de um canto só.
+ *
+ * Era uma cor chapada, e cor chapada não tem profundidade nem lugar: a tela
+ * inteira ficava à mesma distância do olho. Dois clarões largos e fraquíssimos
+ * resolvem isso — um no alto à esquerda, com um resto do acento do perfil, e
+ * outro embaixo à direita, em luz branca, que é onde o mapa mora.
+ *
+ * Eles também são o que faz o desfoque das superfícies existir. `backdrop-filter`
+ * só produz imagem se houver imagem atrás: sobre chapado, desfocar um borrão de
+ * uma cor só não muda nada, e o vidro dos cards não passava de translucidez. Com
+ * o fundo tendo variação, o desfoque passa a ter o que amassar.
+ *
+ * A porcentagem do acento é baixíssima (4%) e a área é enorme, o que é o
+ * contrário de uma cor: ninguém consegue apontar onde ela começa. É o bastante
+ * para a tela ter o tom de quem está dirigindo sem deixar de ser neutra.
+ */
 body {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(
+      120% 85% at 10% -10%,
+      color-mix(in srgb, var(--accent) 4%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(90% 70% at 92% 108%, rgba(255, 255, 255, 0.03), transparent 60%);
+  background-attachment: fixed;
   color: var(--text);
   /* Painel de carro: nada de seleção acidental, bounce de scroll ou zoom. */
   user-select: none;
@@ -309,7 +352,8 @@ body {
   min-width: 0;
   padding: 0.3rem 0.9rem;
   border-radius: var(--r-lg);
-  background: var(--vidro);
+  background-color: var(--vidro);
+  background-image: var(--luz-de-cima);
   backdrop-filter: blur(var(--desfoque));
 }
 
@@ -369,9 +413,10 @@ body {
   padding: var(--pad);
   border: 0;
   border-radius: var(--r-lg);
-  background: var(--vidro);
+  background-color: var(--vidro);
+  background-image: var(--luz-de-cima);
   backdrop-filter: blur(var(--desfoque));
-  transition: background 160ms ease, box-shadow 160ms ease;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 
 /*
@@ -382,6 +427,8 @@ body {
  * O `overflow: hidden` com o mesmo raio dos cards é o que mantém a família:
  * o mapa sangra até a beirada, mas a beirada continua sendo a do painel.
  */
+/* O `background: none` zera cor E imagem: quadro nu é a própria imagem que
+   mostra, e luz falsa por cima do mapa seria véu, não volume. */
 .tile--nu {
   padding: 0;
   background: none;
@@ -394,7 +441,7 @@ body {
 
 .tile--clicavel:hover,
 .tile--clicavel:focus-visible {
-  background: var(--tile-alto);
+  background-color: var(--tile-alto);
   outline: none;
 }
 
@@ -652,7 +699,8 @@ body {
   padding: 0.45rem 0.65rem;
   border: 0;
   border-radius: var(--r-md);
-  background: var(--tile-alto);
+  background-color: var(--tile-alto);
+  background-image: var(--luz-de-cima);
 }
 
 .dado__selo {
