@@ -128,6 +128,7 @@ mod tests {
                 body: "oi".into(),
                 at: Utc::now(),
                 can_reply: true,
+                avatar: None,
             })
         }
 

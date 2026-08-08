@@ -8,6 +8,7 @@ import { ProfilePicker } from "./profiles/ProfilePicker";
 import { BemVindo } from "./shell/BemVindo";
 import { Dashboard } from "./shell/Dashboard";
 import { Header } from "./shell/Header";
+import { Notificacoes } from "./shell/Notificacoes";
 import "./App.css";
 
 export default function App() {
@@ -51,6 +52,8 @@ export default function App() {
       </div>
 
       <BemVindo key={perfis.active.id} profile={perfis.active} />
+
+      <Notificacoes />
 
       {trocando && (
         <ProfilePicker
