@@ -207,6 +207,15 @@ export interface TileView<T> {
   data: T | null;
   status: Status;
   reason: string | null;
+  /**
+   * Este quadro está escondido atrás da tela cheia de outro?
+   *
+   * Quase todo tile pode ignorar — ficar montado e invisível não custa nada
+   * quando o conteúdo é texto. Quem segura recurso caro (o mapa segura um
+   * contexto WebGL, um cache de tiles e os workers de decodificação) usa isto
+   * para soltar enquanto ninguém está olhando.
+   */
+  coberto: boolean;
 }
 
 /**

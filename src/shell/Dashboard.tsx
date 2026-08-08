@@ -24,9 +24,12 @@ const TileSkeleton = () => <div className="tile__skeleton" aria-hidden />;
  */
 const TileHost = memo(function TileHost({
   spec,
+  coberto,
   aoExpandir,
 }: {
   spec: AnyTileSpec;
+  /** A tela cheia deste mesmo tile está aberta por cima. */
+  coberto: boolean;
   aoExpandir: (id: string) => void;
 }) {
   const envelope = useModuleEnvelope(spec.module);
@@ -46,7 +49,12 @@ const TileHost = memo(function TileHost({
     >
       <Barreira titulo={spec.title}>
         <Suspense fallback={<TileSkeleton />}>
-          <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+          <Conteudo
+            data={envelope?.data ?? null}
+            status={status}
+            reason={reason}
+            coberto={coberto}
+          />
         </Suspense>
       </Barreira>
     </Tile>
@@ -89,7 +97,7 @@ function Expandido({
         <div className="overlay__body">
           <Barreira titulo={spec.title}>
             <Suspense fallback={<TileSkeleton />}>
-              <Conteudo data={envelope?.data ?? null} status={status} reason={reason} />
+              <Conteudo data={envelope?.data ?? null} status={status} reason={reason} coberto={false} />
             </Suspense>
           </Barreira>
         </div>
@@ -112,7 +120,12 @@ export function Dashboard() {
     <>
       <main className="dashboard">
         {TILES.map((spec) => (
-          <TileHost key={spec.id} spec={spec} aoExpandir={aoExpandir} />
+          <TileHost
+            key={spec.id}
+            spec={spec}
+            coberto={expandido === spec.id}
+            aoExpandir={aoExpandir}
+          />
         ))}
       </main>
 
