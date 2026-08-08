@@ -177,10 +177,11 @@ body {
     "perfil  perfil   risco  barra"
     "ia      ia       risco  maps"
     "carro   spotify  risco  maps";
-  /* O `risco` é uma coluna de 1px: o filete que separa o carro da viagem. Como
+  /* O `risco` é uma coluna própria: o filete que separa o carro da viagem. Como
      coluna de verdade, e não um `::after` posicionado no olho, ele acompanha
-     sozinho qualquer mudança de proporção das outras colunas. */
-  grid-template-columns: 1fr 1fr 1px 1.95fr;
+     sozinho qualquer mudança de proporção das outras colunas.
+     A largura é maior que o traço de propósito — ver `.risco`. */
+  grid-template-columns: 1fr 1fr 0.55rem 1.95fr;
   /* A primeira linha é `auto` porque cabeçalho tem a altura do seu texto — dar
      uma fração a ele tiraria altura de quem precisa. */
   grid-template-rows: auto 2.1fr 1.75fr;
@@ -202,19 +203,33 @@ body {
  * como moldura, e o painel acabou de sair de uma. Assim ela só faz o serviço de
  * dizer "daqui para lá é outro assunto".
  */
-/* Mais clara que `--line`, e não `--line`: os filetes de dentro de um card
-   separam coisas parecidas e devem sumir; este separa os dois ASSUNTOS da tela
-   e precisa ser visto, ainda que de canto de olho. */
+/*
+ * Mais clara que `--line`, e não `--line`: os filetes de dentro de um card
+ * separam coisas parecidas e devem sumir; este separa os dois ASSUNTOS da tela
+ * e precisa ser visto, ainda que de canto de olho.
+ *
+ * A COLUNA É LARGA, O TRAÇO É DE 1px. O `background-size` desenha o filete no
+ * meio de uma faixa que sobra dos dois lados, e é essa sobra que dá ao risco o
+ * ar que ele precisa: encostado nos vizinhos a um gap de distância, ele lia como
+ * borda do card do lado, não como divisor entre colunas. Divisor precisa de
+ * folga simétrica para ser lido como algo que está ENTRE, e não grudado em um.
+ *
+ * Feito assim — e não com margem — porque a faixa continua sendo uma coluna do
+ * grid: o traço fica centrado sozinho, sem ninguém somar meia largura no olho.
+ */
 .risco {
   grid-area: risco;
   --tom-do-risco: color-mix(in srgb, var(--text) 17%, transparent);
-  background: linear-gradient(
+  background-image: linear-gradient(
     to bottom,
     transparent,
     var(--tom-do-risco) 12%,
     var(--tom-do-risco) 88%,
     transparent
   );
+  background-size: 1px 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* ------------------------------------------------------------------ */
