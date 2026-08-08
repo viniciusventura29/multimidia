@@ -203,7 +203,13 @@ export function Carrinho() {
           */}
           <g className="carrinho__eixo">
             <circle className="carrinho__pneu" cx="48" cy="65" r="14.5" />
-            <g className="carrinho__roda" style={{ transformOrigin: "48px 65px" }}>
+            {/* Sem `transform-origin`: o CSS põe `transform-box: fill-box`, e
+                aí o padrão (`50% 50%`) já é o centro da própria roda. Um par de
+                coordenadas em px seria medido a partir do canto da caixa da
+                roda, e não da cena — a roda giraria em órbita, longe do carro,
+                que é exatamente o que acontecia. Só ficou óbvio quando a cena
+                virou paisagem e o carro dobrou de tamanho. */}
+            <g className="carrinho__roda">
               <circle className="carrinho__aro" cx="48" cy="65" r="8" />
               {/* Cinco raios, como a roda do blueprint. */}
               <path
@@ -214,7 +220,7 @@ export function Carrinho() {
             </g>
 
             <circle className="carrinho__pneu" cx="151" cy="65" r="14.5" />
-            <g className="carrinho__roda" style={{ transformOrigin: "151px 65px" }}>
+            <g className="carrinho__roda">
               <circle className="carrinho__aro" cx="151" cy="65" r="8" />
               <path
                 className="carrinho__raio"
