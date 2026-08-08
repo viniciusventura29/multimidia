@@ -11,13 +11,23 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::fix::{distancia_m, Fix};
+use crate::fix::{diferenca_angular, distancia_m, interpolar, rumo, Fix};
 
 /// A partir de quantos metros de desvio considerar que saímos da rota.
 ///
 /// Folgado de propósito: GPS erra 10–20 m em avenida com prédio alto, e anunciar
 /// desvio a cada oscilação seria pior que não anunciar.
 const TOLERANCIA_DESVIO_M: f64 = 45.0;
+
+/// Acima desta velocidade o rumo relatado pelo GPS é confiável o bastante para
+/// vetar o encaixe na rua. Abaixo dela ele é ruído — ou nem existe.
+const VELOCIDADE_CONFIAVEL_KMH: f32 = 15.0;
+
+/// Discordância entre o rumo medido e o da rua que derruba o encaixe.
+///
+/// Mais que um ângulo reto não é imprecisão de GPS: é outra via, ou é o carro
+/// indo no sentido contrário ao da rota.
+const DISCORDANCIA_MAXIMA_GRAUS: f32 = 90.0;
 
 /// Quantas leituras seguidas fora da rota antes de mandar recalcular.
 ///
@@ -108,24 +118,23 @@ impl Route {
         }
         saida
     }
+}
 
-    /// Quanto da rota já foi percorrido, e a que distância do traçado estamos.
-    fn situar(&self, aqui: (f64, f64)) -> (f64, f64) {
-        let acumulado = self.acumulado();
-        let mut melhor = (f64::MAX, 0.0);
+/// Onde a rua está, no trecho mais próximo do carro.
+struct NaRua {
+    /// A posição projetada sobre o traçado — o carro em cima da via, não ao lado.
+    ponto: (f64, f64),
+    /// Para onde a via aponta ali.
+    rumo: f32,
+}
 
-        for (i, par) in self.pontos.windows(2).enumerate() {
-            let (desvio, t) = projetar(aqui, par[0], par[1]);
-            if desvio < melhor.0 {
-                melhor = (desvio, acumulado[i] + (acumulado[i + 1] - acumulado[i]) * t);
-            }
-        }
-
-        if melhor.0 == f64::MAX {
-            return (0.0, 0.0);
-        }
-        melhor
-    }
+/// Onde uma posição cai em relação ao traçado.
+struct Situacao {
+    desvio_m: f64,
+    ao_longo_m: f64,
+    /// `None` quando não há em que projetar: rota vazia, ou só com pontos
+    /// repetidos — um traçado sem comprimento não tem direção nenhuma.
+    na_rua: Option<NaRua>,
 }
 
 /// Uma rota sendo percorrida.
@@ -135,6 +144,12 @@ impl Route {
 /// causa de uma oscilação de GPS e repetiria a mesma frase a cada segundo.
 pub struct Guia {
     pub rota: Route,
+    /// A distância acumulada até cada ponto do traçado.
+    ///
+    /// Calculada uma vez, na construção: o traçado não muda depois, e refazer
+    /// esta soma a cada leitura de GPS era percorrer a rota inteira duas vezes
+    /// por segundo para chegar sempre ao mesmo vetor.
+    acumulado: Vec<f64>,
     desvios_seguidos: u8,
     passo_falado: usize,
     marcos_ditos: [bool; MARCOS_DE_AVISO.len()],
@@ -144,6 +159,7 @@ pub struct Guia {
 impl Guia {
     pub fn nova(rota: Route) -> Self {
         Self {
+            acumulado: rota.acumulado(),
             rota,
             desvios_seguidos: 0,
             passo_falado: usize::MAX,
@@ -152,10 +168,98 @@ impl Guia {
         }
     }
 
+    /// Quanto da rota já foi percorrido, a que distância do traçado estamos, e
+    /// onde exatamente na via isso cai.
+    fn situar(&self, aqui: (f64, f64)) -> Situacao {
+        let mut desvio_m = f64::MAX;
+        let mut ao_longo_m = 0.0;
+        let mut na_rua = None;
+
+        for (i, par) in self.rota.pontos.windows(2).enumerate() {
+            let (desvio, t) = projetar(aqui, par[0], par[1]);
+            if desvio >= desvio_m {
+                continue;
+            }
+
+            desvio_m = desvio;
+            ao_longo_m = self.acumulado[i] + (self.acumulado[i + 1] - self.acumulado[i]) * t;
+            // Um segmento de comprimento zero (ponto repetido no traçado) não
+            // aponta para lugar nenhum — dele não sai rumo de rua.
+            na_rua = (par[0] != par[1]).then(|| NaRua {
+                ponto: interpolar(par[0], par[1], t),
+                rumo: rumo(par[0], par[1]),
+            });
+        }
+
+        if desvio_m == f64::MAX {
+            return Situacao {
+                desvio_m: 0.0,
+                ao_longo_m: 0.0,
+                na_rua: None,
+            };
+        }
+
+        Situacao {
+            desvio_m,
+            ao_longo_m,
+            na_rua,
+        }
+    }
+
+    /// A posição do carro **em cima da rua**, quando dá para afirmar isso.
+    ///
+    /// O GPS erra 10–30 m em rua com prédio alto, e o resultado é o carro
+    /// desenhado ao lado da linha que ele está seguindo — o motorista vê o
+    /// painel discordando da própria rota. Mas a rota é uma informação que o
+    /// GPS não tem: se o carro está sobre ela, a rua é onde ele está, e a
+    /// leitura crua é só o erro do sensor.
+    ///
+    /// Isto **não** é map matching: gruda na rota traçada, não em qualquer rua
+    /// do mundo — para isso seria preciso a Roads API, que é paga por leitura.
+    /// Sem rota, ou fora dela, a posição crua passa intacta.
+    pub fn grudar(&self, fix: &Fix) -> Fix {
+        let situacao = self.situar((fix.lat, fix.lon));
+
+        // Longe do traçado é longe de verdade. Desenhar o carro na rota aqui
+        // seria mentir justamente na hora em que o motorista precisa ver que
+        // errou o caminho — é o mesmo limiar que dispara o recálculo.
+        if situacao.desvio_m > TOLERANCIA_DESVIO_M {
+            return *fix;
+        }
+
+        let Some(rua) = situacao.na_rua else {
+            return *fix;
+        };
+
+        // Rumo medido brigando com o da via: é outra rua paralela, ou o carro
+        // está indo no sentido contrário ao da rota. Nos dois casos o sensor
+        // sabe mais que o traçado. Só vale enquanto o rumo do GPS é confiável,
+        // ou seja, com o carro andando.
+        if fix.speed_kmh > VELOCIDADE_CONFIAVEL_KMH
+            && diferenca_angular(fix.heading, rua.rumo) > DISCORDANCIA_MAXIMA_GRAUS
+        {
+            return *fix;
+        }
+
+        // O rumo vem da via inclusive parado — é o que endireita a seta no
+        // semáforo, onde o GPS não relata rumo nenhum e o carro apontaria para
+        // o norte por falta de coisa melhor.
+        Fix {
+            lat: rua.ponto.0,
+            lon: rua.ponto.1,
+            heading: rua.rumo,
+            ..*fix
+        }
+    }
+
     /// Avalia uma posição: devolve onde estamos e o que falar, se for o caso.
     pub fn avaliar(&mut self, fix: &Fix) -> (Progresso, Option<String>) {
-        let (desvio_m, ao_longo) = self.rota.situar((fix.lat, fix.lon));
-        let total = self.rota.acumulado().last().copied().unwrap_or(0.0);
+        let Situacao {
+            desvio_m,
+            ao_longo_m: ao_longo,
+            ..
+        } = self.situar((fix.lat, fix.lon));
+        let total = self.acumulado.last().copied().unwrap_or(0.0);
         let restante = (total - ao_longo).max(0.0);
 
         // Qual manobra vem a seguir: a primeira cujo fim ainda está à frente.
@@ -428,6 +532,153 @@ mod tests {
                 panic!("falou de novo: {fala}");
             }
         }
+    }
+
+    /* -------------------------------------------------------------- */
+    /* Grudar o carro na rua                                           */
+    /* -------------------------------------------------------------- */
+
+    /// Distância de um ponto ao traçado — o que o motorista enxerga como
+    /// "o carro está ao lado da linha".
+    fn distancia_ao_tracado(g: &Guia, ponto: (f64, f64)) -> f64 {
+        g.situar(ponto).desvio_m
+    }
+
+    /// Um ponto a `metros` ao leste de `de` — deslocamento lateral limpo para
+    /// simular o erro do GPS sem andar pela rota.
+    fn ao_lado(de: (f64, f64), metros: f64) -> (f64, f64) {
+        (de.0, de.1 + metros / (111_320.0 * de.0.to_radians().cos()))
+    }
+
+    #[test]
+    fn o_carro_gruda_no_tracado_quando_esta_perto() {
+        let g = Guia::nova(rota_reta());
+        let torto = ao_lado((-23.5695, -46.6462), 20.0);
+
+        assert!(
+            distancia_ao_tracado(&g, torto) > 10.0,
+            "o ponto de teste já nasceu em cima da linha"
+        );
+
+        let grudado = g.grudar(&em(torto.0, torto.1));
+        assert!(
+            distancia_ao_tracado(&g, (grudado.lat, grudado.lon)) < 0.5,
+            "ficou a {} m da linha",
+            distancia_ao_tracado(&g, (grudado.lat, grudado.lon))
+        );
+    }
+
+    #[test]
+    fn o_rumo_passa_a_ser_o_da_rua() {
+        let g = Guia::nova(rota_reta());
+        let torto = ao_lado((-23.5695, -46.6462), 20.0);
+
+        let rua = crate::fix::rumo((-23.5713, -46.6443), (-23.5680, -46.6480));
+        let grudado = g.grudar(&em(torto.0, torto.1));
+
+        assert!(
+            diferenca_angular(grudado.heading, rua) < 1.0,
+            "seta em {}°, rua em {rua}°",
+            grudado.heading
+        );
+    }
+
+    /// Fora da rota o painel anuncia recálculo; desenhar o carro na linha ao
+    /// mesmo tempo seria o painel discordando de si mesmo.
+    #[test]
+    fn longe_do_tracado_a_leitura_crua_passa_intacta() {
+        let g = Guia::nova(rota_reta());
+        let longe = ao_lado((-23.5695, -46.6462), 300.0);
+        let crua = em(longe.0, longe.1);
+
+        assert_eq!(g.grudar(&crua), crua);
+    }
+
+    /// Indo no sentido contrário ao da rota, quem sabe mais é o sensor.
+    #[test]
+    fn andando_contra_o_sentido_da_rota_o_gps_manda() {
+        let g = Guia::nova(rota_reta());
+        let torto = ao_lado((-23.5695, -46.6462), 20.0);
+
+        // A rota reta corre para noroeste (~315°); este carro vai para sudeste.
+        let crua = Fix {
+            lat: torto.0,
+            lon: torto.1,
+            heading: 135.0,
+            speed_kmh: 40.0,
+            accuracy_m: 10.0,
+        };
+        assert_eq!(g.grudar(&crua), crua, "grudou o carro na contramão");
+    }
+
+    /// Parado, o mesmo desacordo de rumo é só ruído do GPS — aí a rua manda.
+    #[test]
+    fn parado_o_desacordo_de_rumo_nao_impede_o_encaixe() {
+        let g = Guia::nova(rota_reta());
+        let torto = ao_lado((-23.5695, -46.6462), 20.0);
+
+        let crua = Fix {
+            lat: torto.0,
+            lon: torto.1,
+            heading: 135.0,
+            speed_kmh: 0.0,
+            accuracy_m: 10.0,
+        };
+        let grudado = g.grudar(&crua);
+
+        assert_ne!(grudado, crua, "deixou o carro torto no semáforo");
+        assert!(
+            diferenca_angular(grudado.heading, 135.0) > 90.0,
+            "manteve o rumo ruidoso do GPS parado"
+        );
+    }
+
+    /// O caso do notebook e do semáforo: o provedor nunca relatou rumo, então
+    /// `heading` é zero. Sem a rua, a seta fica apontada para o norte.
+    #[test]
+    fn parado_sem_rumo_do_gps_a_seta_ainda_aponta_para_a_rua() {
+        let g = Guia::nova(rota_reta());
+
+        let crua = Fix {
+            lat: -23.5695,
+            lon: -46.6462,
+            heading: 0.0,
+            speed_kmh: 0.0,
+            accuracy_m: 30.0,
+        };
+        let grudado = g.grudar(&crua);
+
+        assert!(grudado.heading > 300.0, "seta em {}°", grudado.heading);
+    }
+
+    #[test]
+    fn rota_vazia_nao_gruda_nem_quebra() {
+        let g = Guia::nova(Route {
+            destino: "lugar nenhum".into(),
+            pontos: vec![],
+            passos: vec![],
+            distancia_total_m: 0.0,
+            duracao_total_s: 0,
+        });
+        let crua = em(-23.57, -46.64);
+
+        assert_eq!(g.grudar(&crua), crua);
+    }
+
+    /// Traçado degenerado (pontos repetidos) não tem direção — grudar nele
+    /// apontaria a seta para o norte em nome de "corrigir" o GPS.
+    #[test]
+    fn tracado_sem_comprimento_nao_gruda() {
+        let g = Guia::nova(Route {
+            destino: "parado".into(),
+            pontos: vec![(-23.57, -46.64), (-23.57, -46.64)],
+            passos: vec![],
+            distancia_total_m: 0.0,
+            duracao_total_s: 0,
+        });
+        let crua = em(-23.57, -46.64);
+
+        assert_eq!(g.grudar(&crua), crua);
     }
 
     #[test]

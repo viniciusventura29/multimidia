@@ -51,8 +51,10 @@ struct Mapa {
     /// um Map ID configurado como vetorial.
     map_id: Option<String>,
 
-    /// Onde o carro está. `None` enquanto o GPS não fixa — e isso é comum:
-    /// garagem, túnel, prédio alto. O mapa continua na tela, só não segue.
+    /// Onde o carro está, **já encaixado na rua** quando há rota e ele está
+    /// sobre ela (ver `Guia::grudar`). `None` enquanto o GPS não fixa — e isso
+    /// é comum: garagem, túnel, prédio alto. O mapa continua na tela, só não
+    /// segue.
     fix: Option<Fix>,
 
     /// A rota traçada, se houver destino.
@@ -84,6 +86,12 @@ pub struct NavModule {
     /// (dezenas de metros em Wi-Fi) faz o carro sambar no mapa e o progresso
     /// da rota tremer no semáforo. Ver `parada.rs` no `eclipse-gps`.
     filtro: FiltroDeParada,
+    /// A última posição como o sensor a relatou, antes de encaixar na rua.
+    ///
+    /// Separada do que vai para a tela de propósito: uma rota nova precisa ser
+    /// avaliada contra o que o GPS diz, não contra a posição já encaixada na
+    /// rota **anterior** — senão a rota velha influenciaria a nova.
+    ultimo_fix: Option<Fix>,
 }
 
 impl NavModule {
@@ -98,6 +106,7 @@ impl NavModule {
             gps,
             guia: None,
             filtro: FiltroDeParada::novo(),
+            ultimo_fix: None,
         }
     }
 }
@@ -132,19 +141,25 @@ impl Module for NavModule {
                 posicao = self.gps.next_fix() => match posicao {
                     Ok(fix) => {
                         let fix = self.filtro.filtrar(fix);
+                        self.ultimo_fix = Some(fix);
                         estado.noite = sol::e_noite(fix.lat, fix.lon, agora_unix());
-                        match self.guia.as_mut() {
+                        // A guiagem raciocina sobre a posição **crua**: é dela
+                        // que saem o desvio e o recálculo. O que vai para a
+                        // tela é a posição encaixada na rua — encaixar antes
+                        // esconderia justamente o desvio que precisa ser visto.
+                        estado.fix = Some(match self.guia.as_mut() {
                             Some(guia) => {
                                 let (progresso, fala) = guia.avaliar(&fix);
                                 estado.progresso = Some(progresso);
                                 estado.fala = fala;
+                                guia.grudar(&fix)
                             }
                             None => {
                                 estado.progresso = None;
                                 estado.fala = None;
+                                fix
                             }
-                        }
-                        estado.fix = Some(fix);
+                        });
                         ctx.ready(&estado);
                     }
                     // Perder sinal não apaga o mapa: ele fica no último ponto
@@ -184,10 +199,15 @@ impl Module for NavModule {
                                         estado.rota = Some(rota.clone());
                                         let mut guia = Guia::nova(rota);
 
-                                        if let Some(fix) = &estado.fix {
+                                        // Traçar a rota já encaixa o carro nela:
+                                        // esperar a próxima leitura para isso
+                                        // deixaria o carro um segundo ao lado da
+                                        // linha que acabou de aparecer.
+                                        if let Some(fix) = &self.ultimo_fix {
                                             let (progresso, fala) = guia.avaliar(fix);
                                             estado.progresso = Some(progresso);
                                             estado.fala = fala;
+                                            estado.fix = Some(guia.grudar(fix));
                                         }
 
                                         self.guia = Some(guia);
@@ -203,6 +223,10 @@ impl Module for NavModule {
                                 estado.rota = None;
                                 estado.progresso = None;
                                 estado.fala = None;
+                                // Sem rota não há em que encaixar: o carro volta
+                                // para onde o sensor diz, em vez de ficar preso
+                                // na linha de uma rota que não existe mais.
+                                estado.fix = self.ultimo_fix;
                                 ctx.ready(&estado);
                             }
                             _ => {}
