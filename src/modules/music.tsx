@@ -6,7 +6,6 @@ import {
   defineTile,
   type AnyTileSpec,
   type MusicState,
-  type Playlist,
   type TileView,
 } from "../core/types";
 import {
@@ -278,47 +277,45 @@ function ProgressoTocando({
 }
 
 /**
- * Nada tocando: as playlists de quem dirige, em capas.
+ * Nada tocando: um vinil girando, e um convite.
  *
- * Antes isto era a frase "toque para buscar e tocar" boiando no meio de um
- * quadro vazio — que é o pior uso possível de um terço da coluna. As playlists
- * já existem do outro lado (a tela cheia lista todas); trazê-las para cá troca
- * um convite por um atalho: tocar a capa **toca**, sem abrir nada.
+ * A frase solta no meio do quadro era o pior uso possível de um terço da coluna,
+ * e a grade de capas que a substituiu resolvia o vazio pelo lado errado — enchia
+ * de conteúdo um espaço que pedia calma. Aqui o quadro fica com **uma** coisa
+ * grande: um disco girando, um brilho fraco atrás e uma pergunta embaixo.
  *
- * Quatro é o que cabe sem a capa virar selo. Quem quiser as outras abre o
- * quadro, que é o que o resto da coluna já convida a fazer.
+ * O disco gira devagar (12 s por volta, contra os 1,8 s de um vinil de verdade)
+ * porque isto é um painel de carro, não um toca-discos: rápido demais vira
+ * movimento no canto do olho de quem está dirigindo, que é justamente o que um
+ * quadro sem música não deveria roubar.
+ *
+ * O selo do meio leva a capa da primeira playlist de quem dirige. É o que faz o
+ * disco ser deste carro e não um adesivo genérico — e é de graça, porque a lista
+ * já vem para o quadro por outro motivo. Sem lista, o selo fica no acento do
+ * perfil, que também é a cor de quem está dirigindo.
  */
-function Playlists({ playlists }: { playlists: Playlist[] }) {
-  const tocar = (event: MouseEvent, p: Playlist) => {
-    // Sem isto o toque sobe para o tile e abre a tela cheia por cima — o
-    // motorista pediu música, não uma tela.
-    event.stopPropagation();
-    dispatchAction(MUSIC, {
-      acao: "tocar",
-      uri: p.uri,
-      nome: p.nome,
-      subtitulo: "playlist",
-      albumArt: p.albumArt,
-    });
-  };
-
+function Vinil({ capa }: { capa: string | null }) {
   return (
-    <div className="musica-atalhos">
-      {playlists.slice(0, 4).map((p) => (
-        <button
-          key={p.uri}
-          className="musica-atalho"
-          onClick={(e) => tocar(e, p)}
-          title={p.nome}
-        >
-          {p.albumArt ? (
-            <img className="musica-atalho__capa" src={p.albumArt} alt="" />
-          ) : (
-            <span className="musica-atalho__capa musica-atalho__capa--vazia" />
-          )}
-          <span className="musica-atalho__nome">{p.nome}</span>
-        </button>
-      ))}
+    <div className="vinil">
+      <div className="vinil__palco">
+        {/* O brilho. Fica ATRÁS e bem fraco: a graça é o disco parecer iluminado
+            por alguma coisa fora do quadro, não ter uma lâmpada colada nele. */}
+        <span className="vinil__brilho" aria-hidden />
+
+        <span className="vinil__disco" aria-hidden>
+          <span className="vinil__selo">
+            {capa && <img className="vinil__capa" src={capa} alt="" />}
+          </span>
+          <span className="vinil__furo" />
+        </span>
+
+        {/* O reflexo NÃO gira — é o que faz o disco parecer girar. Sulcos
+            concêntricos são simétricos: girando junto com eles, nada se move na
+            tela. É o brilho parado por cima que denuncia o movimento. */}
+        <span className="vinil__reflexo" aria-hidden />
+      </div>
+
+      <p className="vinil__convite">O que vamos ouvir hoje?</p>
     </div>
   );
 }
@@ -336,10 +333,10 @@ function Compacto({ data }: TileView<MusicState>) {
   const np = local ?? data?.nowPlaying ?? null;
   const precisaLogin = problema?.tipo === "precisaLogin";
 
-  // Sem nada tocando, o quadro mostra as playlists — então ele precisa pedi-las.
-  // Antes só a tela cheia pedia, e quem nunca a tinha aberto via um quadro vazio
-  // para sempre. Sob demanda de propósito: com música tocando, a capa já enche o
-  // quadro e a lista não serviria para nada.
+  // Sem nada tocando, o selo do vinil leva a capa da primeira playlist — então o
+  // quadro precisa pedir a lista. Antes só a tela cheia pedia, e quem nunca a
+  // tinha aberto ficava com o disco liso. Sob demanda de propósito: com música
+  // tocando, a capa já enche o quadro e a lista não serviria para nada.
   const faltaLista = !precisaLogin && !np && playlists.length === 0;
   useEffect(() => {
     if (faltaLista) dispatchAction(MUSIC, { acao: "playlists" });
@@ -354,11 +351,7 @@ function Compacto({ data }: TileView<MusicState>) {
   }
 
   if (!np) {
-    return playlists.length > 0 ? (
-      <Playlists playlists={playlists} />
-    ) : (
-      <p className="musica__vazio">toque para buscar e tocar</p>
-    );
+    return <Vinil capa={playlists[0]?.albumArt ?? null} />;
   }
 
   const { posicaoMs, duracaoMs } = progresso(local, data);
