@@ -1,7 +1,8 @@
 import { lazy } from "react";
-import { Fuel, Thermometer, Zap } from "lucide-react";
+import { Fuel, Gauge as GaugeIcon, Thermometer, Zap } from "lucide-react";
 
-import { AZUL, VERDE, corFuel, corTemp } from "../../core/telemetria";
+import { AZUL, RPM_MAX, VERDE, corFuel, corTemp } from "../../core/telemetria";
+import { CIANO } from "./cores";
 import { defineTile, type AnyTileSpec, type ObdReadings } from "../../core/types";
 import { Dado } from "../../shell/Dado";
 import { Gauge } from "../../shell/Gauge";
@@ -62,6 +63,29 @@ function Velocidade({ data }: { data: ObdReadings | null }) {
           tone={AZUL}
         />
       </div>
+
+      {/*
+        O conta-giros, que morava só na tela cheia.
+
+        O quadro tem espaço para três coisas e mostrava duas, com um vão morto no
+        meio grande o bastante para parecer defeito. O RPM é o candidato óbvio a
+        ocupá-lo: é a segunda coisa que se olha dirigindo, e é ele que diz se a
+        marcha está certa — coisa que a velocidade sozinha não responde.
+
+        Vem com barra (`max`) e a velocidade não: o giro tem fundo de escala de
+        verdade, e a faixa é a informação (perto do corte importa mais que o
+        número). Velocidade não tem teto que signifique algo num painel de rua.
+      */}
+      <div className="velo__giro">
+        <Gauge
+          value={data?.rpm ?? null}
+          unit="rpm"
+          max={RPM_MAX}
+          tone={CIANO}
+          icon={<GaugeIcon size="1em" />}
+        />
+      </div>
+
       <div className="velo__chips">
         {alerta ? (
           <Dado {...alerta} alerta />
