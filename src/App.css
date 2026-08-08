@@ -1,8 +1,35 @@
+/*
+ * A rampa de escuros, do mais claro ao mais escuro.
+ *
+ * ELA ESTAVA INVERTIDA. O fundo era quase preto e os cards subiam por cima
+ * dele — o arranjo de sempre, e o errado aqui. Num painel escuro, quanto mais
+ * perto do preto, mais para trás a superfície parece estar; com o fundo no
+ * ponto mais escuro possível, não sobrava para onde os cards recuarem, e eles
+ * ficavam boiando à frente de um buraco. É o que fazia a tela parecer pesada
+ * mesmo com o conteúdo certo.
+ *
+ * Invertida, o fundo é um cinza escuro e os cards afundam nele. Cada quadro
+ * vira um recorte na superfície, não um adesivo por cima — que é o que a
+ * referência faz, e a razão de ela parecer leve carregando a mesma quantidade
+ * de informação.
+ *
+ * **Nada aqui é preto puro, de propósito.** Preto absoluto num painel dentro de
+ * um carro é buraco: à noite ele some junto com o resto do interior, e de dia,
+ * sob sol, vira um espelho onde se vê a cara do motorista e mais nada. Todo
+ * degrau tem um resto de azul, que é o que mantém a tela um objeto e não uma
+ * ausência.
+ */
 :root {
-  --bg: #07090d;
-  --tile: #12161d;
-  --tile-alto: #1b212b;
-  --line: #232a35;
+  /* Fundo da tela: o mais CLARO dos escuros. */
+  --bg: #1b2028;
+  /* O card, afundado no fundo. */
+  --tile: #0c0f14;
+  /* O que sobe dentro de um card: chips, hover. Entre o card e o fundo. */
+  --tile-alto: #161b23;
+  /* O ponto mais escuro. Poço (furo do vinil, campo de texto) e tinta sobre o
+     acento — não é superfície, é ausência de luz. */
+  --tinta: #05070a;
+  --line: #2b323e;
   --text: #e8edf5;
   --muted: #7c8899;
   --warn: #f5a524;
@@ -341,7 +368,9 @@ body {
   left: 0.6rem;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  /* `--tinta` e não `--bg`: isto pousa em cima do mapa, e é véu para o texto se
+     ler — precisa do tom mais escuro, não do tom do fundo da tela. */
+  background: color-mix(in srgb, var(--tinta) 82%, transparent);
 }
 
 .tile__body {
@@ -380,7 +409,7 @@ body {
   margin: 0;
   padding: 0.25rem 0.6rem;
   border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: color-mix(in srgb, var(--tinta) 82%, transparent);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1712,7 +1741,7 @@ body {
   width: 5%;
   height: 5%;
   border-radius: 50%;
-  background: var(--bg);
+  background: var(--tinta);
 }
 
 /*
@@ -1928,7 +1957,7 @@ body {
   min-width: 3.6rem;
   min-height: 3.6rem;
   background: var(--accent);
-  color: var(--bg);
+  color: var(--tinta);
   font-size: 1.45rem;
 }
 
@@ -2348,7 +2377,7 @@ body {
   position: relative;
   border: 1px solid var(--line);
   border-radius: 0.8rem;
-  background: var(--bg);
+  background: var(--tile);
   transition: border-color 140ms ease;
 }
 
@@ -2421,7 +2450,7 @@ body {
   padding: 0 0.9rem;
   border: 1px solid var(--line);
   border-radius: 0.6rem;
-  background: var(--bg);
+  background: var(--tinta);
   color: var(--text);
   font-size: 1rem;
 }
@@ -2627,13 +2656,15 @@ body {
   animation: notif-entra 260ms ease-out;
 }
 
+/* O fundo aparece enquanto a foto não carrega, dentro de uma pílula que já é
+   `--tile-alto`: precisa afundar em relação a ela, não acompanhar a tela. */
 .notif__avatar {
   flex: none;
   width: 2.6rem;
   height: 2.6rem;
   border-radius: 999px;
   object-fit: cover;
-  background: var(--bg);
+  background: var(--tile);
 }
 
 /* Sem foto (ou ela falhou): a inicial do nome num círculo com a cor do perfil. */
