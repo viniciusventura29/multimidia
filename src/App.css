@@ -2755,3 +2755,116 @@ body {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------------------------ */
+/* Retorno ao toque                                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Numa tela de toque não existe hover: entre o dedo encostar e a resposta
+ * chegar, **nada** no painel dizia que o toque tinha registrado. Pior, dois
+ * pontos já apagavam o realce nativo do Android (`tap-highlight: transparent`)
+ * sem pôr nada no lugar — o toque ficava literalmente invisível.
+ *
+ * Isto é o que separa "o app travou" de "o app está trabalhando". Vale para
+ * todo alvo de toque, e por isso mora numa regra só em vez de em cada um.
+ */
+button,
+[role="button"],
+.tile--clicavel,
+.progresso__trilho {
+  /* Sem espera de duplo-toque e sem o realce padrão, que é lento e feio —
+     mas agora existe um substituto de verdade logo abaixo. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  /* A cor entra na hora; sair pode ser suave. Assim o toque nunca "atrasa". */
+  transition: transform 90ms ease-out, filter 140ms ease-out;
+}
+
+button:active,
+[role="button"]:active,
+.tile--clicavel:active,
+.progresso__trilho:active {
+  /* Afundar um triz + clarear é o vocabulário que todo mundo já conhece de
+     botão físico. Reagir na captura do dedo, e não na resposta do sistema, é o
+     ponto: o retorno acontece em zero milissegundo, por construção. */
+  transform: scale(0.97);
+  filter: brightness(1.35);
+  transition-duration: 0s;
+}
+
+/* Botão desabilitado não afunda: fingir que aceitou o toque é pior que não
+   responder — ensina errado. */
+button:disabled:active {
+  transform: none;
+  filter: none;
+}
+
+/* Alvo grande não deve encolher visivelmente; nele o retorno é só de cor. */
+.tile--clicavel:active,
+.sp-linha:active,
+.sugestao:active,
+.perfil__escolher:active {
+  transform: none;
+}
+
+/* Segurar para confirmar tem barra de progresso própria — o afundar
+   competiria com ela e confundiria o que é "apertado" e o que é "cumprido". */
+.segurar:active {
+  transform: none;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  [role="button"],
+  .tile--clicavel,
+  .progresso__trilho {
+    transition: none;
+  }
+  button:active,
+  [role="button"]:active,
+  .tile--clicavel:active,
+  .progresso__trilho:active {
+    transform: none;
+  }
+}
+
+/* Esqueleto de lista: a forma do que está vindo, no lugar certo, para o
+   conteúdo não empurrar a tela quando chegar. */
+.sp-esqueleto {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.sp-esqueleto__linha {
+  height: 3rem;
+  border-radius: 0.6rem;
+  background: linear-gradient(
+    90deg,
+    var(--tile-alto) 25%,
+    rgba(255, 255, 255, 0.06) 37%,
+    var(--tile-alto) 63%
+  );
+  background-size: 400% 100%;
+  animation: sp-esqueleto-brilho 1.4s ease-in-out infinite;
+}
+
+@keyframes sp-esqueleto-brilho {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+/* Movimento é sinal de "estou trabalhando", não enfeite — mas quem pediu menos
+   movimento recebe o mesmo sinal parado. */
+@media (prefers-reduced-motion: reduce) {
+  .sp-esqueleto__linha {
+    animation: none;
+  }
+}

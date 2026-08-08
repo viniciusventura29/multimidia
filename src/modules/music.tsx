@@ -326,9 +326,42 @@ function Compacto({ data }: TileView<MusicState>) {
   );
 }
 
+/**
+ * O lugar das faixas enquanto elas não chegam.
+ *
+ * Linhas do tamanho das de verdade, não um "carregando…" centralizado: o
+ * layout não pula quando o conteúdo entra, e a tela já mostra a forma do que
+ * está vindo.
+ */
+function Esqueleto() {
+  return (
+    <div className="sp-esqueleto" aria-hidden>
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="sp-esqueleto__linha" />
+      ))}
+    </div>
+  );
+}
+
 /** Tela cheia: busca, playlists, e entrar em playlist/álbum para escolher faixa. */
 function Completa({ data }: TileView<MusicState>) {
   const [termo, setTermo] = useState("");
+  // A playlist/álbum em que se acabou de tocar, antes de as faixas chegarem.
+  //
+  // O toque abria um pedido ao Spotify e a tela ficava **igual** até ele voltar
+  // — segundos olhando a mesma lista, sem saber se pegou. Como o nome e a capa
+  // já estão aqui (vieram na lista), dá para entrar na hora e preencher as
+  // faixas quando chegarem. É o que todo app de música faz.
+  const [entrando, setEntrando] = useState<{
+    uri: string;
+    nome: string;
+    subtitulo: string;
+    albumArt: string | null;
+  } | null>(null);
+  // Só dá para concluir "falhou" depois de ter visto o pedido começar; sem
+  // isto, o estado inicial (nada em voo) seria lido como fim e a tela voltaria
+  // sozinha no mesmo quadro em que entrou.
+  const comecou = useRef(false);
   const problema = data?.problema ?? null;
   const precisaLogin = problema?.tipo === "precisaLogin";
 
@@ -349,6 +382,30 @@ function Completa({ data }: TileView<MusicState>) {
   const busca = data?.busca ?? { faixas: [], albuns: [] };
   const playlists = data?.playlists ?? [];
   const contexto = data?.contexto ?? null;
+  const carregando = data?.carregando ?? null;
+
+  // O contexto de verdade chegou (ou o pedido morreu): larga o otimismo.
+  useEffect(() => {
+    if (!entrando) {
+      comecou.current = false;
+      return;
+    }
+    if (contexto?.uri === entrando.uri) {
+      setEntrando(null);
+      return;
+    }
+    if (carregando === "abrindo") {
+      comecou.current = true;
+      return;
+    }
+    // Começou, terminou e não trouxe o contexto: deu errado. Voltar para a
+    // lista é melhor que deixar o motorista numa tela que nunca preenche.
+    if (comecou.current) setEntrando(null);
+  }, [contexto?.uri, carregando, entrando]);
+
+  // O cabeçalho pode vir do otimismo; as faixas, só do Rust.
+  const aberto = contexto ?? entrando;
+  const faixasCarregando = Boolean(entrando) && !contexto;
   const temBusca = busca.faixas.length > 0 || busca.albuns.length > 0;
 
   const submeter = (event: React.FormEvent) => {
@@ -365,13 +422,18 @@ function Completa({ data }: TileView<MusicState>) {
     dispatchAction(MUSIC, { acao: "tocar", ...opts });
   };
 
-  const abrir = (event: MouseEvent, uri: string) => {
+  const abrir = (
+    event: MouseEvent,
+    alvo: { uri: string; nome: string; subtitulo: string; albumArt: string | null },
+  ) => {
     event.stopPropagation();
-    dispatchAction(MUSIC, { acao: "abrir", uri });
+    setEntrando(alvo);
+    dispatchAction(MUSIC, { acao: "abrir", uri: alvo.uri });
   };
 
   const voltar = (event: MouseEvent) => {
     event.stopPropagation();
+    setEntrando(null);
     if (contexto) dispatchAction(MUSIC, { acao: "fechar" });
     else {
       setTermo("");
@@ -382,19 +444,22 @@ function Completa({ data }: TileView<MusicState>) {
   return (
     <div className="sp" onClick={(e) => e.stopPropagation()}>
       {/* Cabeçalho: busca, ou o contexto aberto com voltar. */}
-      {contexto ? (
+      {aberto ? (
         <header className="sp-topo">
           <button className="sp-voltar" onClick={voltar} aria-label="Voltar">
             <ChevronLeft size="1.2em" />
           </button>
-          {contexto.albumArt && <img className="sp-topo__capa" src={contexto.albumArt} alt="" />}
+          {aberto.albumArt && <img className="sp-topo__capa" src={aberto.albumArt} alt="" />}
           <span className="sp-linha__texto">
-            <span className="sp-topo__nome">{contexto.nome}</span>
+            <span className="sp-topo__nome">{aberto.nome}</span>
             <span className="sp-linha__sub">
-              {contexto.subtitulo} · {contexto.faixas.length} faixas
+              {aberto.subtitulo}
+              {contexto ? ` · ${contexto.faixas.length} faixas` : " · carregando…"}
             </span>
           </span>
-          <button className="sp-tocar-tudo" onClick={(e) => tocar(e, { contexto: contexto.uri })}>
+          {/* Tocar tudo não espera as faixas: o URI da playlist basta, e é o
+              Spotify que monta a fila. */}
+          <button className="sp-tocar-tudo" onClick={(e) => tocar(e, { contexto: aberto.uri })}>
             <Play size="1em" fill="currentColor" /> tocar tudo
           </button>
         </header>
@@ -424,7 +489,9 @@ function Completa({ data }: TileView<MusicState>) {
       )}
 
       <div className="sp-lista">
-        {contexto ? (
+        {faixasCarregando || carregando === "buscando" ? (
+          <Esqueleto />
+        ) : contexto ? (
           // Dentro de uma playlist/álbum: escolher a faixa.
           contexto.faixas.map((f, i) => (
             <Linha
@@ -445,7 +512,14 @@ function Completa({ data }: TileView<MusicState>) {
                 titulo={a.nome}
                 subtitulo={a.artist}
                 icone={<Disc3 size="1em" />}
-                onClick={(e) => abrir(e, a.uri)}
+                onClick={(e) =>
+                  abrir(e, {
+                    uri: a.uri,
+                    nome: a.nome,
+                    subtitulo: a.artist,
+                    albumArt: a.albumArt,
+                  })
+                }
               />
             ))}
             {busca.faixas.length > 0 && <p className="sp-secao">Músicas</p>}
@@ -469,7 +543,14 @@ function Completa({ data }: TileView<MusicState>) {
                 titulo={p.nome}
                 subtitulo="playlist"
                 icone={<ListMusic size="1em" />}
-                onClick={(e) => abrir(e, p.uri)}
+                onClick={(e) =>
+                  abrir(e, {
+                    uri: p.uri,
+                    nome: p.nome,
+                    subtitulo: "playlist",
+                    albumArt: p.albumArt,
+                  })
+                }
               />
             ))}
             {playlists.length === 0 && (

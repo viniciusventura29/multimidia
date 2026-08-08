@@ -107,6 +107,27 @@ pub struct MusicState {
     pub contexto: Option<Contexto>,
     /// `None` = tudo bem.
     pub problema: Option<Problema>,
+    /// O que está sendo buscado no Spotify **agora**.
+    ///
+    /// Publicado antes da chamada sair, não depois de voltar: o toque do
+    /// motorista precisa de resposta em milissegundos, e a resposta do Spotify
+    /// leva segundos. Sem isto a tela ficava igualzinha durante toda a espera —
+    /// era impossível saber se o toque tinha registrado.
+    pub carregando: Option<EmAndamento>,
+}
+
+/// Qual pedido está em voo. Um só por vez, que é o que o módulo processa.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EmAndamento {
+    /// Entrando numa playlist ou álbum.
+    Abrindo,
+    Buscando,
+    /// Carregando a lista de playlists do usuário.
+    Playlists,
+    /// Mandando tocar, pausar, pular — a mudança leva um instante para o
+    /// Spotify confirmar, e é esse instante que precisa ser visível.
+    Transporte,
 }
 
 #[derive(Debug, thiserror::Error)]

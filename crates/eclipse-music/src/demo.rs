@@ -5,6 +5,8 @@
 //! integração não está de pé. Ligue com `ECLIPSE_MUSIC_DEMO=1` quando o assunto
 //! for layout.
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use crate::source::{Faixa, MusicError, MusicSource, NowPlaying, Playlist};
@@ -73,6 +75,7 @@ impl MusicSource for DemoSource {
     }
 
     async fn buscar(&mut self, termo: &str) -> Result<crate::source::Busca, MusicError> {
+        rede().await;
         Ok(crate::source::Busca {
             faixas: PLAYLIST
                 .iter()
@@ -93,6 +96,7 @@ impl MusicSource for DemoSource {
     }
 
     async fn abrir(&mut self, uri: &str) -> Result<crate::source::Contexto, MusicError> {
+        rede().await;
         Ok(crate::source::Contexto {
             uri: uri.to_string(),
             nome: if uri.contains(":album:") {
@@ -136,6 +140,7 @@ impl MusicSource for DemoSource {
     }
 
     async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
+        rede().await;
         Ok(vec![
             Playlist {
                 uri: "spotify:playlist:demo-1".into(),
@@ -154,4 +159,14 @@ impl MusicSource for DemoSource {
             },
         ])
     }
+}
+
+/// A espera que uma chamada à Web API do Spotify custa de verdade.
+///
+/// O demo existe para desenvolver a tela sem uma conta conectada — e um demo
+/// que responde no mesmo instante mente sobre a única coisa que importa aqui:
+/// como a tela se comporta **durante** a espera. Foi assim que a navegação sem
+/// retorno nenhum ao tocar numa playlist passou despercebida.
+async fn rede() {
+    tokio::time::sleep(Duration::from_millis(600)).await;
 }
