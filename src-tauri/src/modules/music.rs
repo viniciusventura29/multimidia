@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_music::{DemoSource, MusicError, MusicSource, MusicState, SpotifySource, TokenStore};
+use eclipse_music::{
+    DemoSource, EmAndamento, MusicError, MusicSource, MusicState, SpotifySource, TokenStore,
+};
 use uuid::Uuid;
 
 pub const MUSIC: ModuleId = ModuleId::new("music");
@@ -125,6 +127,24 @@ impl Module for MusicModule {
                         let acao = payload.get("acao").and_then(|v| v.as_str());
                         let texto = |chave| payload.get(chave).and_then(|v| v.as_str());
 
+                        // Avisa a tela ANTES de falar com o Spotify. A resposta
+                        // deles leva segundos; o dedo precisa de retorno em
+                        // milissegundos. Sem isto a tela ficava idêntica durante
+                        // toda a espera e o motorista tocava de novo, achando
+                        // que não tinha pegado.
+                        estado.carregando = match acao {
+                            Some("abrir") => Some(EmAndamento::Abrindo),
+                            Some("buscar") => Some(EmAndamento::Buscando),
+                            Some("playlists") => Some(EmAndamento::Playlists),
+                            Some("toggle" | "next" | "prev" | "tocar" | "seek") => {
+                                Some(EmAndamento::Transporte)
+                            }
+                            _ => None,
+                        };
+                        if estado.carregando.is_some() {
+                            ctx.ready(&estado);
+                        }
+
                         // Duas famílias de ação: as de transporte (tocar algo,
                         // pular) mandam reler o now_playing; busca/playlists
                         // devolvem listas que entram no estado publicado.
@@ -195,8 +215,14 @@ impl Module for MusicModule {
                                 ctx.ready(&estado);
                                 Ok(())
                             }
-                            _ => continue,
+                            _ => {
+                                estado.carregando = None;
+                                continue;
+                            }
                         };
+
+                        // Terminou — deu certo ou não, a espera acabou.
+                        estado.carregando = None;
 
                         if let Err(err) = resultado {
                             // Publica `ready` com o problema em vez de `degraded`:

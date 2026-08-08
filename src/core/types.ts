@@ -163,6 +163,9 @@ export interface Problema {
   detalhe: string;
 }
 
+/** O que o módulo está buscando no Spotify agora. Espelha `EmAndamento`. */
+export type EmAndamento = "abrindo" | "buscando" | "playlists" | "transporte";
+
 /** O estado do módulo de música. */
 export interface MusicState {
   nowPlaying: NowPlaying | null;
@@ -170,6 +173,14 @@ export interface MusicState {
   playlists: Playlist[];
   contexto: Contexto | null;
   problema: Problema | null;
+  /**
+   * O pedido em voo, publicado **antes** de a chamada sair.
+   *
+   * A resposta do Spotify leva segundos; o dedo precisa de retorno em
+   * milissegundos. É isto que deixa a tela mostrar que está trabalhando em vez
+   * de ficar idêntica durante a espera inteira.
+   */
+  carregando: EmAndamento | null;
 }
 
 /* ------------------------------------------------------------------ */
