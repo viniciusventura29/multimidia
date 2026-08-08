@@ -385,9 +385,16 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
     // dois conjuntos de worker para mostrar um mapa só.
     if (!caixa.current || pausado) return;
 
+    // O construtor já aplica o tema de agora, então é ele que passa a valer.
+    // Sem esta linha, um pôr do sol que acontecesse com o mapa pausado (tela
+    // cheia aberta por cima) deixava `estiloAtual` defasado, e o efeito de tema
+    // disparava um `setStyle` completo — recarregando o estilo que o mapa
+    // acabou de carregar — logo depois do `load`.
+    estiloAtual.current = noite ? ESTILOS.noite : ESTILOS.dia;
+
     const mapa = new MapaGL({
       container: caixa.current,
-      style: noite ? ESTILOS.noite : ESTILOS.dia,
+      style: estiloAtual.current,
       center: CENTRO_PADRAO,
       zoom: ZOOM_DE_RUA,
       // Sem 3D e sem rotação pelo dedo: quem gira o mapa é o rumo do carro.

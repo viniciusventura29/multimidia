@@ -227,6 +227,16 @@ pub struct Medidor {
     /// Última vazão crua, que é a que se integra.
     vazao_agora: Option<f32>,
     convergencias: u8,
+    /// O carro ainda responde o PID de nível (`2F`)?
+    ///
+    /// Precisa ser perguntado às capacidades, e não deduzido da leitura:
+    /// [`Readings`] só **põe** valores, nunca os tira. Depois que o poller
+    /// desiste do `2F`, `fuel_pct` continua `Some` com o último número lido
+    /// para sempre — e [`Self::fundir_nivel`] tomaria esse fóssil por medição,
+    /// puxando a estimativa de volta para ele três vezes por segundo. O tanque
+    /// na tela congelaria no nível daquela leitura e a gasolina queimada
+    /// sumiria da conta.
+    nivel_legivel: bool,
 }
 
 impl Medidor {
@@ -238,12 +248,23 @@ impl Medidor {
             vazao_suave: None,
             vazao_agora: None,
             convergencias: 0,
+            nivel_legivel: le_nivel(capacidades),
         }
     }
 
-    /// O método pode mudar em pleno funcionamento: o poller descobre em runtime que
-    /// um PID não responde, e a cascata desce um degrau.
-    pub fn recalcular_metodo(&mut self, capacidades: Capacidades) {
+    /// O que o carro responde mudou em pleno funcionamento: o poller descobre em
+    /// runtime que um PID não responde, a cascata de consumo desce um degrau, e
+    /// o nível de combustível pode ter saído da roda junto.
+    pub fn atualizar_capacidades(&mut self, capacidades: Capacidades) {
+        if self.nivel_legivel && !le_nivel(capacidades) {
+            tracing::info!("o carro parou de responder o nível: o tanque vira estimativa pura");
+            self.nivel_legivel = false;
+            // A âncora acabou; o que estiver na tela deixa de ser medição.
+            self.convergencias = 0;
+        } else {
+            self.nivel_legivel = le_nivel(capacidades);
+        }
+
         let novo = MetodoFluxo::escolher(capacidades);
         if novo != self.metodo {
             tracing::info!(?novo, antes = ?self.metodo, "fonte de consumo mudou");
@@ -308,6 +329,13 @@ impl Medidor {
     /// contrário. Então o PID entra como âncora: puxa a estimativa devagar, e só um
     /// salto grande é lido como "abasteceram".
     fn fundir_nivel(&mut self, r: &Readings) {
+        // Sem PID vivo não há âncora: o que sobrou em `fuel_pct` é a última
+        // leitura de antes de o carro emudecer, e casar com ela seria congelar
+        // o tanque naquele número. Ver `nivel_legivel`.
+        if !self.nivel_legivel {
+            return;
+        }
+
         let Some(pct) = r.fuel_pct else { return };
         let lido = pct as f32 * self.veiculo.capacidade_l / 100.0;
 
@@ -435,6 +463,11 @@ impl Medidor {
 
 fn uma_casa(v: f32) -> f32 {
     (v * 10.0).round() / 10.0
+}
+
+/// Vale a pena esperar leitura de nível deste carro?
+fn le_nivel(capacidades: Capacidades) -> bool {
+    capacidades.suporta(Pid::Fuel.codigo().unwrap())
 }
 
 #[cfg(test)]
@@ -594,11 +627,16 @@ mod tests {
         }
     }
 
+    /// Um carro com MAF, rotação, velocidade **e** nível de combustível.
+    ///
+    /// O `2F` entra porque as leituras dos testes trazem `fuel_pct`: um carro
+    /// que responde o nível é um carro que anuncia o PID do nível, e a fusão só
+    /// acontece enquanto ele estiver na roda.
     fn medidor() -> Medidor {
         Medidor::novo(
             Veiculo::default(),
             EstadoTanque::default(),
-            cap_com(&[0x10, 0x0C, 0x0D]),
+            cap_com(&[0x10, 0x0C, 0x0D, 0x2F]),
         )
     }
 
@@ -800,6 +838,49 @@ mod tests {
         assert!(m.tanque().medido, "leitura estável: agora é medição");
     }
 
+    /// O PID de nível morre no meio da viagem: a última leitura não pode virar
+    /// uma âncora eterna.
+    ///
+    /// `Readings` só põe valores, nunca os tira — depois que o poller desiste do
+    /// `2F`, `fuel_pct` fica congelado no último número lido. Fundir com ele
+    /// puxaria a estimativa de volta para lá a cada amostra (5% de correção, ~3
+    /// amostras por segundo), o tanque na tela pararia de descer e a gasolina
+    /// queimada sumiria da conta — com o número exibido **sem** o `~`, afirmando
+    /// medição.
+    #[test]
+    fn nivel_congelado_de_um_pid_morto_nao_ancora_mais_nada() {
+        let mut m = medidor();
+        let meio = Readings {
+            fuel_pct: Some(50),
+            rpm: Some(2_500),
+            speed_kmh: Some(100),
+            maf_gs: Some(22.0),
+            ..Readings::default()
+        };
+        rodar(&mut m, &meio, Duration::from_secs(1), 10);
+        assert!(m.tanque().medido, "com o PID vivo, o nível é medição");
+        let antes = m.tanque().litros.unwrap();
+
+        // O carro para de responder o 2F. O valor velho continua na leitura.
+        let mut cap = cap_com(&[0x10, 0x0C, 0x0D, 0x2F]);
+        cap.recusar(0x2F);
+        m.atualizar_capacidades(cap);
+
+        assert!(
+            !m.tanque().medido,
+            "sem âncora viva o número volta a ser estimativa"
+        );
+
+        // Dez minutos a 8 L/h queimam ~1,3 L. Com a âncora fóssil puxando, o
+        // tanque ficaria parado em `antes`.
+        rodar(&mut m, &meio, Duration::from_secs(1), 600);
+        let depois = m.tanque().litros.unwrap();
+        assert!(
+            antes - depois > 1.0,
+            "o tanque congelou na leitura velha: {antes} -> {depois}"
+        );
+    }
+
     #[test]
     fn salto_grande_de_nivel_e_lido_como_abastecimento() {
         let mut m = medidor();
@@ -883,7 +964,7 @@ mod tests {
         // método antigo não pode contaminar a do novo.
         let mut cap = cap_com(&[0x10, 0x0C, 0x0D, 0x04]);
         cap.recusar(0x10);
-        m.recalcular_metodo(cap);
+        m.atualizar_capacidades(cap);
 
         assert_eq!(m.metodo(), MetodoFluxo::Carga);
         assert_eq!(

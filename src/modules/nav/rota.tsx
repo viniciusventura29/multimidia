@@ -56,7 +56,17 @@ export function RotaDesenhada({ rota }: { rota: Rota | null }) {
       desenhado.current = null;
     }
 
-    const assinatura = rota ? `${rota.destino}:${rota.pontos.length}` : null;
+    // Destino, contagem de pontos **e as duas pontas do traçado**. Só destino e
+    // contagem não distinguem um recálculo: sair do caminho e receber outra rota
+    // para o mesmo lugar dá o mesmo rótulo, e pode dar o mesmo número de pontos
+    // — e aí a linha desenhada continuaria sendo a do caminho antigo. As pontas
+    // mudam sempre, porque a rota nova parte de onde o carro está agora.
+    const pontas = rota?.pontos.length
+      ? `${rota.pontos[0]}|${rota.pontos[rota.pontos.length - 1]}`
+      : "";
+    const assinatura = rota
+      ? `${rota.destino}:${rota.pontos.length}:${pontas}`
+      : null;
     if (assinatura === desenhado.current) return;
     desenhado.current = assinatura;
 

@@ -11,7 +11,17 @@
 let ultimaFalada: string | null = null;
 
 export function falar(frase: string | null): void {
-  if (!frase || frase === ultimaFalada) return;
+  // Silêncio zera a memória. Sem isto a comparação é só pelo texto, e duas
+  // manobras seguidas com a mesma frase — "Vire à direita na R. X" em dois
+  // cruzamentos da mesma rua — falariam uma vez só. O Rust manda `null` entre
+  // uma fala e outra (ver `nav.rs`), então o silêncio é o separador natural; o
+  // que ele nunca manda é a mesma frase duas vezes seguidas, que é justamente o
+  // caso do repaint pelo snapshot.
+  if (!frase) {
+    ultimaFalada = null;
+    return;
+  }
+  if (frase === ultimaFalada) return;
   ultimaFalada = frase;
 
   const sintese = window.speechSynthesis;

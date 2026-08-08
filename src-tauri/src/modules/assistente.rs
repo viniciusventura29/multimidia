@@ -25,7 +25,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::assistente::carro::{FonteDeEstado, ProvedorCarro, RelogioDoSistema};
 use crate::assistente::gatilho::{Acionamento, Detector, Gatilho};
-use crate::assistente::imagem::ProvedorImagem;
+use crate::assistente::imagem::{ProvedorImagem, ARQUIVO_DEMO};
 use crate::assistente::orcamento::{Config, Orcamento, Recusa};
 
 pub const ASSISTENTE: ModuleId = ModuleId::new("assistente");
@@ -38,6 +38,25 @@ const RITMO_PERIODICO: Duration = Duration::from_secs(5 * 60);
 /// Os outros módulos precisam ter publicado alguma coisa: falar antes de o OBD
 /// e o GPS abrirem a boca daria uma saudação sem carro e sem lugar.
 const ESPERA_IGNICAO: Duration = Duration::from_secs(6);
+
+/// Teto de um turno inteiro, da primeira ida da API à última ferramenta.
+///
+/// O `TransporteHttp` já tem 90 s **por requisição**, mas isso não fecha a
+/// conta: o laço do agente faz até seis idas, e as ferramentas de imagem falam
+/// com o Places e o OpenRouter por fora dele. Uma delas pendurando deixaria a
+/// task sem enviar nada pelo canal — e é o canal que repõe `ocupado` e
+/// `pensando`. A coluna ficaria em "vendo o que tem de novo…" e nenhum gatilho,
+/// nem alerta de temperatura, voltaria a falar pelo resto da viagem. O
+/// supervisor não pega: o módulo não errou, está esperando.
+///
+/// Três minutos: um turno com pesquisa web fica em ~30 s, então é folga para
+/// rede ruim, não para rede morta.
+const TETO_DO_TURNO: Duration = Duration::from_secs(3 * 60);
+
+/// Teto de cada requisição das ferramentas de imagem (Places, download da foto,
+/// geração no OpenRouter). Mesma razão do `TETO_DO_TURNO`, uma camada abaixo:
+/// o `reqwest` não tem timeout por padrão.
+const TETO_DA_IMAGEM: Duration = Duration::from_secs(60);
 
 /// O que o tile desenha.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -148,7 +167,10 @@ impl Module for AssistenteModule {
                     perfil,
                 )))
                 .com(Arc::new(ProvedorImagem::novo(
-                    reqwest::Client::new(),
+                    reqwest::Client::builder()
+                        .timeout(TETO_DA_IMAGEM)
+                        .build()
+                        .unwrap_or_default(),
                     crate::maps_api_key(&dir),
                     crate::openrouter_api_key(&dir),
                     config.modelo_imagem.clone(),
@@ -353,7 +375,7 @@ impl AssistenteModule {
                     o.registrar_fala(gatilho, agora);
                     tracing::info!(
                         gatilho = gatilho.como_texto(),
-                        hoje = o.chamadas_hoje(),
+                        hoje = o.chamadas_hoje(agora),
                         teto = config.chamadas_por_dia,
                         "acionando o assistente",
                     );
@@ -390,7 +412,21 @@ impl AssistenteModule {
 
         let tx = tx.clone();
         tokio::spawn(async move {
-            let resultado = agente.rodar(&acionamento.pedido).await;
+            // O que não pode acontecer é esta task sumir sem responder: é o
+            // canal que repõe `ocupado` e `pensando`, e sem ele o assistente
+            // fica mudo até a próxima ignição. Ver `TETO_DO_TURNO`.
+            let resultado = match tokio::time::timeout(
+                TETO_DO_TURNO,
+                agente.rodar(&acionamento.pedido),
+            )
+            .await
+            {
+                Ok(resultado) => resultado,
+                Err(_) => Err(IaError::Rede(format!(
+                    "o turno passou de {}s e foi cortado",
+                    TETO_DO_TURNO.as_secs()
+                ))),
+            };
             let _ = tx.send((gatilho, resultado)).await;
         });
     }
@@ -538,8 +574,6 @@ fn cartoes_de_demonstracao(gatilho: Gatilho) -> Vec<Cartao> {
         )],
     }
 }
-
-const ARQUIVO_DEMO: &str = "demonstracao.svg";
 
 /// Grava a imagem da demonstração no mesmo lugar onde as de verdade ficam.
 ///

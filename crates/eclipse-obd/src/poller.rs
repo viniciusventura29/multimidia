@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::capacidades::Capacidades;
 use crate::consumo::MetodoFluxo;
@@ -36,11 +36,21 @@ pub struct Plano {
 
 impl Plano {
     /// Monta a varredura com o que este carro responde e o método de consumo escolhido.
-    pub fn montar(capacidades: Capacidades, metodo: MetodoFluxo) -> Self {
+    ///
+    /// `sem_codigo_recusados` são os PIDs que não têm número no modo 01 (hoje só a
+    /// voltagem, que é `ATRV` do adaptador) e que já se recusaram na prática. Eles
+    /// não cabem na máscara de [`Capacidades`], então quem lembra deles é o poller.
+    pub fn montar(
+        capacidades: Capacidades,
+        metodo: MetodoFluxo,
+        sem_codigo_recusados: &HashSet<Pid>,
+    ) -> Self {
         let vale = |pid: Pid| match pid.codigo() {
             Some(codigo) => capacidades.suporta(codigo),
-            // Sem código não passa pela máscara — é do adaptador, sempre vale.
-            None => true,
+            // Sem código não passa pela máscara — é do adaptador. Vale enquanto
+            // ele responder: um `ATRV` que nunca volta custaria um slot lento por
+            // ciclo, para sempre, e nunca sairia da roda pela máscara.
+            None => !sem_codigo_recusados.contains(&pid),
         };
 
         let mut rapidos: Vec<Pid> = RAPIDOS_BASE.into_iter().filter(|p| vale(*p)).collect();
@@ -96,6 +106,9 @@ pub struct Poller<S> {
     capacidades: Capacidades,
     plano: Plano,
     faltas: HashMap<Pid, u8>,
+    /// Quem desistiu de responder mas não tem lugar na máscara — ver
+    /// [`Plano::montar`].
+    sem_codigo_recusados: HashSet<Pid>,
     /// A varredura mudou desde a última vez que alguém perguntou.
     replanejou: bool,
 }
@@ -107,7 +120,12 @@ impl<S: ObdSource> Poller<S> {
     }
 
     pub fn com_capacidades(source: S, capacidades: Capacidades) -> Self {
-        let plano = Plano::montar(capacidades, MetodoFluxo::escolher(capacidades));
+        let sem_codigo_recusados = HashSet::new();
+        let plano = Plano::montar(
+            capacidades,
+            MetodoFluxo::escolher(capacidades),
+            &sem_codigo_recusados,
+        );
         Self {
             source,
             readings: Readings::default(),
@@ -115,6 +133,7 @@ impl<S: ObdSource> Poller<S> {
             capacidades,
             plano,
             faltas: HashMap::new(),
+            sem_codigo_recusados,
             replanejou: true,
         }
     }
@@ -154,11 +173,17 @@ impl<S: ObdSource> Poller<S> {
                 let faltas = self.faltas.entry(pid).or_default();
                 *faltas += 1;
                 if *faltas >= FALTAS_PARA_DESISTIR {
-                    if let Some(codigo) = pid.codigo() {
-                        tracing::info!(?pid, "o carro não responde este PID; saindo da roda");
-                        self.capacidades.recusar(codigo);
-                        self.replanejar();
+                    tracing::info!(?pid, "não responde este PID; saindo da roda");
+                    match pid.codigo() {
+                        Some(codigo) => self.capacidades.recusar(codigo),
+                        // A voltagem não tem lugar na máscara, e sem esta lista
+                        // ela ficava sendo pedida para sempre — um slot lento por
+                        // ciclo gasto num `ATRV` que o adaptador não responde.
+                        None => {
+                            self.sem_codigo_recusados.insert(pid);
+                        }
                     }
+                    self.replanejar();
                 }
             }
             Err(err) => return Err(err),
@@ -168,7 +193,11 @@ impl<S: ObdSource> Poller<S> {
     }
 
     fn replanejar(&mut self) {
-        let novo = Plano::montar(self.capacidades, MetodoFluxo::escolher(self.capacidades));
+        let novo = Plano::montar(
+            self.capacidades,
+            MetodoFluxo::escolher(self.capacidades),
+            &self.sem_codigo_recusados,
+        );
         if novo != self.plano {
             tracing::info!(rapidos = ?novo.rapidos, lentos = ?novo.lentos, "varredura remontada");
             self.plano = novo;
@@ -369,6 +398,35 @@ mod tests {
         // então continua legível — é o que mantém a bateria no header.
         let poller = Poller::com_capacidades(Contadora::default(), cap_com(&[]));
         assert!(poller.plano().lentos().contains(&Pid::Voltage));
+    }
+
+    /// ...mas sai da roda quando o adaptador não responde `ATRV` na prática.
+    ///
+    /// A voltagem não tem número de PID, então não cabe na máscara — e por isso
+    /// era o único que insistia para sempre. Num barramento de 10.400 baud, isso
+    /// é um slot lento por ciclo queimado até desligar o carro.
+    #[tokio::test]
+    async fn a_tensao_sai_da_roda_quando_o_adaptador_nao_responde() {
+        let mut poller = Poller::com_capacidades(
+            Contadora {
+                nao_suportado: Some(Pid::Voltage),
+                ..Default::default()
+            },
+            carro_com_carga(),
+        );
+
+        for _ in 0..60 {
+            poller.step().await.unwrap();
+        }
+
+        assert_eq!(
+            poller.source.vistos[&Pid::Voltage],
+            FALTAS_PARA_DESISTIR as usize,
+            "o ATRV mudo continuou sendo pedido"
+        );
+        assert!(!poller.plano().lentos().contains(&Pid::Voltage));
+        // E os outros lentos continuam girando normalmente.
+        assert!(poller.plano().lentos().contains(&Pid::Coolant));
     }
 
     #[tokio::test]

@@ -39,6 +39,39 @@ const DESVIOS_PARA_RECALCULAR: u8 = 3;
 /// Distâncias em que a próxima manobra é anunciada, em metros.
 const MARCOS_DE_AVISO: [f64; 3] = [400.0, 150.0, 40.0];
 
+/// Quanto do traçado, para frente e para trás do último ponto conhecido, entra
+/// na busca pelo trecho em que o carro está.
+///
+/// Sem janela, o trecho escolhido é o mais próximo da rota **inteira** — e numa
+/// rota que passa duas vezes pela mesma via (ida e volta, trevo, retorno, laço
+/// de quarteirão) isso põe o carro no trecho errado: a distância restante
+/// despenca, o passo pula e a chegada é anunciada a quilômetros do destino.
+///
+/// Duzentos metros é sete segundos a 100 km/h — folga larga para um GPS de
+/// 1 Hz. Perder o sinal por mais que isso cai na varredura global, que é o
+/// comportamento certo: aí a âncora não vale mesmo.
+const JANELA_DE_BUSCA_M: f64 = 200.0;
+
+/// Quanto um trecho que corre na contramão do carro "afasta" na escolha.
+///
+/// Perto de um retorno, a mão contrária está a poucos metros — mais perto, em
+/// linha reta, que o eixo da própria pista quando o GPS erra para aquele lado.
+/// Distância lateral sozinha escolhe errado ali, e o painel passa a contar a
+/// volta como se já estivesse acontecendo.
+///
+/// Penalidade, e não veto: um trecho na contramão a 4 m ainda ganha de um na
+/// mão certa a 300 m — que é o caso de quem entrou na rua errada de verdade.
+/// O valor é a própria [`TOLERANCIA_DESVIO_M`]: um trecho contramão só vence se
+/// o alternativo já estiver fora da rota.
+const PENALIDADE_CONTRA_MAO_M: f64 = TOLERANCIA_DESVIO_M;
+
+/// O rumo relatado pelo GPS, quando dá para confiar nele.
+///
+/// Parado, ele é ruído — ou nem existe. Ver [`VELOCIDADE_CONFIAVEL_KMH`].
+fn rumo_confiavel(fix: &Fix) -> Option<f32> {
+    (fix.speed_kmh > VELOCIDADE_CONFIAVEL_KMH).then_some(fix.heading)
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Passo {
@@ -150,6 +183,11 @@ pub struct Guia {
     /// esta soma a cada leitura de GPS era percorrer a rota inteira duas vezes
     /// por segundo para chegar sempre ao mesmo vetor.
     acumulado: Vec<f64>,
+    /// Onde ao longo do traçado o carro estava na última avaliação.
+    ///
+    /// É a âncora da [`JANELA_DE_BUSCA_M`]: sem ela, a projeção escolhe o trecho
+    /// mais próximo da rota inteira e uma rota que se cruza engana o painel.
+    ao_longo_atual: Option<f64>,
     desvios_seguidos: u8,
     passo_falado: usize,
     marcos_ditos: [bool; MARCOS_DE_AVISO.len()],
@@ -161,6 +199,13 @@ impl Guia {
         Self {
             acumulado: rota.acumulado(),
             rota,
+            // Começa no zero, e não em "não sei": a rota é sempre traçada **a
+            // partir de onde o carro está** (ver `tracar` no módulo `nav`), então
+            // o começo do traçado é onde ele está agora. Deixar sem âncora faria
+            // a primeira avaliação varrer a rota inteira — e numa ida e volta é
+            // justamente aí que o carro cai na perna de volta e o painel anuncia
+            // chegada antes de sair do lugar.
+            ao_longo_atual: Some(0.0),
             desvios_seguidos: 0,
             passo_falado: usize::MAX,
             marcos_ditos: [false; MARCOS_DE_AVISO.len()],
@@ -170,40 +215,92 @@ impl Guia {
 
     /// Quanto da rota já foi percorrido, a que distância do traçado estamos, e
     /// onde exatamente na via isso cai.
-    fn situar(&self, aqui: (f64, f64)) -> Situacao {
-        let mut desvio_m = f64::MAX;
+    ///
+    /// Procura primeiro **perto de onde sabíamos estar**, e só abre para a rota
+    /// inteira quando ali não cabe — que é o caso legítimo de ter saído do
+    /// caminho, ou de o sinal ter sumido tempo demais. Ver [`JANELA_DE_BUSCA_M`].
+    fn situar(&self, aqui: (f64, f64), rumo_do_carro: Option<f32>) -> Situacao {
+        if let Some(ancora) = self.ao_longo_atual {
+            if let Some(perto) = self.varrer(aqui, rumo_do_carro, Some(ancora)) {
+                if perto.desvio_m <= TOLERANCIA_DESVIO_M {
+                    return perto;
+                }
+            }
+        }
+
+        self.varrer(aqui, rumo_do_carro, None).unwrap_or(Situacao {
+            desvio_m: 0.0,
+            ao_longo_m: 0.0,
+            na_rua: None,
+        })
+    }
+
+    /// O trecho que melhor explica `aqui`, olhando só os que caem dentro da
+    /// janela em torno de `ancora` (ou todos, quando ela é `None`).
+    ///
+    /// "Melhor" é a menor distância lateral **mais** a penalidade de contramão —
+    /// ver [`PENALIDADE_CONTRA_MAO_M`]. O `desvio_m` devolvido é a distância de
+    /// verdade, sem penalidade: é ela que decide se saímos da rota.
+    ///
+    /// `None` quando não sobrou trecho nenhum para olhar: rota vazia, ou uma
+    /// âncora que não alcança segmento algum.
+    fn varrer(
+        &self,
+        aqui: (f64, f64),
+        rumo_do_carro: Option<f32>,
+        ancora: Option<f64>,
+    ) -> Option<Situacao> {
+        let mut melhor = f64::MAX;
+        let mut desvio_m = 0.0;
         let mut ao_longo_m = 0.0;
         let mut na_rua = None;
 
         for (i, par) in self.rota.pontos.windows(2).enumerate() {
+            // Um segmento de comprimento zero (ponto repetido no traçado) não
+            // aponta para lugar nenhum — dele não sai rumo de rua.
+            let rumo_da_via = (par[0] != par[1]).then(|| rumo(par[0], par[1]));
             let (desvio, t) = projetar(aqui, par[0], par[1]);
-            if desvio >= desvio_m {
+
+            let contra_mao = match (rumo_do_carro, rumo_da_via) {
+                (Some(carro), Some(via)) => {
+                    diferenca_angular(carro, via) > DISCORDANCIA_MAXIMA_GRAUS
+                }
+                _ => false,
+            };
+            let nota = desvio
+                + if contra_mao {
+                    PENALIDADE_CONTRA_MAO_M
+                } else {
+                    0.0
+                };
+            if nota >= melhor {
                 continue;
             }
 
+            let (comeco, fim) = (self.acumulado[i], self.acumulado[i + 1]);
+            let candidato = comeco + (fim - comeco) * t;
+
+            // A janela é sobre o ponto **projetado**, não sobre o segmento: um
+            // trecho longo (uma reta de rodovia) entraria inteiro só porque uma
+            // ponta dele encosta na janela, e o encaixe cairia longe de novo.
+            if ancora.is_some_and(|a| (candidato - a).abs() > JANELA_DE_BUSCA_M) {
+                continue;
+            }
+
+            melhor = nota;
             desvio_m = desvio;
-            ao_longo_m = self.acumulado[i] + (self.acumulado[i + 1] - self.acumulado[i]) * t;
-            // Um segmento de comprimento zero (ponto repetido no traçado) não
-            // aponta para lugar nenhum — dele não sai rumo de rua.
-            na_rua = (par[0] != par[1]).then(|| NaRua {
+            ao_longo_m = candidato;
+            na_rua = rumo_da_via.map(|r| NaRua {
                 ponto: interpolar(par[0], par[1], t),
-                rumo: rumo(par[0], par[1]),
+                rumo: r,
             });
         }
 
-        if desvio_m == f64::MAX {
-            return Situacao {
-                desvio_m: 0.0,
-                ao_longo_m: 0.0,
-                na_rua: None,
-            };
-        }
-
-        Situacao {
+        (melhor != f64::MAX).then_some(Situacao {
             desvio_m,
             ao_longo_m,
             na_rua,
-        }
+        })
     }
 
     /// A posição do carro **em cima da rua**, quando dá para afirmar isso.
@@ -218,7 +315,7 @@ impl Guia {
     /// do mundo — para isso seria preciso a Roads API, que é paga por leitura.
     /// Sem rota, ou fora dela, a posição crua passa intacta.
     pub fn grudar(&self, fix: &Fix) -> Fix {
-        let situacao = self.situar((fix.lat, fix.lon));
+        let situacao = self.situar((fix.lat, fix.lon), rumo_confiavel(fix));
 
         // Longe do traçado é longe de verdade. Desenhar o carro na rota aqui
         // seria mentir justamente na hora em que o motorista precisa ver que
@@ -235,8 +332,12 @@ impl Guia {
         // está indo no sentido contrário ao da rota. Nos dois casos o sensor
         // sabe mais que o traçado. Só vale enquanto o rumo do GPS é confiável,
         // ou seja, com o carro andando.
-        if fix.speed_kmh > VELOCIDADE_CONFIAVEL_KMH
-            && diferenca_angular(fix.heading, rua.rumo) > DISCORDANCIA_MAXIMA_GRAUS
+        //
+        // A escolha do trecho já penaliza a contramão, mas isso é preferência,
+        // não proibição: quando só há trecho contramão por perto, ele vence — e
+        // é aqui que se recusa a desenhar o carro em cima dele.
+        if rumo_confiavel(fix)
+            .is_some_and(|r| diferenca_angular(r, rua.rumo) > DISCORDANCIA_MAXIMA_GRAUS)
         {
             return *fix;
         }
@@ -258,7 +359,7 @@ impl Guia {
             desvio_m,
             ao_longo_m: ao_longo,
             ..
-        } = self.situar((fix.lat, fix.lon));
+        } = self.situar((fix.lat, fix.lon), rumo_confiavel(fix));
         let total = self.acumulado.last().copied().unwrap_or(0.0);
         let restante = (total - ao_longo).max(0.0);
 
@@ -280,6 +381,13 @@ impl Guia {
         } else {
             0
         };
+
+        // A âncora da próxima busca só avança com o carro **em cima** da rota.
+        // Fora dela, o último ponto bom continua sendo onde deixamos o caminho —
+        // é de lá que se volta, e é lá que a janela tem que continuar olhando.
+        if !fora {
+            self.ao_longo_atual = Some(ao_longo);
+        }
 
         let fracao = if total > 0.0 { restante / total } else { 0.0 };
 
@@ -535,13 +643,111 @@ mod tests {
     }
 
     /* -------------------------------------------------------------- */
+    /* Rota que passa duas vezes pelo mesmo lugar                      */
+    /* -------------------------------------------------------------- */
+
+    /// Metros ao norte e a leste de um ponto, em graus.
+    fn deslocar(de: (f64, f64), norte_m: f64, leste_m: f64) -> (f64, f64) {
+        (
+            de.0 + norte_m / 110_540.0,
+            de.1 + leste_m / (111_320.0 * de.0.to_radians().cos()),
+        )
+    }
+
+    /// Um carro subindo a rua, a 40 km/h — rumo norte, como a perna de ida.
+    fn subindo(onde: (f64, f64)) -> Fix {
+        Fix {
+            lat: onde.0,
+            lon: onde.1,
+            heading: 0.0,
+            speed_kmh: 40.0,
+            accuracy_m: 10.0,
+        }
+    }
+
+    /// Sobe 500 m por uma rua e volta pela mão contrária, 8 m ao lado.
+    ///
+    /// É a forma de qualquer ida e volta, retorno ou laço de quarteirão — e o
+    /// caso em que a projeção ingênua erra: perto da largada, o traçado de volta
+    /// passa mais perto do carro que o de ida.
+    fn rota_de_ida_e_volta() -> Route {
+        let base = (-23.5700, -46.6500);
+        let fim = deslocar(base, 500.0, 0.0);
+
+        Route {
+            destino: "de volta".into(),
+            pontos: vec![base, fim, deslocar(fim, 0.0, 8.0), deslocar(base, 0.0, 8.0)],
+            passos: vec![Passo {
+                instrucao: "Siga e retorne".into(),
+                detalhe: None,
+                distancia_m: 1_008.0,
+                manobra: None,
+            }],
+            distancia_total_m: 1_008.0,
+            duracao_total_s: 180,
+        }
+    }
+
+    /// O painel não pode anunciar chegada com o carro ainda na largada.
+    ///
+    /// Vinte metros depois de sair, com o GPS errando 12 m para o lado da mão
+    /// contrária, o traçado de **volta** fica a 4 m do carro e o de ida a 12.
+    /// Escolhendo o trecho mais próximo da rota inteira, o painel acha que
+    /// faltam 20 metros para chegar — numa viagem de um quilômetro que acabou
+    /// de começar.
+    #[test]
+    fn ida_e_volta_nao_faz_o_painel_chegar_na_largada() {
+        let mut g = Guia::nova(rota_de_ida_e_volta());
+        let base = (-23.5700, -46.6500);
+        let saindo = deslocar(base, 20.0, 12.0);
+
+        let (p, _) = g.avaliar(&subindo(saindo));
+
+        assert!(
+            !p.chegou,
+            "anunciou chegada a {} m do fim",
+            p.distancia_restante_m
+        );
+        assert!(
+            p.distancia_restante_m > 900.0,
+            "encaixou na perna de volta: faltariam {} m de 1008",
+            p.distancia_restante_m
+        );
+        assert!(!p.fora_da_rota, "12 m de erro de GPS não é sair da rota");
+    }
+
+    /// E ao longo da ida inteira a conta continua andando para frente.
+    #[test]
+    fn ida_e_volta_conta_a_perna_de_ida_antes_da_de_volta() {
+        let mut g = Guia::nova(rota_de_ida_e_volta());
+        let base = (-23.5700, -46.6500);
+        let mut anterior = f64::MAX;
+
+        // Sobe os 500 m da ida, sempre com o erro de GPS puxando para a mão
+        // contrária — que é o pior caso para a projeção.
+        for passo in 0..=25 {
+            let aqui = deslocar(base, f64::from(passo) * 20.0, 12.0);
+            let atual = g.avaliar(&subindo(aqui)).0.distancia_restante_m;
+            assert!(
+                atual <= anterior + 1.0,
+                "a {} m da largada a distância restante AUMENTOU: {anterior} -> {atual}",
+                passo * 20
+            );
+            anterior = atual;
+        }
+
+        // Chegando no retorno, ainda falta a volta inteira.
+        assert!(anterior > 450.0, "faltavam só {anterior} m no retorno");
+    }
+
+    /* -------------------------------------------------------------- */
     /* Grudar o carro na rua                                           */
     /* -------------------------------------------------------------- */
 
     /// Distância de um ponto ao traçado — o que o motorista enxerga como
     /// "o carro está ao lado da linha".
     fn distancia_ao_tracado(g: &Guia, ponto: (f64, f64)) -> f64 {
-        g.situar(ponto).desvio_m
+        g.situar(ponto, None).desvio_m
     }
 
     /// Um ponto a `metros` ao leste de `de` — deslocamento lateral limpo para
