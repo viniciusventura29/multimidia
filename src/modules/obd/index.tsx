@@ -94,7 +94,7 @@ const velocidadeTile: AnyTileSpec = defineTile<ObdReadings>({
   id: "velocidade",
   module: OBD,
   title: "Carro",
-  area: "velocidade",
+  area: "carro",
   Compact: ({ data }) => <Velocidade data={data} />,
   Expanded: Carro,
 });

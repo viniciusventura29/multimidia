@@ -7,7 +7,6 @@ import { useLocalizacaoReal } from "./modules/nav";
 import { ProfilePicker } from "./profiles/ProfilePicker";
 import { BemVindo } from "./shell/BemVindo";
 import { Dashboard } from "./shell/Dashboard";
-import { Header } from "./shell/Header";
 import { Notificacoes } from "./shell/Notificacoes";
 import "./App.css";
 
@@ -47,8 +46,10 @@ export default function App() {
   return (
     <>
       <div className="app">
-        <Header profile={perfis.active} aoTrocar={() => setTrocando(true)} />
-        <Dashboard />
+        <Dashboard
+          profile={perfis.active}
+          aoTrocarPerfil={() => setTrocando(true)}
+        />
       </div>
 
       <BemVindo key={perfis.active.id} profile={perfis.active} />

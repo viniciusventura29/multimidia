@@ -246,6 +246,20 @@ export interface TileSpec<T> {
   /** Ícone no cabeçalho do tile — dá um marcador visual de relance. */
   icon?: React.ReactNode;
   /**
+   * Que moldura este quadro usa.
+   *
+   * `"card"` é o padrão: fundo, cantos redondos, cabeçalho com título e ícone.
+   * `"nu"` tira tudo isso e entrega a célula inteira ao conteúdo.
+   *
+   * A variedade não é enfeite — é o que cria hierarquia. Com cinco quadros de
+   * moldura idêntica, nada na tela diz "olhe aqui primeiro"; o painel fica
+   * plano mesmo com o conteúdo certo dentro. Ganham `"nu"` os dois que **são**
+   * a imagem que mostram: o mapa (uma moldura em volta só faz o mapa parecer
+   * menor do que é) e o assistente (o carro precisa flutuar no fundo, não
+   * morar numa caixa).
+   */
+  chrome?: "card" | "nu";
+  /**
    * Tile que não lê de módulo nenhum (relógio, por ex.): nasce pronto em vez de
    * "carregando", já que nunca vai chegar um evento para ele.
    */

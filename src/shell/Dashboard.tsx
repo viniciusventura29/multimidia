@@ -1,8 +1,10 @@
 import { memo, Suspense, useCallback, useState } from "react";
 
 import { useModuleEnvelope } from "../core/moduleStore";
-import type { AnyTileSpec, Status } from "../core/types";
+import type { AnyTileSpec, Profile, Status } from "../core/types";
 import { Barreira } from "./Barreira";
+import { BarraStatus } from "./BarraStatus";
+import { Motorista } from "./Motorista";
 import { TILES } from "./registry";
 import { Tile } from "./Tile";
 
@@ -45,6 +47,7 @@ const TileHost = memo(function TileHost({
       icon={spec.icon}
       status={status}
       reason={reason}
+      chrome={spec.chrome}
       onExpand={spec.Expanded ? () => aoExpandir(spec.id) : undefined}
     >
       <Barreira titulo={spec.title}>
@@ -108,7 +111,21 @@ function Expandido({
   );
 }
 
-export function Dashboard() {
+/**
+ * O painel.
+ *
+ * O motorista e a faixa de status entram no grid como filhos diretos, e não
+ * como tiles: eles não leem de um módulo só, não expandem, não degradam. São
+ * cabeçalhos — um da coluna do carro, outro da coluna da viagem — e por isso
+ * ficam fora do `TILES`, que é a lista do que **é** quadro.
+ */
+export function Dashboard({
+  profile,
+  aoTrocarPerfil,
+}: {
+  profile: Profile;
+  aoTrocarPerfil: () => void;
+}) {
   const [expandido, setExpandido] = useState<string | null>(null);
 
   const aoExpandir = useCallback((id: string) => setExpandido(id), []);
@@ -119,6 +136,9 @@ export function Dashboard() {
   return (
     <>
       <main className="dashboard">
+        <Motorista profile={profile} aoTrocar={aoTrocarPerfil} />
+        <BarraStatus />
+
         {TILES.map((spec) => (
           <TileHost
             key={spec.id}
