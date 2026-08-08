@@ -104,6 +104,17 @@ body {
  * O WhatsApp não tem área aqui: ele virou notificação que sobe da base (ver
  * `shell/Notificacoes.tsx`), e o espaço que era dele foi para o mapa — que
  * agora desce até o rodapé.
+ *
+ * SOBRE AS PROPORÇÕES, que é o que decide se o painel respira. A linha dos
+ * cards era a mais alta das duas, e o herói, a mais baixa — de trás para a
+ * frente. Um card de duas leituras esticado até quase metade da tela não fica
+ * generoso, fica com buraco; e o herói espremido não tem por que ser herói.
+ * Invertido, cada linha fica do tamanho do que carrega: o carro grande em cima
+ * com ar em volta, e embaixo dois cards curtos, cheios até a borda.
+ *
+ * É a mesma ideia da referência que deu origem a este desenho: o que faz uma
+ * tela parecer limpa não é ter pouca informação — é nenhum bloco estar do
+ * tamanho errado para o que tem dentro.
  */
 .dashboard {
   flex: 1;
@@ -116,13 +127,16 @@ body {
   grid-template-columns: 1fr 1fr 1.95fr;
   /* A primeira linha é `auto` porque cabeçalho tem a altura do seu texto — dar
      uma fração a ele tiraria altura de quem precisa. */
-  grid-template-rows: auto 1.5fr 2.35fr;
+  grid-template-rows: auto 2.1fr 1.75fr;
   gap: var(--gap);
   /* `max(...)` com a safe-area: respeita a barra de gestos do Android sem
      encolher a margem onde ela não existe (head unit). Idem nas laterais, por
-     causa do notch quando o aparelho está deitado. */
-  padding: 0 max(var(--gap), env(safe-area-inset-right))
-    max(var(--gap), env(safe-area-inset-bottom)) max(var(--gap), env(safe-area-inset-left));
+     causa do notch quando o aparelho está deitado.
+     O topo tinha zero: a barra de status e o nome nasciam colados na beirada da
+     tela, sem nem a margem que todo o resto do painel tem. */
+  padding: max(var(--gap), env(safe-area-inset-top))
+    max(var(--gap), env(safe-area-inset-right)) max(var(--gap), env(safe-area-inset-bottom))
+    max(var(--gap), env(safe-area-inset-left));
 }
 
 /* ------------------------------------------------------------------ */
@@ -178,16 +192,24 @@ body {
   border-radius: 50%;
 }
 
-/* A faixa de status, por cima do mapa. Cápsula própria em vez de barra que
-   atravessa a tela: é o cabeçalho da coluna da direita, e não do sistema. */
+/*
+ * A faixa de status, por cima do mapa. Cápsula própria em vez de barra que
+ * atravessa a tela: é o cabeçalho da coluna da direita, e não do sistema.
+ *
+ * Magra de propósito. Ela carrega quatro números que se leem de relance e nunca
+ * se estudam; folga vertical aqui não vira respiro, vira uma tarja gorda no
+ * topo. O respiro que ela precisa é o de FORA — a margem que o `.dashboard`
+ * agora tem no topo.
+ */
 .barra {
   grid-area: barra;
+  align-self: center;
   display: flex;
   align-items: center;
   justify-content: space-evenly;
   gap: 0.5rem;
   min-width: 0;
-  padding: 0.4rem 0.7rem;
+  padding: 0.28rem 0.9rem;
   border-radius: 999px;
   background: var(--tile);
 }
@@ -196,7 +218,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--tom, var(--text));
@@ -666,23 +688,14 @@ body {
  * deixava três blocos boiando cada um no seu meio, sem eixo nenhum em comum.
  */
 .velo__medidor {
+  flex: 1;
   min-height: 0;
   display: grid;
-  place-items: start start;
+  place-items: center start;
 }
 
 .velo__medidor .gauge {
   align-items: flex-start;
-}
-
-/* O conta-giros no meio do quadro: ele é quem toma o vão que sobrava entre a
-   velocidade e os chips. `flex: 1` com o conteúdo centrado — assim a barra fica
-   no meio do vazio em vez de colada em cima ou embaixo. */
-.velo__giro {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  align-content: center;
 }
 
 /* O card ficou mais alto que largo no layout novo, e a velocidade é o que ele
@@ -1610,60 +1623,129 @@ body {
   color: var(--muted);
 }
 
-/*
- * Os atalhos de playlist, quando não há nada tocando.
- *
- * Grade de duas por duas em vez de lista: no quadro compacto, uma lista de
- * quatro linhas seria quatro tirinhas de texto com uma miniatura do tamanho de
- * um selo. Em grade, a capa vira a coisa que se reconhece — que é como se
- * escolhe música — e o nome fica de legenda embaixo.
- */
-.musica-atalhos {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 0.5rem;
-}
+/* ---- O vinil: o quadro quando não há nada tocando ---- */
 
-.musica-atalho {
-  min-width: 0;
+.vinil {
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
 }
 
-.musica-atalho__capa {
+/* O palco é quadrado: quem manda no tamanho é a altura que sobra, e o
+   `aspect-ratio` transforma isso em largura. Sem ele o disco viraria elipse
+   numa célula que não é quadrada — e nenhuma célula do painel é. */
+.vinil__palco {
+  position: relative;
   flex: 1;
   min-height: 0;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+/* Maior que o disco e desfocado: é luz, não anel. */
+.vinil__brilho {
+  position: absolute;
+  inset: -12%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    transparent 68%
+  );
+  filter: blur(14px);
+  opacity: 0.55;
+}
+
+/*
+ * O disco. Os sulcos são um `repeating-radial-gradient` — uma declaração em vez
+ * de trezentos círculos —, e por cima vai um radial que escurece o miolo e a
+ * borda, que é o que dá o vinil em vez de um alvo de tiro.
+ */
+.vinil__disco {
+  position: relative;
   width: 100%;
-  border-radius: var(--r-sm);
-  object-fit: cover;
-  background: var(--tile-alto);
-  transition: opacity 120ms ease;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.55) 0 32%, transparent 32%),
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 255, 255, 0.055) 0 1px,
+      rgba(0, 0, 0, 0) 1px 4px
+    ),
+    radial-gradient(circle at 50% 50%, #22262e 0 60%, #12151b 100%);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  animation: vinil-gira 12s linear infinite;
 }
 
-.musica-atalho:hover .musica-atalho__capa,
-.musica-atalho:focus-visible .musica-atalho__capa {
-  opacity: 0.75;
-  outline: none;
-}
-
-.musica-atalho__nome {
-  flex: none;
-  font-size: 0.68rem;
-  color: var(--muted);
-  white-space: nowrap;
+/* O selo, com a capa. 40% é a proporção de um vinil de verdade — menor vira
+   botão, maior vira a capa com uma borda preta em volta. */
+.vinil__selo {
+  width: 40%;
+  height: 40%;
+  border-radius: 50%;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--accent) 70%, #000),
+    color-mix(in srgb, var(--accent) 25%, #000)
+  );
+}
+
+.vinil__capa {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vinil__furo {
+  position: absolute;
+  width: 5%;
+  height: 5%;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+/*
+ * O reflexo fica FORA do disco que gira — ver o comentário no `music.tsx`.
+ * Sulcos concêntricos são simétricos: se o brilho girasse junto, nada se moveria
+ * na tela e a animação seria invisível.
+ */
+.vinil__reflexo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: linear-gradient(
+    118deg,
+    transparent 34%,
+    rgba(255, 255, 255, 0.09) 47%,
+    rgba(255, 255, 255, 0.02) 53%,
+    transparent 62%
+  );
+}
+
+.vinil__convite {
+  margin: 0;
+  flex: none;
+  font-size: 0.92rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+@keyframes vinil-gira {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .controles {
@@ -2466,6 +2548,12 @@ body {
   /* O pulso sai, a cor e a borda ficam: o alerta de temperatura continua sendo
      alerta sem depender de movimento. */
   .dado--alerta {
+    animation: none;
+  }
+
+  /* O disco para. Ele continua sendo um disco — a forma é que diz "música",
+     não o giro. */
+  .vinil__disco {
     animation: none;
   }
 }

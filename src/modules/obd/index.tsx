@@ -1,8 +1,7 @@
 import { lazy } from "react";
-import { Fuel, Gauge as GaugeIcon, Thermometer, Zap } from "lucide-react";
+import { Fuel, Thermometer, Zap } from "lucide-react";
 
-import { AZUL, RPM_MAX, VERDE, corFuel, corTemp } from "../../core/telemetria";
-import { CIANO } from "./cores";
+import { AZUL, VERDE, corFuel, corTemp } from "../../core/telemetria";
 import { defineTile, type AnyTileSpec, type ObdReadings } from "../../core/types";
 import { Dado } from "../../shell/Dado";
 import { Gauge } from "../../shell/Gauge";
@@ -65,27 +64,17 @@ function Velocidade({ data }: { data: ObdReadings | null }) {
       </div>
 
       {/*
-        O conta-giros, que morava só na tela cheia.
+        SEM CONTA-GIROS AQUI, e a ausência é a decisão.
 
-        O quadro tem espaço para três coisas e mostrava duas, com um vão morto no
-        meio grande o bastante para parecer defeito. O RPM é o candidato óbvio a
-        ocupá-lo: é a segunda coisa que se olha dirigindo, e é ele que diz se a
-        marcha está certa — coisa que a velocidade sozinha não responde.
+        Ele esteve neste quadro por um motivo ruim: tapar um vão morto que
+        existia porque o card era alto demais para o que carregava. Encolhido o
+        card, o vão sumiu — e com ele a justificativa. Voltar a por o RPM agora
+        seria trocar respiro por informação que o motorista não pediu.
 
-        Vem com barra (`max`) e a velocidade não: o giro tem fundo de escala de
-        verdade, e a faixa é a informação (perto do corte importa mais que o
-        número). Velocidade não tem teto que signifique algo num painel de rua.
+        Dirigindo, este quadro responde duas perguntas: "estou a quanto?" e
+        "chego lá?". Giro é pergunta de quem está olhando o motor, e para isso
+        existe a tela cheia, com ele, temperatura e tensão juntos.
       */}
-      <div className="velo__giro">
-        <Gauge
-          value={data?.rpm ?? null}
-          unit="rpm"
-          max={RPM_MAX}
-          tone={CIANO}
-          icon={<GaugeIcon size="1em" />}
-        />
-      </div>
-
       <div className="velo__chips">
         {alerta ? (
           <Dado {...alerta} alerta />
