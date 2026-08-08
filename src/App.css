@@ -16,20 +16,40 @@
  * **Nada aqui é preto puro, de propósito.** Preto absoluto num painel dentro de
  * um carro é buraco: à noite ele some junto com o resto do interior, e de dia,
  * sob sol, vira um espelho onde se vê a cara do motorista e mais nada. Todo
- * degrau tem um resto de azul, que é o que mantém a tela um objeto e não uma
+ * degrau guarda um resto de azul, que é o que mantém a tela um objeto e não uma
  * ausência.
+ *
+ * Esse resto é pequeno de propósito. A rampa nasceu bem azulada, e azul demais
+ * num painel escuro tem um efeito específico: ele lê como cor, não como
+ * superfície, e briga com o acento do perfil — que é a única coisa aqui que
+ * deveria estar colorida. Quase neutro, o fundo some e sobra o conteúdo.
  */
 :root {
   /* Fundo da tela: o mais CLARO dos escuros. */
-  --bg: #1b2028;
+  --bg: #16181c;
   /* O card, afundado no fundo. */
-  --tile: #0c0f14;
+  --tile: #0a0b0e;
   /* O que sobe dentro de um card: chips, hover. Entre o card e o fundo. */
-  --tile-alto: #161b23;
+  --tile-alto: #121417;
   /* O ponto mais escuro. Poço (furo do vinil, campo de texto) e tinta sobre o
      acento — não é superfície, é ausência de luz. */
-  --tinta: #05070a;
-  --line: #2b323e;
+  --tinta: #040406;
+  --line: #24272d;
+
+  /*
+   * O vidro: a superfície de card e de barra.
+   *
+   * É o `--tile` deixando passar um quinto do que está atrás. Sobre fundo
+   * chapado isso quase não muda nada — de propósito, porque o card ali só
+   * precisa amaciar a quina. Onde há desenho atrás (a barra sobre o mapa) é que
+   * ele vira vidro de verdade.
+   *
+   * Fica separado do `--tile` porque `--tile` continua precisando ser OPACO em
+   * outros lugares: o degradê do "tocando agora" termina nele para esconder a
+   * capa, e um fim translúcido deixaria a imagem vazar por baixo do texto.
+   */
+  --vidro: color-mix(in srgb, var(--tile) 80%, transparent);
+  --desfoque: 10px;
   --text: #e8edf5;
   --muted: #7c8899;
   --warn: #f5a524;
@@ -48,9 +68,15 @@
    * (ver `html`), então o painel inteiro encolhe junto num celular deitado em
    * vez de manter cantos de head unit numa tela pela metade.
    */
-  --r-lg: 1.5rem;
-  --r-md: 0.9rem;
-  --r-sm: 0.6rem;
+  /*
+   * Os raios encolheram. Cantos muito redondos num quadro grande empurram o
+   * conteúdo para longe das quinas e dão à tela um ar de aplicativo de celular;
+   * num painel de carro, o que se quer é um instrumento — canto suave o
+   * bastante para não ser régua, reto o bastante para ser painel.
+   */
+  --r-lg: 0.85rem;
+  --r-md: 0.55rem;
+  --r-sm: 0.35rem;
   /* Respiro do card. Subiu de 0,7/0,95 para um valor só e maior: o painel
      estava apertado contra as próprias bordas, e aperto é o que mais separa uma
      tela que parece desenhada de uma que parece montada. */
@@ -148,10 +174,13 @@ body {
   min-height: 0;
   display: grid;
   grid-template-areas:
-    "perfil  perfil   barra"
-    "ia      ia       maps"
-    "carro   spotify  maps";
-  grid-template-columns: 1fr 1fr 1.95fr;
+    "perfil  perfil   risco  barra"
+    "ia      ia       risco  maps"
+    "carro   spotify  risco  maps";
+  /* O `risco` é uma coluna de 1px: o filete que separa o carro da viagem. Como
+     coluna de verdade, e não um `::after` posicionado no olho, ele acompanha
+     sozinho qualquer mudança de proporção das outras colunas. */
+  grid-template-columns: 1fr 1fr 1px 1.95fr;
   /* A primeira linha é `auto` porque cabeçalho tem a altura do seu texto — dar
      uma fração a ele tiraria altura de quem precisa. */
   grid-template-rows: auto 2.1fr 1.75fr;
@@ -164,6 +193,28 @@ body {
   padding: max(var(--gap), env(safe-area-inset-top))
     max(var(--gap), env(safe-area-inset-right)) max(var(--gap), env(safe-area-inset-bottom))
     max(var(--gap), env(safe-area-inset-left));
+}
+
+/*
+ * O filete entre as duas colunas de assunto.
+ *
+ * Some nas pontas em vez de bater nas beiradas: linha que encosta na margem lê
+ * como moldura, e o painel acabou de sair de uma. Assim ela só faz o serviço de
+ * dizer "daqui para lá é outro assunto".
+ */
+/* Mais clara que `--line`, e não `--line`: os filetes de dentro de um card
+   separam coisas parecidas e devem sumir; este separa os dois ASSUNTOS da tela
+   e precisa ser visto, ainda que de canto de olho. */
+.risco {
+  grid-area: risco;
+  --tom-do-risco: color-mix(in srgb, var(--text) 17%, transparent);
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--tom-do-risco) 12%,
+    var(--tom-do-risco) 88%,
+    transparent
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -223,22 +274,28 @@ body {
  * A faixa de status, por cima do mapa. Cápsula própria em vez de barra que
  * atravessa a tela: é o cabeçalho da coluna da direita, e não do sistema.
  *
- * Magra de propósito. Ela carrega quatro números que se leem de relance e nunca
- * se estudam; folga vertical aqui não vira respiro, vira uma tarja gorda no
- * topo. O respiro que ela precisa é o de FORA — a margem que o `.dashboard`
- * agora tem no topo.
+ * Ela ocupa a linha inteira (`stretch`), e não a altura do próprio texto.
+ * Centrada, sobrava vão em cima e embaixo dela — e o de baixo, entre a barra e o
+ * mapa, era o maior buraco da tela: dois blocos da mesma coluna separados por
+ * mais ar do que qualquer outro par do painel. Esticada, ela encosta no mapa
+ * como quem é o cabeçalho dele, que é o que ela é.
+ *
+ * O padding vertical continua pequeno: quem dá a altura é a linha, não a folga
+ * interna. E o raio acompanha o dos cards em vez de ser pílula — cápsula
+ * perfeita ao lado de retângulos arredondados lê como peça de outro conjunto.
  */
 .barra {
   grid-area: barra;
-  align-self: center;
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: space-evenly;
   gap: 0.5rem;
   min-width: 0;
-  padding: 0.28rem 0.9rem;
-  border-radius: 999px;
-  background: var(--tile);
+  padding: 0.3rem 0.9rem;
+  border-radius: var(--r-lg);
+  background: var(--vidro);
+  backdrop-filter: blur(var(--desfoque));
 }
 
 .barra__item {
@@ -273,6 +330,17 @@ body {
  * o painel lia como uma planilha. O que separa o card do fundo agora é a cor —
  * `--tile` contra `--bg` —, que é separação suficiente e não desenha uma grade
  * por cima da tela.
+ *
+ * SOBRE O VIDRO. A superfície é translúcida e desfoca o que está atrás
+ * (`--vidro` + `backdrop-filter`). Vale dizer onde isso aparece e onde não: por
+ * cima de fundo chapado, desfocar um borrão de uma cor só não produz imagem
+ * nenhuma — o que se ganha ali é só a translucidez, que amacia a quina do card.
+ * O efeito de vidro de verdade acontece onde há desenho atrás, que hoje é a
+ * barra de status por cima do mapa. É de lá que ele vem.
+ *
+ * Custa GPU, e a head unit não tem sobrando. Por isso o raio do desfoque é
+ * curto e o vidro está só no que é superfície de painel — card e barra —, nunca
+ * em algo que se mexa quadro a quadro.
  */
 .tile {
   position: relative;
@@ -286,7 +354,8 @@ body {
   padding: var(--pad);
   border: 0;
   border-radius: var(--r-lg);
-  background: var(--tile);
+  background: var(--vidro);
+  backdrop-filter: blur(var(--desfoque));
   transition: background 160ms ease, box-shadow 160ms ease;
 }
 
@@ -2650,8 +2719,12 @@ body {
   gap: 0.7rem;
   padding: 0.7rem 1rem;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-  border-radius: 1.1rem;
-  background: var(--tile-alto);
+  border-radius: var(--r-lg);
+  /* Esta é a única superfície do painel que fica MESMO por cima de outra coisa
+     — ela sobe da base sobre o mapa e os cards. É onde o vidro tem o que
+     desfocar, e por isso é a que mais ganha com ele. */
+  background: color-mix(in srgb, var(--tile-alto) 82%, transparent);
+  backdrop-filter: blur(var(--desfoque));
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
   animation: notif-entra 260ms ease-out;
 }
