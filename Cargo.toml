@@ -38,6 +38,7 @@ eclipse-music = { path = "crates/eclipse-music" }
 eclipse-messaging = { path = "crates/eclipse-messaging" }
 eclipse-sim = { path = "crates/eclipse-sim" }
 eclipse-gps = { path = "crates/eclipse-gps" }
+eclipse-clima = { path = "crates/eclipse-clima" }
 eclipse-mcp = { path = "crates/eclipse-mcp" }
 eclipse-ia = { path = "crates/eclipse-ia" }
 
