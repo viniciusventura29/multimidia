@@ -365,26 +365,23 @@ function Completa({ data }: TileView<MusicState>) {
   const problema = data?.problema ?? null;
   const precisaLogin = problema?.tipo === "precisaLogin";
 
-  // Ao abrir a tela cheia, já carrega as playlists do usuário.
-  useEffect(() => {
-    if (!precisaLogin) dispatchAction(MUSIC, { acao: "playlists" });
-  }, [precisaLogin]);
-
-  if (precisaLogin) {
-    return (
-      <div className="musica">
-        <Conectar />
-        {problema && <p className="tile__reason">{problema.detalhe}</p>}
-      </div>
-    );
-  }
-
   const busca = data?.busca ?? { faixas: [], albuns: [] };
   const playlists = data?.playlists ?? [];
   const contexto = data?.contexto ?? null;
   const carregando = data?.carregando ?? null;
 
+  // Ao abrir a tela cheia, já carrega as playlists do usuário.
+  useEffect(() => {
+    if (!precisaLogin) dispatchAction(MUSIC, { acao: "playlists" });
+  }, [precisaLogin]);
+
   // O contexto de verdade chegou (ou o pedido morreu): larga o otimismo.
+  //
+  // ⚠️ Este efeito precisa ficar ACIMA do `return` de `precisaLogin`. Ele vivia
+  // embaixo, e aí o número de hooks do componente mudava com o estado do login:
+  // na hora em que o token vencia (ou em que o login terminava), o React batia
+  // em "rendered more hooks than during the previous render" e a `Barreira`
+  // trocava a tela cheia da música por "este quadro parou".
   useEffect(() => {
     if (!entrando) {
       comecou.current = false;
@@ -402,6 +399,15 @@ function Completa({ data }: TileView<MusicState>) {
     // lista é melhor que deixar o motorista numa tela que nunca preenche.
     if (comecou.current) setEntrando(null);
   }, [contexto?.uri, carregando, entrando]);
+
+  if (precisaLogin) {
+    return (
+      <div className="musica">
+        <Conectar />
+        {problema && <p className="tile__reason">{problema.detalhe}</p>}
+      </div>
+    );
+  }
 
   // O cabeçalho pode vir do otimismo; as faixas, só do Rust.
   const aberto = contexto ?? entrando;

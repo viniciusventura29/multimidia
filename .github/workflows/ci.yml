@@ -26,6 +26,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx tsc --noEmit
+      # O `tsc` não olha para regra de React: efeito com dependência a mais
+      # compila igual, e foi assim que o autocomplete de destino passou a gastar
+      # uma requisição por segundo. Na primeira execução o lint achou um
+      # `useEffect` depois de um `return` condicional na tela cheia da música —
+      # trocar de estado de login mudava a contagem de hooks e derrubava o
+      # quadro. Ver o `eslint.config.js` para o que está ligado e por quê.
+      - run: npm run lint
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
