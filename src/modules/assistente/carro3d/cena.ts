@@ -34,8 +34,6 @@ import {
   CanvasTexture,
   CircleGeometry,
   Color,
-  BufferAttribute,
-  BufferGeometry,
   Box3,
   DirectionalLight,
   DoubleSide,
@@ -214,11 +212,9 @@ const GROSSA_ATE = 0.056;
 const FINA_DE = 0.076;
 const FINA_ATE = 0.094;
 
-/** Raio do pneu, em metros — 205/55 R16 dá ~0,32 m. */
-const RAIO_DA_RODA = 0.32;
 
 /**
- * Põe o carro na escala e no chão, e separa as quatro rodas.
+ * Põe o carro na escala e no chão.
  *
  * ## Escala e apoio
  *
@@ -228,16 +224,23 @@ const RAIO_DA_RODA = 0.32;
  * certo, venha em polegada, centímetro ou nada. O mesmo vale para a altura — o
  * carro vem flutuando, e é a base da caixa que o assenta no chão.
  *
- * ## As rodas
+ * ## As rodas ficam paradas, e ficam INTEIRAS
  *
- * Vêm num grupo só com os acessórios (`wheels_n_acc`), o que não serve: para
- * girar, cada roda precisa ser um objeto com o próprio eixo. Separá-las por
- * POSIÇÃO resolve — um carro tem exatamente uma roda por quadrante, e um
- * triângulo baixo pertence à roda do quadrante em que ele está. O que estiver
- * alto no mesmo grupo (retrovisor, aerofólio) fica de fora e continua parado,
- * que é o correto.
+ * Elas chegaram a girar. Vinham num grupo só com os acessórios, então era
+ * preciso recortá-las por posição e por raio — e todo recorte de geometria é um
+ * palpite sobre onde uma peça acaba e a outra começa. Os palpites erravam: ora
+ * o para-lama interno ia junto e orbitava o pneu, ora o corte comia uma meia-lua
+ * da borracha.
+ *
+ * Sem girar, não é preciso recortar. E sem recortar, a roda fica exatamente como
+ * o modelador a construiu, que é melhor do que qualquer aproximação que eu
+ * conseguisse costurar. Trocou-se movimento por integridade — num quadro em que
+ * o carro está parado a maior parte do tempo, é troca boa.
+ *
+ * A telemetria que sobrou é a que vale: mergulho de freada, rolagem de curva e o
+ * balanço, que são o corpo inteiro e nunca dependeram do recorte.
  */
-function encaixar(modelo: Object3D): Group[] {
+function encaixar(modelo: Object3D): void {
   modelo.updateWorldMatrix(true, true);
   const caixa = new Box3().setFromObject(modelo);
   const tamanho = caixa.getSize(new Vector3());
@@ -248,7 +251,6 @@ function encaixar(modelo: Object3D): Group[] {
   modelo.position.y = -caixa.min.y * escala;
 
   envernizar(modelo, caixa, tamanho);
-  return separarRodas(modelo);
 }
 
 /**
@@ -460,159 +462,6 @@ function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
 }
 
 
-/**
- * Recorta as quatro rodas do grupo em que elas vieram.
- *
- * ## Por quadrante, e depois por RAIO
- *
- * Só o quadrante não basta, e a primeira versão provou isso na tela: junto das
- * rodas vinham os para-lamas internos, que moram no mesmo quadrante e na mesma
- * altura. Girando com a roda, eles viravam lascas pretas orbitando o pneu.
- *
- * A segunda peneira é a que resolve. Roda é um disco: todo triângulo dela está
- * a menos de um raio do centro, medido NO PLANO DA RODA — ou seja, ignorando o
- * eixo do carro, senão o pneu do outro lado entraria na conta. O que passar do
- * raio não é roda, é a caixa em volta dela, e fica parado.
- *
- * O raio sai da própria geometria: numa roda, a maior distância vertical é o
- * diâmetro. Assim isto funciona para qualquer carro, sem número escrito à mão.
- */
-function separarRodas(modelo: Object3D): Group[] {
-  const rodas: Group[] = [];
-
-  const candidatos: Mesh[] = [];
-  modelo.traverse((no) => {
-    const m = no as Mesh;
-    if (m.isMesh && /wheel|roda/i.test(m.name + (m.parent?.name ?? ""))) candidatos.push(m);
-  });
-
-  for (const malha of candidatos) {
-    const geo = malha.geometry.index ? malha.geometry.toNonIndexed() : malha.geometry;
-    const pos = geo.attributes.position;
-
-    const caixa = new Box3().setFromBufferAttribute(pos as BufferAttribute);
-    const meio = caixa.getCenter(new Vector3());
-    // Acima da metade da altura do grupo não há roda: há retrovisor e aerofólio.
-    const tetoDaRoda = caixa.min.y + (caixa.max.y - caixa.min.y) * 0.5;
-
-    // Centro de cada triângulo, uma vez só — a peneira usa isto duas vezes.
-    const centros: number[] = [];
-    const v = new Vector3();
-    for (let t = 0; t < pos.count; t += 3) {
-      let cx = 0;
-      let cy = 0;
-      let cz = 0;
-      for (let k = 0; k < 3; k++) {
-        v.fromBufferAttribute(pos, t + k);
-        cx += v.x / 3;
-        cy += v.y / 3;
-        cz += v.z / 3;
-      }
-      centros.push(cx, cy, cz);
-    }
-
-    // Primeira peneira: quadrante, entre o que está baixo.
-    const quadrantes: number[][] = [[], [], [], []];
-    const soltos: number[] = [];
-    for (let t = 0, c = 0; t < pos.count; t += 3, c += 3) {
-      if (centros[c + 1] > tetoDaRoda) {
-        soltos.push(t, t + 1, t + 2);
-        continue;
-      }
-      const q = (centros[c] < meio.x ? 0 : 1) + (centros[c + 2] < meio.z ? 0 : 2);
-      quadrantes[q].push(t, t + 1, t + 2);
-    }
-
-    const pai = malha.parent ?? modelo;
-
-    for (const q of quadrantes) {
-      if (q.length === 0) continue;
-
-      /*
-       * O eixo da roda sai da MEDIANA, e o raio de um percentil.
-       *
-       * A versão anterior usava o centro da caixa do quadrante inteiro — e a
-       * caixa incluía o para-lama interno, que puxava o centro para fora do
-       * eixo. Com o centro errado, o teste de disco cortava uma meia-lua do
-       * pneu: a roda aparecia rasgada, com pedaços faltando.
-       *
-       * Mediana resolve porque a roda tem muito mais triângulos que a peça
-       * agarrada nela: metade dos valores cai dentro do pneu, e o centro vai
-       * parar no eixo mesmo com lixo em volta. O raio pelo percentil 90 segue a
-       * mesma lógica — a nuvem densa de distâncias termina no bordo do pneu, e
-       * o que passa disso é a cauda esparsa do para-lama.
-       */
-      const ys: number[] = [];
-      const zs: number[] = [];
-      for (let n = 0; n < q.length; n += 3) {
-        ys.push(centros[q[n] + 1]);
-        zs.push(centros[q[n] + 2]);
-      }
-      const centro = new Vector3(0, mediana(ys), mediana(zs));
-
-      const distancias = ys.map((y, k) => Math.hypot(y - centro.y, zs[k] - centro.z));
-      const raio = percentil(distancias, 0.9);
-
-      // Segunda peneira: dentro do disco, no plano da roda.
-      const dentro: number[] = [];
-      for (let n = 0, k = 0; n < q.length; n += 3, k++) {
-        if (distancias[k] <= raio * 1.1) dentro.push(q[n], q[n + 1], q[n + 2]);
-        else soltos.push(q[n], q[n + 1], q[n + 2]);
-      }
-      if (dentro.length === 0) continue;
-
-      const parte = extrair(geo, dentro);
-      // A geometria vai para o próprio centro: objeto gira em volta da própria
-      // origem, e sem isto a roda orbitaria o meio do carro em vez de rodar.
-      const cf = new Box3().setFromBufferAttribute(
-        parte.attributes.position as BufferAttribute,
-      ).getCenter(new Vector3());
-      parte.translate(-cf.x, -cf.y, -cf.z);
-
-      const eixo = new Group();
-      eixo.position.copy(cf);
-      eixo.add(new Mesh(parte, malha.material));
-      pai.add(eixo);
-      rodas.push(eixo);
-    }
-
-    if (soltos.length > 0) pai.add(new Mesh(extrair(geo, soltos), malha.material));
-    pai.remove(malha);
-  }
-
-  return rodas;
-}
-
-/** Mediana de uma lista — resistente a lixo, ao contrário da média. */
-function mediana(v: number[]): number {
-  const o = [...v].sort((a, b) => a - b);
-  return o[Math.floor(o.length / 2)];
-}
-
-/** O valor abaixo do qual está a fração pedida da lista. */
-function percentil(v: number[], f: number): number {
-  const o = [...v].sort((a, b) => a - b);
-  return o[Math.min(o.length - 1, Math.floor(o.length * f))];
-}
-
-/** Copia os vértices escolhidos para uma geometria nova. */
-function extrair(geo: BufferGeometry, indices: number[]): BufferGeometry {
-  const nova = new BufferGeometry();
-  for (const nome of ["position", "normal", "uv"]) {
-    const attr = geo.attributes[nome];
-    if (!attr) continue;
-    const n = attr.itemSize;
-    const dados = new Float32Array(indices.length * n);
-    for (let i = 0; i < indices.length; i++) {
-      for (let k = 0; k < n; k++) {
-        dados[i * n + k] = attr.array[indices[i] * n + k] as number;
-      }
-    }
-    nova.setAttribute(nome, new BufferAttribute(dados, n));
-  }
-  return nova;
-}
-
 /** Onde o modelo mora. Em `public/`, então o Vite o copia cru para o `dist`. */
 const CAMINHO_DO_MODELO = "/carro.glb";
 
@@ -741,7 +590,7 @@ export function montarCena(
     CAMINHO_DO_MODELO,
     (gltf) => {
       const modelo = gltf.scene;
-      for (const eixo of encaixar(modelo)) rodas.push(eixo);
+      encaixar(modelo);
       // O scan tem o comprimento no eixo Z, com o nariz no +Z; esta cena
       // trabalha com o carro apontando para +X, que é o lado de onde a câmera
       // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
@@ -828,8 +677,6 @@ export function montarCena(
   /* O laço                                                              */
   /* ------------------------------------------------------------------ */
 
-  const rodas: Group[] = [];
-  let giroDaRoda = 0;
   let vitrine = 0;
   let relogio = 0;
   // Suavizados, e não aplicados crus: o OBD entrega leitura a cada ~0,9 s, e
@@ -860,15 +707,6 @@ export function montarCena(
         contorno.color.copy(cor);
         (anel.material as MeshBasicMaterial).color.copy(cor);
       }
-
-      /*
-       * A roda gira na velocidade de verdade. A 100 km/h, um pneu de 0,32 m de
-       * raio dá ~14 voltas por segundo — bem além do que 30 quadros mostram,
-       * então ela vai "andar para trás" como no cinema. É o comportamento certo:
-       * uma roda girando devagar a 100 km/h mentiria mais.
-       */
-      giroDaRoda += (estado.velocidade / 3.6 / RAIO_DA_RODA) * dt;
-      for (const r of rodas) r.rotation.x = -giroDaRoda;
 
       // Mergulho de freada e rolagem de curva, com a mesma assimetria do
       // desenho em SVG: frear afunda o nariz mais do que acelerar o levanta.
