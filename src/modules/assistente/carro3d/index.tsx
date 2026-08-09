@@ -84,7 +84,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
 
     let cena: Cena;
     try {
-      cena = montarCena(canvas, lerAcento());
+      cena = montarCena(canvas, lerAcento(), undefined, aoFalhar);
     } catch (err) {
       // Sem WebGL, ou sem contexto sobrando. Não é erro de programa — é um
       // aparelho dizendo que não dá, e existe um plano B.

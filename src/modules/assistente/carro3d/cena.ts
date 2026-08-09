@@ -31,18 +31,15 @@
 import {
   AmbientLight,
   BackSide,
-  BoxGeometry,
   CanvasTexture,
   CircleGeometry,
   Color,
-  CylinderGeometry,
   DirectionalLight,
   DoubleSide,
   EquirectangularReflectionMapping,
   Group,
   Mesh,
   MeshBasicMaterial,
-  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   PMREMGenerator,
@@ -52,8 +49,7 @@ import {
   WebGLRenderer,
 } from "three";
 
-import { CARRO } from "./blueprint";
-import { construirCarroceria, construirEstufa } from "./carroceria";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 /** O que a cena precisa saber do carro de verdade a cada quadro. */
 export interface EstadoDaCena {
@@ -190,7 +186,15 @@ export interface Cena {
   destruir(): void;
 }
 
-export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Cena {
+/** Onde o modelo mora. Em `public/`, então o Vite o copia cru para o `dist`. */
+const CAMINHO_DO_MODELO = "/carro.glb";
+
+export function montarCena(
+  canvas: HTMLCanvasElement,
+  acentoInicial: string,
+  aoCarregar?: () => void,
+  aoFalhar?: () => void,
+): Cena {
   const renderer = new WebGLRenderer({
     canvas,
     // Fundo transparente: o herói é um quadro nu, e a lavagem do `body` precisa
@@ -220,7 +224,7 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   const camera = new PerspectiveCamera(24, 1, 0.5, 40);
   const alvoDaCamera = new Vector3(0, 0.52, 0);
   /** De onde se olha. O comprimento não importa — quem o define é `enquadrar`. */
-  const direcaoDaCamera = new Vector3(8.4, 2.5, 5.6).normalize();
+  const direcaoDaCamera = new Vector3(8.4, 1.55, 5.6).normalize();
 
   /**
    * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com o
@@ -234,8 +238,8 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
    * somam com a altura do teto. Dimensionar pela altura real do carro cortava o
    * para-choque fora do quadro.
    */
-  const CENA_LARGA = 6.0;
-  const CENA_ALTA = 3.0;
+  const CENA_LARGA = 6.1;
+  const CENA_ALTA = 2.9;
 
   /**
    * Aproxima ou afasta a câmera para a cena caber na caixa que ela recebeu.
@@ -279,235 +283,54 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   contorno.position.set(-5, 2.4, -5.5);
   cena.add(contorno);
 
-  /* --- materiais --- */
-
-  /*
-   * Pintura automotiva de verdade: base clara e verniz por cima.
-   *
-   * A versão anterior era quase preta e metálica, e errava duas vezes. Escura,
-   * ela some no painel escuro e a forma vira silhueta; e `metalness` alto é
-   * *metal*, não pintura — carro pintado é dielétrico com uma camada de verniz,
-   * e é o verniz que faz o reflexo comprido e nítido escorrer pela lateral. O
-   * `clearcoat` do `MeshPhysicalMaterial` é exatamente essa camada.
-   */
-  const pintura = new MeshPhysicalMaterial({
-    color: 0xeef1f5,
-    metalness: 0.0,
-    roughness: 0.42,
-    clearcoat: 1,
-    clearcoatRoughness: 0.045,
-    envMapIntensity: 1.35,
-  });
-  const preto = new MeshStandardMaterial({
-    color: 0x14171c,
-    metalness: 0.25,
-    roughness: 0.5,
-  });
-  const borracha = new MeshStandardMaterial({
-    color: 0x0d0e10,
-    metalness: 0.0,
-    roughness: 0.88,
-  });
-  // Liga polida: é o contraponto claro e duro da pintura macia.
-  const roda = new MeshStandardMaterial({
-    color: 0xb9c0c8,
-    metalness: 1,
-    roughness: 0.22,
-    envMapIntensity: 1.5,
-  });
-  const aceso = new MeshBasicMaterial({ color: 0xfff3d8 });
-  const brasa = new MeshBasicMaterial({ color: 0xe8433c });
-
-  /* --- carroceria --- */
+  /* --- o carro --- */
 
   const carro = new Group();
   cena.add(carro);
 
   const corpo = new Group();
-  /*
-   * A carroceria sobe um dedo em relação às rodas.
-   *
-   * A soleira do blueprint desce quase até o chão — é o que dá o ar de
-   * esportivo no desenho chapado. Em três dimensões, com a roda sendo um sólido
-   * e não um recorte, a mesma soleira cobria metade dela e o carro virava um
-   * bloco pousado. Levantar um pouco devolve o vão embaixo da lateral, que é
-   * onde o olho procura a roda.
-   */
-  corpo.position.y = 0.075;
   carro.add(corpo);
 
-  corpo.add(new Mesh(construirCarroceria(), pintura));
-
   /*
-   * O vidro: pouco verniz e mais rugosidade que a lataria, de propósito. Com o
-   * mesmo verniz da pintura ele espelharia a softbox e voltaria a ficar claro —
-   * ver `construirEstufa`.
-   */
-  const vidro = new MeshPhysicalMaterial({
-    color: 0x090c12,
-    metalness: 0.0,
-    roughness: 0.22,
-    clearcoat: 0.35,
-    clearcoatRoughness: 0.16,
-    envMapIntensity: 0.55,
-    side: DoubleSide,
-  });
-  corpo.add(new Mesh(construirEstufa(), vidro));
-
-  /*
-   * O aerofólio do 3G, que é discreto.
+   * O carro agora é um SCAN, e não geometria escrita.
    *
-   * Antes era uma prateleira de asa de pista, e era ela que fazia o carro ler
-   * como protótipo de Le Mans em vez de cupê de rua. Nas fotos do Eclipse o
-   * aerofólio é baixo, colado na tampa e com pés curtos — some de longe e só
-   * aparece no três-quartos.
-   */
-  const asa = new Mesh(new BoxGeometry(0.34, 0.035, 1.16), pintura);
-  asa.position.set(-1.9, 0.94, 0);
-  corpo.add(asa);
-  for (const z of [-0.44, 0.44]) {
-    const pe = new Mesh(new BoxGeometry(0.07, 0.1, 0.05), pintura);
-    pe.position.set(-1.88, 0.885, z);
-    corpo.add(pe);
-  }
-
-  // Retrovisores: pequenos, e é a ausência deles que mais faz um carro 3D
-  // parecer maquete.
-  for (const z of [-0.66, 0.66]) {
-    const braco = new Mesh(new BoxGeometry(0.1, 0.035, 0.09), preto);
-    braco.position.set(0.42, 0.86, z);
-    corpo.add(braco);
-    const concha = new Mesh(new BoxGeometry(0.17, 0.1, 0.07), pintura);
-    concha.position.set(0.52, 0.885, z * 1.09);
-    concha.rotation.y = z > 0 ? -0.18 : 0.18;
-    corpo.add(concha);
-  }
-
-  // Saia lateral e a faixa escura embaixo: cortam a altura da lataria e é o que
-  // faz o carro parecer baixo sem precisar deitar a soleira no chão.
-  for (const z of [-0.71, 0.71]) {
-    const saia = new Mesh(new BoxGeometry(2.5, 0.13, 0.05), preto);
-    saia.position.set(-0.05, 0.2, z);
-    corpo.add(saia);
-  }
-
-  // A grade e as entradas de ar do para-choque dianteiro.
-  const grade = new Mesh(new BoxGeometry(0.06, 0.11, 0.62), preto);
-  grade.position.set(2.16, 0.36, 0);
-  corpo.add(grade);
-
-  // Farol repuxado e lanterna: dois pontos acesos que dão escala ao resto.
-  for (const z of [-0.48, 0.48]) {
-    const farol = new Mesh(new BoxGeometry(0.1, 0.09, 0.34), aceso);
-    farol.position.set(2.11, 0.6, z);
-    corpo.add(farol);
-
-    const lanterna = new Mesh(new BoxGeometry(0.07, 0.09, 0.3), brasa);
-    lanterna.position.set(-2.15, 0.72, z);
-    corpo.add(lanterna);
-  }
-
-  /* --- rodas --- */
-
-  /*
-   * O eixo da roda é o Z, e ele é deitado UMA vez só.
+   * O que estava aqui antes eram seções transversais interpoladas — uma
+   * carroceria de verdade em matemática, e o mais longe que dá para chegar
+   * escrevendo curva em código. Não chegava nem perto de uma foto, e não ia
+   * chegar: o que separa as duas coisas são dezenas de milhares de vértices que
+   * alguém posicionou um a um, mais faróis, grade, frisos e vinco de porta.
    *
-   * O cilindro do three nasce em pé, com o eixo no Y. Deitar no Z é o que o
-   * transforma em roda — e é fácil fazer isso duas vezes sem perceber, uma no
-   * grupo e outra na malha: 90° mais 90° devolve o cilindro à vertical, e o
-   * carro fica com quatro tambores enterrados no chão em vez de rodas. Foi
-   * exatamente o que aconteceu na primeira versão, e só apareceu olhando.
+   * O modelo é fotogrametria: malha capturada de um Eclipse real com a textura
+   * tirada das mesmas fotos. Por isso o material vem `KHR_materials_unlit` — a
+   * iluminação está ASSADA na textura, e as luzes desta cena não têm efeito
+   * sobre ele. É uma troca consciente: perde-se poder relightar, ganha-se o
+   * carro parecendo um carro.
    *
-   * Com o eixo no Z, girar a roda é girar em Z — não em Y.
+   * Ele chega por rede e demora; até chegar, o quadro fica com o desenho em SVG,
+   * que é o mesmo plano B de sempre.
    */
-  const rodas: Group[] = [];
-  const { eixo } = CARRO;
-
-  /*
-   * A roda, do pneu ao miolo.
-   *
-   * A versão anterior era um cilindro com cinco caixas atravessadas, e era o que
-   * mais denunciava que aquilo não era um carro: roda é a peça que todo mundo
-   * conhece de cor. Aqui ela tem as camadas que se veem numa foto — flanco de
-   * borracha fosco, aro de liga polida um pouco recuado, raios que afinam para
-   * fora e um cubo no centro. O contraste entre borracha fosca e liga espelhada
-   * é metade do efeito; a outra metade é o aro NÃO chegar até a borda do pneu.
-   */
-  const pneuGeo = new CylinderGeometry(eixo.raio, eixo.raio, eixo.largura, 28, 1);
-  pneuGeo.rotateX(Math.PI / 2);
-
-  // O flanco: um disco levemente menor, para o pneu não ser um tubo reto.
-  const flancoGeo = new CylinderGeometry(
-    eixo.raio * 0.995,
-    eixo.raio * 0.93,
-    eixo.largura * 0.24,
-    28,
-    1,
+  const carregador = new GLTFLoader();
+  carregador.load(
+    CAMINHO_DO_MODELO,
+    (gltf) => {
+      const modelo = gltf.scene;
+      // O scan tem o comprimento no eixo Z, com o nariz no +Z; esta cena
+      // trabalha com o carro apontando para +X, que é o lado de onde a câmera
+      // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
+      // traseira, que foi o que aconteceu na primeira tentativa.
+      modelo.rotation.y = Math.PI / 2 + 0.55;
+      // O piso do scan fica 2,8 cm abaixo de zero — sobe para a roda tocar o chão.
+      modelo.position.y = 0.028;
+      corpo.add(modelo);
+      aoCarregar?.();
+    },
+    undefined,
+    (err) => {
+      console.warn("[eclipse] não deu para carregar o modelo do carro", err);
+      aoFalhar?.();
+    },
   );
-  flancoGeo.rotateX(Math.PI / 2);
 
-  const aroGeo = new CylinderGeometry(
-    eixo.raio * 0.68,
-    eixo.raio * 0.68,
-    eixo.largura * 0.62,
-    28,
-    1,
-  );
-  aroGeo.rotateX(Math.PI / 2);
-
-  const cuboGeo = new CylinderGeometry(
-    eixo.raio * 0.2,
-    eixo.raio * 0.2,
-    eixo.largura * 0.7,
-    16,
-    1,
-  );
-  cuboGeo.rotateX(Math.PI / 2);
-
-  for (const x of [eixo.traseiro, eixo.dianteiro]) {
-    for (const z of [-eixo.bitola, eixo.bitola]) {
-      const conjunto = new Group();
-      conjunto.position.set(x, eixo.altura, z);
-
-      conjunto.add(new Mesh(pneuGeo, borracha));
-      for (const lado of [-1, 1]) {
-        const flanco = new Mesh(flancoGeo, borracha);
-        flanco.position.z = lado * eixo.largura * 0.38;
-        flanco.rotation.x = lado > 0 ? 0 : Math.PI;
-        conjunto.add(flanco);
-      }
-      conjunto.add(new Mesh(aroGeo, roda));
-      conjunto.add(new Mesh(cuboGeo, roda));
-
-      /*
-       * Seis raios que afinam para fora, como a liga das fotos.
-       *
-       * O deslocamento vai na GEOMETRIA e não na posição da malha: objeto gira
-       * em volta da própria origem, então um raio posicionado e depois girado
-       * rodopiaria em torno de si mesmo em vez de abrir o leque a partir do
-       * centro da roda.
-       */
-      for (let i = 0; i < 6; i++) {
-        const g = new CylinderGeometry(
-          eixo.raio * 0.075,
-          eixo.raio * 0.14,
-          eixo.raio * 0.66,
-          6,
-          1,
-        );
-        // O cilindro nasce em pé; deitá-lo em Z e depois deitar no plano da roda.
-        g.rotateZ(Math.PI / 2);
-        g.translate(eixo.raio * 0.4, 0, 0);
-        const raio = new Mesh(g, roda);
-        raio.rotation.z = (i * Math.PI * 2) / 6;
-        raio.position.z = eixo.largura * 0.1;
-        conjunto.add(raio);
-      }
-
-      carro.add(conjunto);
-      rodas.push(conjunto);
-    }
-  }
 
   /* --- chão --- */
 
@@ -571,8 +394,8 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   /* O laço                                                              */
   /* ------------------------------------------------------------------ */
 
-  let giroDaRoda = 0;
   let vitrine = 0;
+  let relogio = 0;
   // Suavizados, e não aplicados crus: o OBD entrega leitura a cada ~0,9 s, e
   // pendurar a carroceria direto no dado faria o carro dar solavancos a cada
   // amostra. Aqui cada quadro caminha um pouco em direção ao alvo.
@@ -602,13 +425,16 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
         (anel.material as MeshBasicMaterial).color.copy(cor);
       }
 
-      // Roda: velocidade real virando rotação real. A 100 km/h com pneu de 0,36 m
-      // de raio, isso é ~12 voltas por segundo — bem além do que 30 fps mostram,
-      // então a roda vai "andar para trás" como no cinema. É o comportamento
-      // certo: uma roda que gira devagar a 100 km/h mentiria mais.
-      const rad = estado.velocidade / 3.6 / CARRO.eixo.raio;
-      giroDaRoda += rad * dt;
-      for (const r of rodas) r.rotation.z = -giroDaRoda;
+      /*
+       * As rodas não giram, e a perda é declarada.
+       *
+       * O scan é uma malha única: não existe "a roda" para girar, existe uma
+       * superfície contínua que inclui o pneu. Separá-la exigiria recortar
+       * geometria por posição e torcer para o corte cair no lugar certo em
+       * quatro cantos — frágil, e caro para o que entrega. O que sobrou de
+       * telemetria continua: mergulho de freada, rolagem de curva e o giro de
+       * vitrine, que são o corpo inteiro e funcionam igual.
+       */
 
       // Mergulho de freada e rolagem de curva, com a mesma assimetria do
       // desenho em SVG: frear afunda o nariz mais do que acelerar o levanta.
@@ -627,7 +453,7 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
         estado.parado && !estado.menosMovimento
           ? limitar(((estado.rpm ?? 700) - 700) / 5200, 0, 1)
           : 0;
-      corpo.position.y = 0.075 + tremor * 0.004 * Math.sin(performance.now() / 42);
+      corpo.position.y = tremor * 0.004 * Math.sin(performance.now() / 42);
 
       /*
        * O giro de vitrine.
@@ -642,7 +468,18 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
        * para a frente e inclina para dentro do que o GPS está descrevendo.
        */
       if (estado.parado) {
-        if (!estado.menosMovimento) vitrine += dt * ((Math.PI * 2) / 48);
+        // Balanço de vitrine, e não volta completa.
+        //
+        // Um scan de fotogrametria tem lados bons e lados ruins: o vidro não
+        // fotografa, então o para-brisa e o teto vêm com manchas brancas, e a
+        // traseira tem menos cobertura. Girar 360° exibiria justamente isso de
+        // graça. Balançando vinte graus para cada lado em volta do três-quartos
+        // dianteiro, o quadro prova que é tridimensional mostrando só a parte
+        // que ficou boa.
+        if (!estado.menosMovimento) {
+          relogio += dt;
+          vitrine = Math.sin(relogio * ((Math.PI * 2) / 26)) * 0.34;
+        }
       } else {
         const alvo = limitar(estado.curva * 0.004, -0.22, 0.22);
         vitrine += (alvo - vitrine) * Math.min(1, dt * 1.5);
@@ -659,7 +496,12 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
         const mesh = o as Mesh;
         if (mesh.geometry) mesh.geometry.dispose();
       });
-      for (const mat of [pintura, vidro, preto, borracha, roda, aceso, brasa]) mat.dispose();
+      // Os materiais do modelo vêm do próprio GLTF; o `traverse` acima já solta
+      // as geometrias, e aqui soltam-se as texturas junto.
+      cena.traverse((o) => {
+        const mat = (o as Mesh).material;
+        for (const m of Array.isArray(mat) ? mat : [mat]) m?.dispose();
+      });
       cena.environment?.dispose();
       renderer.dispose();
     },
