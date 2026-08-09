@@ -264,21 +264,42 @@ function encaixar(modelo: Object3D): void {
  * Em fração e não em pixel porque a textura é reduzida antes de entrar no APK:
  * a mesma caixa vale em 2048, em 1024 ou no que vier.
  */
-const EMBLEMAS = [
-  { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308 },
-  { x0: 0.7, x1: 0.727, y0: 0.432, y1: 0.459 },
+const EMBLEMAS: { x0: number; x1: number; y0: number; y1: number; modo: "claro" | "contorno" }[] = [
+  { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308, modo: "claro" },
+  { x0: 0.697, x1: 0.73, y0: 0.428, y1: 0.462, modo: "contorno" },
 ];
+
+/** Pinta um pixel de vermelho, guardando a luz que ele tinha. */
+function pintarVermelho(p: Uint8ClampedArray, i: number): void {
+  const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
+  // A luminosidade de cada pixel é preservada no vermelho, de modo que o relevo
+  // e a borda do emblema continuam lá — vermelho chapado apagaria o desenho e
+  // deixaria uma mancha.
+  p[i] = Math.min(255, 96 + luz * 0.62);
+  p[i + 1] = luz * 0.1;
+  p[i + 2] = luz * 0.1;
+}
 
 /**
  * O emblema da Mitsubishi, em vermelho.
  *
- * Os dois losangos — o da tampa e o do bico do capô — vêm cinza na textura, e
- * os do carro do dono são vermelhos. Não dá para trocar por material — o emblema não é peça, é um
- * desenho pintado no mesmo atlas da lataria —, então a troca acontece nos
- * pixels, uma vez, no carregamento.
+ * Os dois losangos — o da tampa e o do bico do capô — vêm na textura como o
+ * carro de fábrica, e os do carro do dono são vermelhos. Não dá para trocar por
+ * material — o emblema não é peça, é um desenho pintado no mesmo atlas da
+ * lataria —, então a troca acontece nos pixels, uma vez, no carregamento.
  *
- * O que separa o emblema da chapa em volta é diferente em cada um deles — ver o
- * comentário dentro do laço, que é onde a medida está.
+ * Os dois se destacam da chapa de maneiras diferentes, e por isso têm modos
+ * diferentes. Isso não é capricho: é o que a textura tem, medido no atlas.
+ *
+ * - **O DE TRÁS** é um losango branco sólido sobre uma tampa escura — 205 a 234
+ *   de luz contra 85 do fundo. O que o separa é a LUZ, e um corte por
+ *   luminosidade o preenche inteiro. Modo `"claro"`.
+ * - **O DA FRENTE** é do tom exato do capô no MIOLO (154,157,154 contra
+ *   153,153,153): indistinguível. Só o CONTORNO dos losangos tem a tinta
+ *   avermelhada de fábrica. Um corte por cor pinta só esse fio — foi o que
+ *   deixou o logo "pela metade". Modo `"contorno"`: acha o fio vermelho e cresce
+ *   a partir dele para dentro, enchendo os losangos, que são finos e cercados
+ *   pelo próprio contorno.
  */
 function emblemaVermelho(mapa: Texture | null): Texture | null {
   const img = mapa?.image as CanvasImageSource | undefined;
@@ -295,42 +316,58 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
   for (const caixa of EMBLEMAS) {
     const x0 = Math.floor(caixa.x0 * largura);
     const y0 = Math.floor(caixa.y0 * altura);
-    const dados = ctx.getImageData(
-      x0,
-      y0,
-      Math.ceil(caixa.x1 * largura) - x0,
-      Math.ceil(caixa.y1 * altura) - y0,
-    );
+    const w = Math.ceil(caixa.x1 * largura) - x0;
+    const h = Math.ceil(caixa.y1 * altura) - y0;
+    const dados = ctx.getImageData(x0, y0, w, h);
     const p = dados.data;
 
-    for (let i = 0; i < p.length; i += 4) {
-      const r = p[i];
-      const g = p[i + 1];
-      const b = p[i + 2];
-      const luz = 0.3 * r + 0.59 * g + 0.11 * b;
+    if (caixa.modo === "claro") {
+      for (let i = 0; i < p.length; i += 4) {
+        const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
+        if (luz >= 168) pintarVermelho(p, i);
+      }
+    } else {
+      /*
+       * Semente: o fio avermelhado do contorno dos losangos.
+       */
+      const semente = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const croma = p[i] - Math.min(p[i + 1], p[i + 2]);
+          if (croma >= 8) semente[y * w + x] = 1;
+        }
+      }
 
       /*
-       * Dois testes, porque os dois emblemas se destacam da chapa de maneiras
-       * diferentes — e isso não é capricho, é o que a textura tem:
-       *
-       * - O DE TRÁS é um losango branco sobre uma tampa escura: o que o separa
-       *   é a luz. Ele é neutro, sem uma gota de cor.
-       * - O DA FRENTE é do mesmo tom do capô, e um corte por luz não o acharia.
-       *   Mas ele já vem com tinta avermelhada de fábrica, enquanto o capô em
-       *   volta é cinza exato — então o que o separa é a COR.
-       *
-       * Medido no atlas, e não chutado: o de trás dá 205 a 234 de luz contra 85
-       * do fundo, com croma 1; o da frente dá croma de 16 a 33 contra 0 do capô.
+       * Cresce a semente para dentro dos losangos. O raio acompanha a textura —
+       * o losango é fino, e a metade de sua espessura é o que precisa ser
+       * alcançada a partir do contorno. Só pinta pixel de chapa (nem o vão
+       * escuro à direita, nem sombra): o miolo do losango tem a luz do capô.
        */
-      const croma = r - Math.min(g, b);
-      if (luz < 168 && croma < 8) continue;
+      const raio = Math.max(2, Math.round(largura * 0.003));
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
+          if (luz < 90 || luz > 215) continue;
 
-      // A luminosidade de cada pixel é preservada no vermelho, de modo que o
-      // relevo e a borda do emblema continuam lá — vermelho chapado apagaria o
-      // desenho e deixaria uma mancha.
-      p[i] = Math.min(255, 96 + luz * 0.62);
-      p[i + 1] = luz * 0.1;
-      p[i + 2] = luz * 0.1;
+          let perto = semente[y * w + x] === 1;
+          for (let dy = -raio; dy <= raio && !perto; dy++) {
+            const yy = y + dy;
+            if (yy < 0 || yy >= h) continue;
+            for (let dx = -raio; dx <= raio; dx++) {
+              const xx = x + dx;
+              if (xx < 0 || xx >= w) continue;
+              if (semente[yy * w + xx] === 1) {
+                perto = true;
+                break;
+              }
+            }
+          }
+          if (perto) pintarVermelho(p, i);
+        }
+      }
     }
 
     ctx.putImageData(dados, x0, y0);
