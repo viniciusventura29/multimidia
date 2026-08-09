@@ -585,6 +585,20 @@ export function montarCena(
   const CENA_LARGA = 6.1;
   const CENA_ALTA = 2.9;
 
+  /** Raio do piso antes de caber no quadro. Quem o ajusta é `enquadrar`. */
+  const RAIO_DO_PISO = 4.4;
+
+  /*
+   * Quanto da largura visível o chão pode ocupar.
+   *
+   * O resto é a faixa onde já não existe piso — e é nela que a luz termina de
+   * morrer. Sem essa folga, o desvanecimento das bordas do piso acontece fora da
+   * tela e o que se vê é o brilho batendo na beirada do canvas, cortado a seco
+   * numa linha reta. Era o que fazia o herói ler como um card colado por cima do
+   * painel em vez de fazer parte dele.
+   */
+  const FOLGA_DO_CHAO = 0.76;
+
   /**
    * Aproxima ou afasta a câmera para a cena caber na caixa que ela recebeu.
    *
@@ -602,6 +616,19 @@ export function montarCena(
 
     camera.position.copy(direcaoDaCamera).multiplyScalar(distancia).add(alvoDaCamera);
     camera.lookAt(alvoDaCamera);
+
+    /*
+     * O chão é dimensionado pelo que a câmera VÊ, não por um número escrito.
+     *
+     * A largura visível não é `CENA_LARGA`: aquilo é só o mínimo que precisa
+     * caber. Num quadro largo e baixo como o herói, quem manda na distância é a
+     * altura, e sobra muita largura — quase dez metros, contra os seis pedidos.
+     * Dimensionar o piso pelo número pedido o deixaria pequeno demais; dimensionar
+     * por um valor fixo grande o faria estourar quando a proporção mudasse. Medir
+     * resolve os dois casos, e continua resolvendo quando o quadro mudar de forma.
+     */
+    const larguraVisivel = 2 * distancia * tanV * aspecto;
+    chao.scale.setScalar((larguraVisivel * FOLGA_DO_CHAO) / (RAIO_DO_PISO * 2));
   };
 
   /* --- luzes --- */
@@ -686,6 +713,17 @@ export function montarCena(
   /* --- chão --- */
 
   /*
+   * Só a MANCHA DE LUZ entra no grupo que o enquadramento dimensiona.
+   *
+   * A sombra e o anel pertencem ao carro: são do tamanho dele, e encolher os
+   * dois junto com o quadro faria o anel deixar de circundá-lo — vira uma
+   * elipse pequena debaixo do carro em vez do apoio que a referência tem. O
+   * piso é outra coisa: ele é o ambiente, e ambiente é do tamanho do que se vê.
+   */
+  const chao = new Group();
+  cena.add(chao);
+
+  /*
    * O piso do estúdio.
    *
    * Escuro e polido: ele não reflete o carro — reflexo de verdade custaria um
@@ -693,9 +731,22 @@ export function montarCena(
    * o AMBIENTE, e é isso que dá o chão brilhante das fotos. O carro aparece nele
    * pela mancha de sombra, que é o que o olho procura para saber onde a roda
    * toca.
+   *
+   * ## Por que ele CABE no quadro, e por que isso importa
+   *
+   * O piso tinha 8,8 m de diâmetro num quadro que enquadra 6,1 m. O
+   * desvanecimento das bordas dele — que existe justamente para a luz morrer
+   * suave — acontecia fora da tela, e o que se via era o brilho batendo na
+   * beirada do canvas e sendo cortado a seco, numa linha reta. Lia como um card
+   * colado por cima do painel.
+   *
+   * Dimensionado a partir de `CENA_LARGA`, o piso morre por conta própria antes
+   * da borda: não existe corte porque não existe nada para cortar. É o conserto
+   * na origem. Uma máscara de CSS por cima do canvas trataria o sintoma, e ainda
+   * comeria o teto do carro — que vive perto da borda de cima.
    */
   const piso = new Mesh(
-    new CircleGeometry(4.4, 48),
+    new CircleGeometry(RAIO_DO_PISO, 48),
     new MeshStandardMaterial({
       color: 0x14171b,
       metalness: 0.9,
@@ -708,7 +759,7 @@ export function montarCena(
   );
   piso.rotation.x = -Math.PI / 2;
   piso.scale.set(1, 0.66, 1);
-  cena.add(piso);
+  chao.add(piso);
 
   const sombra = new Mesh(
     new CircleGeometry(3.1, 32),

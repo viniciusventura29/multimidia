@@ -1476,25 +1476,6 @@ body {
      página antes de o `pointermove` chegar. */
   touch-action: none;
   cursor: grab;
-  /*
-   * A borda do canvas se dissolve no painel, em vez de terminar numa linha.
-   *
-   * O carro mora num quadro nu — sem fundo, sem moldura —, mas o canvas ainda é
-   * um retângulo, e o brilho roxo do chão batia na beirada dele e era cortado a
-   * seco. A máscara radial apaga os pixels perto das bordas: o miolo (o carro e
-   * o forte do brilho) fica intacto, e a luz que sobra derrete no fundo do
-   * painel, que aparece por trás porque o quadro é transparente. É o "blur
-   * infinito" — não há borda porque não há nada opaco onde ela estaria.
-   *
-   * A elipse é deslocada para cima porque o assunto (o carro) vive no alto e o
-   * brilho se espalha embaixo: assim a máscara come mais do vazio de baixo
-   * e menos do carro. `-webkit-` junto porque a WebView é WebKit. */
-  -webkit-mask-image: radial-gradient(
-    140% 125% at 50% 38%,
-    #000 55%,
-    transparent 100%
-  );
-  mask-image: radial-gradient(140% 125% at 50% 38%, #000 55%, transparent 100%);
 }
 
 .carro3d:active {
