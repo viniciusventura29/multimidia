@@ -1456,6 +1456,24 @@ body {
   height: 100%;
 }
 
+/* ---- O carro em três dimensões ---- */
+
+/* O invólucro existe para o canvas ter uma caixa com altura concreta contra a
+   qual medir: `height: 100%` dentro de um flex de altura automática resolve
+   para `auto`, e um canvas de altura automática nasce com os 150px do padrão do
+   HTML — o carro sairia do tamanho de um selo, sem erro nenhum no console. */
+.heroi-carro {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.carro3d {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .carrinho__horizonte {
   stroke: var(--accent);
   stroke-width: 1;

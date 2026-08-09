@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 
 import { defineTile, type AnyTileSpec, type TileView } from "../../core/types";
-import { Carrinho } from "./carrinho";
+import { CarroDoHeroi } from "./carro";
 import { CartaoView } from "./cartoes";
 import { envelheceu, VALIDADE_MS, type AssistenteState } from "./tipos";
 
@@ -16,7 +16,7 @@ import { envelheceu, VALIDADE_MS, type AssistenteState } from "./tipos";
  * se desenha o que ele pintou.
  *
  * Quando não há nada para dizer — que é a maior parte do tempo —, a coluna vira
- * o [`Carrinho`], que reage à telemetria de verdade.
+ * o carro do próprio Eclipse, que reage à telemetria de verdade (ver `carro.tsx`).
  */
 
 /**
@@ -36,7 +36,7 @@ function useRelogio(intervaloMs: number): number {
   return agora;
 }
 
-function Assistente({ data, status }: TileView<AssistenteState>) {
+function Assistente({ data, status, coberto }: TileView<AssistenteState>) {
   // Um minuto: a validade é de vinte e cinco, então checar mais miúdo que isso
   // seria acordar o React à toa dentro de um carro.
   const agora = useRelogio(60_000);
@@ -57,7 +57,7 @@ function Assistente({ data, status }: TileView<AssistenteState>) {
   }
 
   if (!mostrarQuadro) {
-    return <Carrinho />;
+    return <CarroDoHeroi coberto={coberto} />;
   }
 
   return (
@@ -91,7 +91,7 @@ function AssistenteCompleto(view: TileView<AssistenteState>) {
   if (cartoes.length === 0) {
     return (
       <div className="ia-completa ia-completa--vazia">
-        <Carrinho />
+        <CarroDoHeroi />
         <p className="ia__texto">
           Nada novo agora. Eu apareço sozinha quando houver — ao ligar o carro,
           ao traçar uma rota, ou se o carro pedir atenção.
