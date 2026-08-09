@@ -3,32 +3,37 @@
  *
  * ## Por que não um modelo pronto
  *
- * O caminho óbvio seria baixar um GLTF de carro e carregar. Ele foi descartado
- * por três motivos, e vale registrar para ninguém tentar de novo sem saber:
- * um modelo decente pesa de 2 a 15 MB num APK que já tem 66; a licença de
- * redistribuição raramente permite; e nenhum deles é um Eclipse — seria "um
- * cupê genérico" no lugar do carro que o painel inteiro fala sobre. A geometria
- * daqui sai da silhueta que o projeto já tinha (ver `blueprint.ts`), custa zero
- * byte de download e continua sendo o carro certo.
+ * O caminho óbvio seria baixar um GLTF de cupê genérico. Foi descartado, e vale
+ * registrar para ninguém tentar de novo sem saber: um modelo decente pesa de 2 a
+ * 15 MB num APK que já tem 66; a licença raramente permite redistribuir; e
+ * nenhum deles é um Eclipse — seria outro carro no lugar do carro que o painel
+ * inteiro fala sobre. O que está em `public/carro.glb` é fotogrametria de um
+ * Eclipse 3G de verdade: 384 KB, oito mil triângulos, texturas em webp.
  *
- * ## Por que estilizado e não fotorrealista
+ * ## O carro é PRATA, e é o painel que o escurece
  *
- * Fotorrealismo pede material PBR com mapa de ambiente de verdade, texturas e,
- * de preferência, sombra projetada — tudo isso numa Mali-G52 que já está
- * segurando o mapa. E, mesmo se coubesse, um carro branco de estúdio brigaria
- * com um painel escuro cuja única cor é o acento de quem dirige. Aqui a
- * carroceria é escura e quem a desenha é uma luz de contorno na cor do perfil:
- * lê como foto de produto, mantém a identidade e cabe no orçamento.
+ * A carroceria do scan é clara — prata de fábrica, com as listras de corrida em
+ * cinza. Não é decisão desta cena e não dá para reverter por material: é a
+ * fotografia da lataria, colada no atlas. Quem escurece o quadro é o painel
+ * atrás dele, e quem devolve a identidade do perfil é a luz de contorno na cor
+ * do acento, que corre pelo teto e pelas caixas de roda.
  *
  * ## O orçamento
  *
- * Menos de 3 mil triângulos, sem sombra projetada (uma mancha no chão faz o
- * serviço), sem antialias, sem textura de arquivo — o mapa de ambiente é um
- * degradê de 64x32 gerado em memória. O laço roda a 30 fps, não 60: numa roda
+ * Oito mil triângulos, sem sombra projetada (três manchas no chão fazem o
+ * serviço), sem piso e sem mapa de ambiente de arquivo — o ambiente é um
+ * degradê de 512x256 gerado em memória. O laço roda a 30 fps, não 60: numa roda
  * girando ninguém vê a diferença, e é metade do custo.
+ *
+ * O que se gasta, se gasta em NITIDEZ: antialias, filtro anisotrópico e tone
+ * mapping. São os três itens que separam "render" de "foto de estúdio", e os
+ * três são baratos numa área de 500x280. O que ficou de fora é o caro: reflexo
+ * do carro no chão, que pede uma segunda passada do modelo inteiro.
  */
 
 import {
+  ACESFilmicToneMapping,
+  AdditiveBlending,
   AmbientLight,
   BackSide,
   CanvasTexture,
@@ -36,7 +41,6 @@ import {
   Color,
   Box3,
   DirectionalLight,
-  DoubleSide,
   EquirectangularReflectionMapping,
   Group,
   Matrix4,
@@ -47,7 +51,6 @@ import {
   MeshStandardMaterial,
   PerspectiveCamera,
   PMREMGenerator,
-  RingGeometry,
   Scene,
   Texture,
   Vector3,
@@ -90,8 +93,11 @@ const limitar = (v: number, min: number, max: number) =>
  * lateral do carro.
  */
 function ambiente(renderer: WebGLRenderer) {
-  const L = 256;
-  const A = 128;
+  // 512x256 e não 256x128: o horizonte é uma BORDA, e borda em textura baixa
+  // chega ao PMREM já derretida — some justamente o risco reto que a lataria
+  // devolve. É custo de carregamento, não de quadro.
+  const L = 512;
+  const A = 256;
   const cv = document.createElement("canvas");
   cv.width = L;
   cv.height = A;
@@ -132,6 +138,21 @@ function ambiente(renderer: WebGLRenderer) {
   caixa(L * 0.06, A * 0.1, L * 0.42, A * 0.22, 0.95);
   caixa(L * 0.58, A * 0.14, L * 0.3, A * 0.16, 0.6);
 
+  /*
+   * A régua de luz.
+   *
+   * Uma faixa comprida e estreita logo acima do horizonte. É ela que vira o
+   * RISCO que escorre da caixa de roda dianteira à traseira nas fotos de
+   * catálogo — uma softbox redonda não sabe desenhar isso: ela devolve um brilho
+   * redondo. O que dá o risco é uma fonte de luz que já é um risco.
+   */
+  const regua = ctx.createLinearGradient(0, A * 0.375, 0, A * 0.455);
+  regua.addColorStop(0, "rgba(255,255,255,0)");
+  regua.addColorStop(0.5, "rgba(255,255,255,0.9)");
+  regua.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = regua;
+  ctx.fillRect(L * 0.02, A * 0.375, L * 0.56, A * 0.08);
+
   const textura = new CanvasTexture(cv);
   textura.mapping = EquirectangularReflectionMapping;
 
@@ -144,39 +165,21 @@ function ambiente(renderer: WebGLRenderer) {
 }
 
 /**
- * A máscara que apaga o piso nas bordas.
+ * Uma mancha redonda que morre nas bordas, branca. Serve de sombra e de poça.
  *
- * Um disco de chão opaco encheria o fundo de cinza e taparia o painel — o quadro
- * do herói é nu, e o fundo dele é a tela. Some das beiradas para dentro, o piso
- * existe só onde serve: embaixo do carro, dando o brilho de estúdio e o apoio
- * para a roda tocar.
+ * `nucleo` é o quanto ela fecha no miolo e `meio` onde ela já está morrendo. A
+ * cor sai do material — aqui só se desenha a FORMA, no canal alfa, e a mesma
+ * textura serve para a poça de luz e para as duas sombras.
  */
-function texturaDoPiso(): CanvasTexture {
+function texturaDaMancha(nucleo: number, meio: number): CanvasTexture {
   const cv = document.createElement("canvas");
   cv.width = cv.height = 128;
   const ctx = cv.getContext("2d")!;
 
   const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, "#ffffff");
-  g.addColorStop(0.42, "#c8c8c8");
-  g.addColorStop(0.78, "#2a2a2a");
-  g.addColorStop(1, "#000000");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 128, 128);
-
-  return new CanvasTexture(cv);
-}
-
-/** A mancha de sombra no chão. Custa um quad; sombra projetada custa um passe. */
-function texturaDaSombra(): CanvasTexture {
-  const cv = document.createElement("canvas");
-  cv.width = cv.height = 128;
-  const ctx = cv.getContext("2d")!;
-
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, "rgba(0,0,0,0.78)");
-  g.addColorStop(0.55, "rgba(0,0,0,0.34)");
-  g.addColorStop(1, "rgba(0,0,0,0)");
+  g.addColorStop(0, `rgba(255,255,255,${nucleo})`);
+  g.addColorStop(0.55, `rgba(255,255,255,${meio})`);
+  g.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 128, 128);
 
@@ -188,7 +191,22 @@ function texturaDaSombra(): CanvasTexture {
 /* ------------------------------------------------------------------ */
 
 export interface Cena {
-  redimensionar(largura: number, altura: number): void;
+  /**
+   * O canvas mudou de tamanho.
+   *
+   * `largura` e `altura` são as do CANVAS, que é maior que o quadro do painel —
+   * ele sangra para fora do card de propósito, para a luz do chão não acabar
+   * numa linha reta na beirada. As sangrias são a razão entre um e outro (1 =
+   * sem sangria), e servem para o carro ficar do MESMO tamanho de antes: sem
+   * elas, um canvas maior só aproximaria a câmera e a sangria não sangraria
+   * nada. Ver `.carro3d` no CSS.
+   */
+  redimensionar(
+    largura: number,
+    altura: number,
+    sangriaX: number,
+    sangriaY: number,
+  ): void;
   atualizar(estado: EstadoDaCena, dt: number): void;
   desenhar(): void;
   destruir(): void;
@@ -240,7 +258,7 @@ const FINA_ATE = 0.094;
  * A telemetria que sobrou é a que vale: mergulho de freada, rolagem de curva e o
  * balanço, que são o corpo inteiro e nunca dependeram do recorte.
  */
-function encaixar(modelo: Object3D): void {
+function encaixar(modelo: Object3D, anisotropia: number): void {
   modelo.updateWorldMatrix(true, true);
   const caixa = new Box3().setFromObject(modelo);
   const tamanho = caixa.getSize(new Vector3());
@@ -250,56 +268,239 @@ function encaixar(modelo: Object3D): void {
   modelo.scale.setScalar(escala);
   modelo.position.y = -caixa.min.y * escala;
 
-  envernizar(modelo, caixa, tamanho);
+  envernizar(modelo, caixa, tamanho, anisotropia);
 }
 
 /**
- * Onde os emblemas moram no atlas da textura, em coordenadas de 0 a 1.
+ * O emblema da TAMPA TRASEIRA, e onde ele mora no atlas.
  *
- * São dois, e foi preciso caçar os dois: o da tampa traseira, entre a terceira
- * luz de freio e o "GTS", e o do bico do capô, que é bem mais discreto e mora
- * numa parte completamente diferente do atlas — costura de fotogrametria não
- * tem, mas costura de modelador também não segue ordem nenhuma.
+ * Um losango branco sólido sobre uma tampa escura — 205 a 234 de luz contra 85
+ * do fundo. O que o separa da chapa é a LUZ, e um corte por luminosidade o
+ * preenche inteiro, com a forma exata que o fotógrafo capturou. Recortar é o
+ * certo aqui: a informação está na textura.
  *
  * Em fração e não em pixel porque a textura é reduzida antes de entrar no APK:
  * a mesma caixa vale em 2048, em 1024 ou no que vier.
  */
-const EMBLEMAS: { x0: number; x1: number; y0: number; y1: number; modo: "claro" | "contorno" }[] = [
-  { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308, modo: "claro" },
-  { x0: 0.697, x1: 0.73, y0: 0.428, y1: 0.462, modo: "contorno" },
-];
+const EMBLEMA_DE_TRAS = {
+  x0: 0.193,
+  x1: 0.223,
+  y0: 0.283,
+  y1: 0.308,
+  /** Acima disto o pixel é emblema. Entre os 234 dele e os 85 da tampa, sobra. */
+  luzMinima: 168,
+};
 
-/** Pinta um pixel de vermelho, guardando a luz que ele tinha. */
-function pintarVermelho(p: Uint8ClampedArray, i: number): void {
-  const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
-  // A luminosidade de cada pixel é preservada no vermelho, de modo que o relevo
-  // e a borda do emblema continuam lá — vermelho chapado apagaria o desenho e
-  // deixaria uma mancha.
-  p[i] = Math.min(255, 96 + luz * 0.62);
-  p[i + 1] = luz * 0.1;
-  p[i + 2] = luz * 0.1;
+/**
+ * O emblema do BICO DO CAPÔ, que não se recorta — se DESENHA.
+ *
+ * ## Por que recortar não funciona aqui
+ *
+ * A marca inteira ocupa **13 por 13 pixels** no atlas de 1024, e o miolo dos
+ * losangos tem o tom exato do capô em volta (154,157,154 contra 153,153,153).
+ * Só o contorno guarda um fio da tinta avermelhada de fábrica, e ainda assim
+ * com croma da ordem do ruído do webp.
+ *
+ * A tentativa anterior semeava nesse fio e crescia a partir dele. Num quadrado
+ * de treze pixels, crescer três pixels transforma UMA semente falsa numa mancha
+ * de sete por sete — metade da marca. Não existe limiar que salve: a forma não
+ * está na textura, e nenhum recorte inventa o que não foi fotografado.
+ *
+ * ## Então desenha-se
+ *
+ * Três losangos de 60° encostados no centro, que é a marca da Mitsubishi.
+ * `giro` não é gosto: a ilha de UV do bico chega girada no atlas, e os números
+ * abaixo saíram de medir onde as três pontas caem na textura de verdade — a de
+ * cima-direita a -55°, a de baixo a 65°, a da esquerda a 185°.
+ *
+ * Antes do carimbo, `limpeza` alisa o borrão original (tira o croma e puxa a
+ * luz para a da chapa em volta); sem isso o fio avermelhado de fábrica ficaria
+ * como um fantasma em volta da marca nova.
+ *
+ * Tudo em fração do atlas, pelo mesmo motivo da caixa de trás.
+ */
+const EMBLEMA_DA_FRENTE = {
+  cx: 0.7132,
+  cy: 0.4441,
+  /** Do centro até a ponta de um losango. */
+  raio: 0.00703,
+  giro: (-55 * Math.PI) / 180,
+  /** Até onde a chapa é alisada antes de receber o carimbo. */
+  limpeza: 0.0103,
+  /** A largura da transição do alisamento. Curta demais deixa um disco visível. */
+  esfumado: 0.0044,
+};
+
+/**
+ * O vermelho do emblema para um pixel de dada luminosidade.
+ *
+ * A luz do pixel é preservada no vermelho, de modo que o relevo e a sombra da
+ * chapa continuam lá — vermelho chapado apagaria o desenho e viraria adesivo.
+ */
+function vermelhoDoEmblema(luz: number): [number, number, number] {
+  return [Math.min(255, 96 + luz * 0.62), luz * 0.1, luz * 0.1];
+}
+
+/** O corte por luz que preenche o losango da tampa traseira. */
+function pintarOEmblemaDeTras(
+  ctx: CanvasRenderingContext2D,
+  largura: number,
+  altura: number,
+): void {
+  const e = EMBLEMA_DE_TRAS;
+  const x0 = Math.floor(e.x0 * largura);
+  const y0 = Math.floor(e.y0 * altura);
+  const w = Math.ceil(e.x1 * largura) - x0;
+  const h = Math.ceil(e.y1 * altura) - y0;
+
+  const dados = ctx.getImageData(x0, y0, w, h);
+  const p = dados.data;
+  for (let i = 0; i < p.length; i += 4) {
+    const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
+    if (luz < e.luzMinima) continue;
+    const [r, g, b] = vermelhoDoEmblema(luz);
+    p[i] = r;
+    p[i + 1] = g;
+    p[i + 2] = b;
+  }
+  ctx.putImageData(dados, x0, y0);
 }
 
 /**
- * O emblema da Mitsubishi, em vermelho.
+ * Os três losangos de 60° da marca, como caminho.
  *
- * Os dois losangos — o da tampa e o do bico do capô — vêm na textura como o
- * carro de fábrica, e os do carro do dono são vermelhos. Não dá para trocar por
- * material — o emblema não é peça, é um desenho pintado no mesmo atlas da
- * lataria —, então a troca acontece nos pixels, uma vez, no carregamento.
+ * Cada um é um losango cuja diagonal longa mede `raio` e sai do centro: ponta
+ * interna no centro, ponta externa em `raio`, e os dois vértices de lado na
+ * metade do caminho, afastados de `raio/(2·√3)` — a conta de um losango de
+ * 60/120 graus. Três deles a 120° um do outro, e está feita a marca.
+ */
+function losangosDaMarca(
+  cx: number,
+  cy: number,
+  raio: number,
+  giro: number,
+): Path2D {
+  const caminho = new Path2D();
+  const lado = raio / (2 * Math.sqrt(3));
+  for (let k = 0; k < 3; k++) {
+    const a = giro + (k * 2 * Math.PI) / 3;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    caminho.moveTo(cx, cy);
+    caminho.lineTo(cx + (raio / 2) * ux - lado * uy, cy + (raio / 2) * uy + lado * ux);
+    caminho.lineTo(cx + raio * ux, cy + raio * uy);
+    caminho.lineTo(cx + (raio / 2) * ux + lado * uy, cy + (raio / 2) * uy - lado * ux);
+    caminho.closePath();
+  }
+  return caminho;
+}
+
+/**
+ * Alisa o borrão de fábrica e carimba a marca por cima, no bico do capô.
  *
- * Os dois se destacam da chapa de maneiras diferentes, e por isso têm modos
- * diferentes. Isso não é capricho: é o que a textura tem, medido no atlas.
+ * Quem antisserrilha é o próprio canvas: a marca é desenhada numa máscara e o
+ * canal alfa dela vira a cobertura de cada pixel. Em treze pixels isso é o mais
+ * nítido que a textura comporta — e é outro planeta em relação a uma dilatação
+ * de vizinhança, que só sabe pintar pixel inteiro.
+ */
+function carimbarOEmblemaDaFrente(
+  ctx: CanvasRenderingContext2D,
+  largura: number,
+  altura: number,
+): void {
+  const e = EMBLEMA_DA_FRENTE;
+  const cx = e.cx * largura;
+  const cy = e.cy * altura;
+  const raio = e.raio * largura;
+  const limpeza = e.limpeza * largura;
+  const esfumado = e.esfumado * largura;
+
+  const x0 = Math.max(0, Math.floor(cx - limpeza - 2));
+  const y0 = Math.max(0, Math.floor(cy - limpeza - 2));
+  const w = Math.min(largura, Math.ceil(cx + limpeza + 2)) - x0;
+  const h = Math.min(altura, Math.ceil(cy + limpeza + 2)) - y0;
+  if (w <= 0 || h <= 0) return;
+
+  // A máscara: a marca desenhada em branco, e o alfa dela é a cobertura.
+  const mcv = document.createElement("canvas");
+  mcv.width = w;
+  mcv.height = h;
+  const mctx = mcv.getContext("2d")!;
+  mctx.fillStyle = "#fff";
+  mctx.fill(losangosDaMarca(cx - x0, cy - y0, raio, e.giro));
+  const mascara = mctx.getImageData(0, 0, w, h).data;
+
+  const dados = ctx.getImageData(x0, y0, w, h);
+  const p = dados.data;
+
+  /*
+   * A luz da chapa em volta, medida num anel logo fora da área alisada.
+   *
+   * É para ela que o borrão é puxado. Um valor escrito à mão daria um remendo
+   * mais claro ou mais escuro que o capô assim que a exposição da textura
+   * mudasse; a mediana do anel é o capô dizendo o próprio tom.
+   */
+  const anel: number[] = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const d = Math.hypot(x0 + x - cx, y0 + y - cy);
+      if (d <= limpeza || d >= limpeza + 6) continue;
+      const i = (y * w + x) * 4;
+      anel.push(0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2]);
+    }
+  }
+  anel.sort((a, b) => a - b);
+  const base = anel.length ? anel[anel.length >> 1] : 148;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      let r = p[i];
+      let g = p[i + 1];
+      let b = p[i + 2];
+      let luz = 0.3 * r + 0.59 * g + 0.11 * b;
+
+      // 1. alisa: tira o croma de fábrica e puxa a luz para a da chapa.
+      const d = Math.hypot(x0 + x - cx, y0 + y - cy);
+      const k = limitar((limpeza - d) / esfumado, 0, 1);
+      if (k > 0) {
+        r -= (r - Math.min(g, b)) * k;
+        const f = (luz + (base - luz) * 0.85 * k) / Math.max(1, luz);
+        r *= f;
+        g *= f;
+        b *= f;
+        luz = 0.3 * r + 0.59 * g + 0.11 * b;
+      }
+
+      // 2. carimba, na cobertura que a máscara mandar.
+      const a = mascara[i + 3] / 255;
+      if (a > 0) {
+        const [vr, vg, vb] = vermelhoDoEmblema(luz);
+        r += (vr - r) * a;
+        g += (vg - g) * a;
+        b += (vb - b) * a;
+      }
+
+      p[i] = r;
+      p[i + 1] = g;
+      p[i + 2] = b;
+    }
+  }
+  ctx.putImageData(dados, x0, y0);
+}
+
+/**
+ * Os emblemas da Mitsubishi, em vermelho.
  *
- * - **O DE TRÁS** é um losango branco sólido sobre uma tampa escura — 205 a 234
- *   de luz contra 85 do fundo. O que o separa é a LUZ, e um corte por
- *   luminosidade o preenche inteiro. Modo `"claro"`.
- * - **O DA FRENTE** é do tom exato do capô no MIOLO (154,157,154 contra
- *   153,153,153): indistinguível. Só o CONTORNO dos losangos tem a tinta
- *   avermelhada de fábrica. Um corte por cor pinta só esse fio — foi o que
- *   deixou o logo "pela metade". Modo `"contorno"`: acha o fio vermelho e cresce
- *   a partir dele para dentro, enchendo os losangos, que são finos e cercados
- *   pelo próprio contorno.
+ * O carro de fábrica os tem prateados e o do dono os tem vermelhos. Não dá para
+ * trocar por material — o emblema não é peça, é um desenho pintado no mesmo
+ * atlas da lataria —, então a troca acontece nos pixels, uma vez, no
+ * carregamento.
+ *
+ * Os dois recebem tratamentos diferentes porque estão na textura de maneiras
+ * diferentes: o de trás foi fotografado e se recorta; o da frente não sobreviveu
+ * à resolução e se desenha. O porquê de cada um está em `EMBLEMA_DE_TRAS` e
+ * `EMBLEMA_DA_FRENTE`.
  */
 function emblemaVermelho(mapa: Texture | null): Texture | null {
   const img = mapa?.image as CanvasImageSource | undefined;
@@ -313,65 +514,8 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
   const ctx = cv.getContext("2d")!;
   ctx.drawImage(img, 0, 0);
 
-  for (const caixa of EMBLEMAS) {
-    const x0 = Math.floor(caixa.x0 * largura);
-    const y0 = Math.floor(caixa.y0 * altura);
-    const w = Math.ceil(caixa.x1 * largura) - x0;
-    const h = Math.ceil(caixa.y1 * altura) - y0;
-    const dados = ctx.getImageData(x0, y0, w, h);
-    const p = dados.data;
-
-    if (caixa.modo === "claro") {
-      for (let i = 0; i < p.length; i += 4) {
-        const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
-        if (luz >= 168) pintarVermelho(p, i);
-      }
-    } else {
-      /*
-       * Semente: o fio avermelhado do contorno dos losangos.
-       */
-      const semente = new Uint8Array(w * h);
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4;
-          const croma = p[i] - Math.min(p[i + 1], p[i + 2]);
-          if (croma >= 8) semente[y * w + x] = 1;
-        }
-      }
-
-      /*
-       * Cresce a semente para dentro dos losangos. O raio acompanha a textura —
-       * o losango é fino, e a metade de sua espessura é o que precisa ser
-       * alcançada a partir do contorno. Só pinta pixel de chapa (nem o vão
-       * escuro à direita, nem sombra): o miolo do losango tem a luz do capô.
-       */
-      const raio = Math.max(2, Math.round(largura * 0.003));
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4;
-          const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
-          if (luz < 90 || luz > 215) continue;
-
-          let perto = semente[y * w + x] === 1;
-          for (let dy = -raio; dy <= raio && !perto; dy++) {
-            const yy = y + dy;
-            if (yy < 0 || yy >= h) continue;
-            for (let dx = -raio; dx <= raio; dx++) {
-              const xx = x + dx;
-              if (xx < 0 || xx >= w) continue;
-              if (semente[yy * w + xx] === 1) {
-                perto = true;
-                break;
-              }
-            }
-          }
-          if (perto) pintarVermelho(p, i);
-        }
-      }
-    }
-
-    ctx.putImageData(dados, x0, y0);
-  }
+  pintarOEmblemaDeTras(ctx, largura, altura);
+  carimbarOEmblemaDaFrente(ctx, largura, altura);
 
   const nova = new CanvasTexture(cv);
   // Textura de glTF não é espelhada no eixo vertical, e canvas por padrão é —
@@ -477,6 +621,27 @@ function listrar(
 
          diffuseColor.rgb *= mix(1.0, 0.3, faixa * deCima * ehChapa);
        }`,
+    ).replace(
+      "#include <lights_physical_fragment>",
+      `#include <lights_physical_fragment>
+       {
+         /*
+          * VERNIZ SÓ NA CHAPA.
+          *
+          * Uma malha só carrega lataria, vidro, grade, borracha e pneu, e o
+          * verniz é do MATERIAL, não da peça: envernizar o material envernizava
+          * o pneu junto. Pneu lustrado é exatamente a leitura de "brinquedo de
+          * plástico" que este arquivo passou a existir para evitar.
+          *
+          * O discriminador é o mesmo da listra — a lataria é clara e o resto é
+          * quase preto —, só que aqui ele governa acabamento em vez de cor. E o
+          * que é escuro fica fosco, que é o que borracha e plástico texturizado
+          * fazem com a luz.
+          */
+         float chapa = smoothstep(0.06, 0.22, dot(diffuseColor.rgb, vec3(0.3333)));
+         material.clearcoat *= chapa;
+         material.roughness = mix(0.78, material.roughness, chapa);
+       }`,
     );
   };
   mat.needsUpdate = true;
@@ -491,12 +656,25 @@ function listrar(
  * espelhada por cima da cor — sem ela a lataria não devolve nada do ambiente e
  * o olho lê maquete.
  *
- * A listra vai por cor de vértice, e não na textura, porque o eixo dela é o eixo
- * do CARRO: é a faixa onde a largura está no meio. Mexer na textura exigiria
- * saber como o `.tga` foi costurado, e ele foi feito para outro carro que não
- * tem listra.
+ * A listra vai no shader, e não na textura, porque o eixo dela é o eixo do
+ * CARRO: é a faixa onde a largura está no meio. Mexer na textura exigiria saber
+ * como o atlas foi costurado, e ele foi capturado de um carro que não tem
+ * listra.
+ *
+ * ## O filtro anisotrópico
+ *
+ * Capô e teto são vistos de raspão desta câmera, e é justamente aí que o filtro
+ * normal desiste: ele amostra um quadrado onde o pixel na tela é um retângulo
+ * comprido, e o que sobra é mingau. Numa textura de fotogrametria — que é toda
+ * detalhe fino — isso apaga metade do que se pagou para ter. Custa só nos pixels
+ * de raspão, e é o item mais barato desta lista.
  */
-function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
+function envernizar(
+  modelo: Object3D,
+  caixa: Box3,
+  tamanho: Vector3,
+  anisotropia: number,
+): void {
 
   modelo.traverse((no) => {
     const malha = no as Mesh;
@@ -520,6 +698,14 @@ function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
       clearcoatRoughness: 0.06,
       envMapIntensity: ehRoda ? 1.5 : 1.15,
     });
+
+    for (const t of [novo.map, novo.normalMap, novo.roughnessMap, novo.metalnessMap]) {
+      if (t && t.anisotropy !== anisotropia) {
+        t.anisotropy = anisotropia;
+        t.needsUpdate = true;
+      }
+    }
+
     malha.material = novo;
     mat.dispose();
 
@@ -544,13 +730,40 @@ export function montarCena(
     // Fundo transparente: o herói é um quadro nu, e a lavagem do `body` precisa
     // continuar aparecendo por trás do carro.
     alpha: true,
-    // Sem antialias por decisão de custo. O que tira a serrilha aqui é o
-    // `devicePixelRatio` da head unit, e o carro é escuro sobre fundo escuro —
-    // é o caso em que serrilha menos aparece.
-    antialias: false,
+    /*
+     * COM antialias, e isto é uma reversão consciente.
+     *
+     * Ele estava desligado por custo, apostando que carro escuro sobre fundo
+     * escuro esconderia a serrilha. Não esconde: o contorno na cor do perfil
+     * desenha justamente a silhueta, e é a silhueta que serrilha. Um degrau de
+     * escada na linha do teto é o detalhe que grita "render" numa tela em que
+     * tudo mais é vetor.
+     *
+     * O que paga a conta é o tamanho: MSAA num buffer de 500x280 numa GPU de
+     * tile resolve dentro da própria tile, e o quadro do carro já é menos de um
+     * sexto do mapa. É o item mais caro da lista de nitidez e ainda assim é
+     * barato.
+     */
+    antialias: true,
     powerPreference: "low-power",
   });
   renderer.setClearAlpha(0);
+
+  /*
+   * Tone mapping, que é o que faz o verniz parecer verniz.
+   *
+   * Sem ele, tudo que passa de 1.0 vira branco puro — o brilho da softbox na
+   * lataria satura num borrão chapado, sem miolo e sem beirada. O ACES ROLA a
+   * saturação: o brilho continua estourando, mas estoura passando por um rosa
+   * quente antes de chegar ao branco, que é exatamente o que um filme (e um
+   * sensor) faz. É uma operação por pixel para o item que mais muda a leitura
+   * de "3D" para "foto".
+   *
+   * A exposição sobe junto porque o ACES escurece a imagem média: 1.0 nele é
+   * mais escuro que 1.0 sem tone mapping nenhum.
+   */
+  renderer.toneMapping = ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.25;
 
   const cena = new Scene();
   cena.environment = ambiente(renderer);
@@ -571,8 +784,8 @@ export function montarCena(
   const direcaoDaCamera = new Vector3(8.4, 2.9, 5.6).normalize();
 
   /**
-   * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com o
-   * anel do chão, e a altura do teto com uma folga em cima.
+   * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com a
+   * sombra, e a altura do teto com uma folga em cima.
    */
   /*
    * A caixa muda com a ALTURA da câmera, não só com o carro.
@@ -585,20 +798,6 @@ export function montarCena(
   const CENA_LARGA = 6.1;
   const CENA_ALTA = 2.9;
 
-  /** Raio do piso antes de caber no quadro. Quem o ajusta é `enquadrar`. */
-  const RAIO_DO_PISO = 4.4;
-
-  /*
-   * Quanto da largura visível o chão pode ocupar.
-   *
-   * O resto é a faixa onde já não existe piso — e é nela que a luz termina de
-   * morrer. Sem essa folga, o desvanecimento das bordas do piso acontece fora da
-   * tela e o que se vê é o brilho batendo na beirada do canvas, cortado a seco
-   * numa linha reta. Era o que fazia o herói ler como um card colado por cima do
-   * painel em vez de fazer parte dele.
-   */
-  const FOLGA_DO_CHAO = 0.76;
-
   /**
    * Aproxima ou afasta a câmera para a cena caber na caixa que ela recebeu.
    *
@@ -608,27 +807,17 @@ export function montarCena(
    * vazios laterais. Com o ajuste, a câmera recua numa caixa alta e chega perto
    * numa caixa larga, e o carro ocupa o quadro nos dois casos.
    */
-  const enquadrar = (aspecto: number) => {
+  const enquadrar = (aspecto: number, sangriaX: number, sangriaY: number) => {
     const tanV = Math.tan(((camera.fov * Math.PI) / 180) / 2);
-    const porAltura = CENA_ALTA / 2 / tanV;
-    const porLargura = CENA_LARGA / 2 / (tanV * aspecto);
+    // A caixa cresce junto com a sangria: é isso que faz os pixels de sobra
+    // serem SOBRA, e não um zoom. O carro continua do tamanho que tinha dentro
+    // do quadro do painel; o que o canvas ganhou é chão em volta.
+    const porAltura = (CENA_ALTA * sangriaY) / 2 / tanV;
+    const porLargura = (CENA_LARGA * sangriaX) / 2 / (tanV * aspecto);
     const distancia = Math.max(porAltura, porLargura) * 1.06;
 
     camera.position.copy(direcaoDaCamera).multiplyScalar(distancia).add(alvoDaCamera);
     camera.lookAt(alvoDaCamera);
-
-    /*
-     * O chão é dimensionado pelo que a câmera VÊ, não por um número escrito.
-     *
-     * A largura visível não é `CENA_LARGA`: aquilo é só o mínimo que precisa
-     * caber. Num quadro largo e baixo como o herói, quem manda na distância é a
-     * altura, e sobra muita largura — quase dez metros, contra os seis pedidos.
-     * Dimensionar o piso pelo número pedido o deixaria pequeno demais; dimensionar
-     * por um valor fixo grande o faria estourar quando a proporção mudasse. Medir
-     * resolve os dois casos, e continua resolvendo quando o quadro mudar de forma.
-     */
-    const larguraVisivel = 2 * distancia * tanV * aspecto;
-    chao.scale.setScalar((larguraVisivel * FOLGA_DO_CHAO) / (RAIO_DO_PISO * 2));
   };
 
   /* --- luzes --- */
@@ -638,7 +827,8 @@ export function montarCena(
    * do lado oposto para a sombra não fechar em preto, e contorno atrás para
    * separar o carro do fundo. O grosso da luz, porém, vem do ambiente — numa
    * pintura envernizada, luz direcional faz o brilho pontual e o AMBIENTE faz a
-   * superfície. Por isso a ambiente aqui é baixa: ela só levanta o piso.
+   * superfície. Por isso a ambiente aqui é baixa: ela só tira o preto do fundo
+   * da sombra.
    */
   cena.add(new AmbientLight(0xffffff, 0.5));
 
@@ -671,11 +861,15 @@ export function montarCena(
    * chegar: o que separa as duas coisas são dezenas de milhares de vértices que
    * alguém posicionou um a um, mais faróis, grade, frisos e vinco de porta.
    *
-   * O modelo é fotogrametria: malha capturada de um Eclipse real com a textura
-   * tirada das mesmas fotos. Por isso o material vem `KHR_materials_unlit` — a
-   * iluminação está ASSADA na textura, e as luzes desta cena não têm efeito
-   * sobre ele. É uma troca consciente: perde-se poder relightar, ganha-se o
-   * carro parecendo um carro.
+   * O modelo é fotogrametria: malha capturada de um Eclipse real, com a textura
+   * tirada das mesmas fotos. Ele chega com `pbrMetallicRoughness` normal — cor,
+   * normal e rugosidade —, e `envernizar` troca tudo por material físico para
+   * pôr verniz por cima. As luzes desta cena, portanto, VALEM.
+   *
+   * O que vem de brinde é a iluminação assada na textura: sombra de para-lama,
+   * reflexo de céu, tudo que estava lá no dia da captura. É luz em cima de luz,
+   * e é por isso que a `AmbientLight` daqui é baixa — quem já iluminou o carro
+   * foi o fotógrafo.
    *
    * Ele chega por rede e demora; até chegar, o quadro fica com o desenho em SVG,
    * que é o mesmo plano B de sempre.
@@ -685,7 +879,9 @@ export function montarCena(
     CAMINHO_DO_MODELO,
     (gltf) => {
       const modelo = gltf.scene;
-      encaixar(modelo);
+      // Quatro é o joelho da curva: dobra a nitidez de raspão e não é o 16 que
+      // faz uma GPU de tile reclamar. Aparelho que não tem, devolve 1 e segue.
+      encaixar(modelo, Math.min(4, renderer.capabilities.getMaxAnisotropy()));
       // O scan tem o comprimento no eixo Z, com o nariz no +Z; esta cena
       // trabalha com o carro apontando para +X, que é o lado de onde a câmera
       // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
@@ -713,84 +909,119 @@ export function montarCena(
   /* --- chão --- */
 
   /*
-   * Só a MANCHA DE LUZ entra no grupo que o enquadramento dimensiona.
+   * Não existe chão. Existe uma POÇA DE LUZ e a sombra dentro dela.
    *
-   * A sombra e o anel pertencem ao carro: são do tamanho dele, e encolher os
-   * dois junto com o quadro faria o anel deixar de circundá-lo — vira uma
-   * elipse pequena debaixo do carro em vez do apoio que a referência tem. O
-   * piso é outra coisa: ele é o ambiente, e ambiente é do tamanho do que se vê.
+   * Havia aqui um disco de piso polido e um anel na cor do perfil. Os dois
+   * saíram: numa foto de carro sobre painel escuro não há piso nenhum — há o
+   * carro e a marca que ele deixa no preto. O disco pedia um enquadramento
+   * próprio, uma folga calculada para o desvanecimento dele não ser cortado pela
+   * beirada do canvas, e ainda assim lia como um card colado por cima do painel.
+   *
+   * ## A poça não é enfeite: sem ela o carro FLUTUA
+   *
+   * Sombra é subtração, e não há o que subtrair de um fundo que já é #0d1117 —
+   * preto sobre preto é preto. Com o piso, a sombra tinha uma superfície clara
+   * para escurecer; sem ele, ela some, e some justamente a única coisa que dizia
+   * onde o pneu encosta. Foi o que aconteceu na primeira tentativa: o carro
+   * pairando no vazio.
+   *
+   * A poça devolve o que o piso dava sem devolver o piso: uma mancha aditiva,
+   * fraca e sem borda, que levanta o fundo só onde a sombra precisa acontecer.
+   * Ela não tem quina para ser cortada pela beirada — morre sozinha muito antes.
+   *
+   * Por cima dela vêm duas sombras: a LARGA, que é a luz do estúdio contornando
+   * o carro, e a de CONTATO, curta e quase preta, onde o pneu tapa o chão. Com
+   * só a larga o carro paira num borrão; com só a de contato ele fica recortado
+   * com tesoura.
+   *
+   * ## As medidas vão em METROS, e o eixo estava trocado
+   *
+   * As três manchas vinham escritas como raio mais fator de achatamento, e nessa
+   * forma cabia um erro de 90°: o carro deste scan tem o COMPRIMENTO no eixo Z,
+   * não no X — a rotação que ele leva ao entrar é de 11°, não de um quarto de
+   * volta. As manchas tinham, portanto, seis metros atravessados na largura de
+   * um carro de 1,90 m e três metros e pouco no comprimento de um carro de
+   * 4,45 m. Ninguém enxerga isso numa linha `scale.set(1, 0.62, 1)`; escrevendo
+   * "4,9 de comprimento por 2,5 de largura", fica difícil errar.
+   *
+   * O plano sai do `CircleGeometry` no XY e é deitado no XZ, então o raio vem da
+   * LARGURA (que é o X) e a escala local em Y estica o Z, que é o comprimento.
+   *
+   * A câmera está a 16° acima do chão, e nessa inclinação o chão é visto quase
+   * de fio: mancha larga demais não fica embaixo do carro, esparrama por meia
+   * tela.
    */
-  const chao = new Group();
-  cena.add(chao);
+  let ordem = 0;
+  const mancha = (
+    comprimento: number,
+    largura: number,
+    cor: number,
+    opacidade: number,
+    nucleo: number,
+    meio: number,
+    aditiva: boolean,
+  ) => {
+    const m = new Mesh(
+      new CircleGeometry(largura / 2, 40),
+      new MeshBasicMaterial({
+        color: cor,
+        opacity: opacidade,
+        map: texturaDaMancha(nucleo, meio),
+        transparent: true,
+        depthWrite: false,
+        side: BackSide,
+        ...(aditiva ? { blending: AdditiveBlending } : {}),
+        // Um degradê escuro sobre um painel escuro é o caso de livro de
+        // banding: sem ruído, as faixas do degradê viram anéis visíveis.
+        dithering: true,
+      }),
+    );
+    // Deitar em X e alinhar em Z. Na ordem `XYZ` do Euler o giro em Z acontece
+    // ANTES do tombo em X, e girar a mancha no próprio plano antes de deitá-la
+    // é o mesmo que girá-la no chão depois: são os 11° do carro.
+    m.rotation.set(Math.PI / 2, 0, -0.19);
+    // Um milímetro de escada entre elas, só para não brigarem por profundidade.
+    m.position.y = 0.002 + ordem * 0.002;
+    m.scale.set(1, comprimento / largura, 1);
+    // Todas escrevem cor e nenhuma escreve profundidade: quem manda na ordem é
+    // isto, e não a distância à câmera, que muda com o balanço.
+    m.renderOrder = ordem++;
+    /*
+     * Dentro de `carro`, e não da cena: assim a mancha GIRA junto.
+     *
+     * Uma sombra comprida presa ao mundo fica certa na pose de descanso e
+     * atravessada assim que o dedo vira o carro — o carro aponta para um lado e
+     * a mancha continua apontando para o outro. Em `carro` ela acompanha o giro
+     * de vitrine e o arrasto; e como o mergulho e a rolagem moram em `corpo`,
+     * ela não inclina junto, que é o certo: sombra fica no chão.
+     */
+    carro.add(m);
+  };
 
   /*
-   * O piso do estúdio.
+   * A poça é MAIOR que as sombras, e isso não é detalhe.
    *
-   * Escuro e polido: ele não reflete o carro — reflexo de verdade custaria um
-   * segundo passe de render, e a head unit não tem esse dinheiro —, mas reflete
-   * o AMBIENTE, e é isso que dá o chão brilhante das fotos. O carro aparece nele
-   * pela mancha de sombra, que é o que o olho procura para saber onde a roda
-   * toca.
-   *
-   * ## Por que ele CABE no quadro, e por que isso importa
-   *
-   * O piso tinha 8,8 m de diâmetro num quadro que enquadra 6,1 m. O
-   * desvanecimento das bordas dele — que existe justamente para a luz morrer
-   * suave — acontecia fora da tela, e o que se via era o brilho batendo na
-   * beirada do canvas e sendo cortado a seco, numa linha reta. Lia como um card
-   * colado por cima do painel.
-   *
-   * Dimensionado a partir de `CENA_LARGA`, o piso morre por conta própria antes
-   * da borda: não existe corte porque não existe nada para cortar. É o conserto
-   * na origem. Uma máscara de CSS por cima do canvas trataria o sintoma, e ainda
-   * comeria o teto do carro — que vive perto da borda de cima.
+   * Na primeira tentativa ela tinha quase o tamanho da sombra larga, e o
+   * resultado foi as duas se anularem: sobrava luz só na franja de fora, uma
+   * cunha esparramada para um lado só, e embaixo do carro continuava tudo preto.
+   * A poça precisa transbordar a sombra por todos os lados — é ela que dá o
+   * chão, e a sombra é o que ela perde onde o carro tapa.
    */
-  const piso = new Mesh(
-    new CircleGeometry(RAIO_DO_PISO, 48),
-    new MeshStandardMaterial({
-      color: 0x14171b,
-      metalness: 0.9,
-      roughness: 0.3,
-      envMapIntensity: 0.9,
-      transparent: true,
-      alphaMap: texturaDoPiso(),
-      depthWrite: false,
-    }),
-  );
-  piso.rotation.x = -Math.PI / 2;
-  piso.scale.set(1, 0.66, 1);
-  chao.add(piso);
-
-  const sombra = new Mesh(
-    new CircleGeometry(3.1, 32),
-    new MeshBasicMaterial({
-      map: texturaDaSombra(),
-      transparent: true,
-      depthWrite: false,
-      side: BackSide,
-    }),
-  );
-  sombra.rotation.x = Math.PI / 2;
-  sombra.position.y = 0.006;
-  sombra.scale.set(1, 0.62, 1);
-  cena.add(sombra);
-
-  // O anel de acento no chão: o mesmo truque da referência. Ele não ilumina
-  // nada — só diz "o carro está pousado aqui" e amarra a cena ao perfil.
-  const anel = new Mesh(
-    new RingGeometry(2.62, 2.66, 64),
-    new MeshBasicMaterial({
-      color: new Color(acentoInicial),
-      transparent: true,
-      opacity: 0.42,
-      side: DoubleSide,
-      depthWrite: false,
-    }),
-  );
-  anel.rotation.x = -Math.PI / 2;
-  anel.position.y = 0.002;
-  anel.scale.set(1, 0.62, 1);
-  cena.add(anel);
+  /*
+   * E a poça tem de morrer DENTRO da tela.
+   *
+   * Ela sangra para fora do card justamente para não acabar num corte reto (ver
+   * `.carro3d` no CSS); se ela chegasse viva na beirada da tela, o corte só
+   * teria mudado de lugar — de cima do card para dois centímetros ao lado dele,
+   * que é pior, porque ali não há quina nenhuma que justifique a linha. Sete
+   * metros e meio é o maior tamanho que ainda cabe com folga: medido no canto
+   * esquerdo, que é onde o eixo comprido dela chega mais perto da borda.
+   */
+  mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true);
+  // A larga: a luz do estúdio contornando a carroceria.
+  mancha(4.9, 2.5, 0x000000, 0.8, 0.8, 0.34, false);
+  // A de contato: onde o pneu tapa o chão. Curta, estreita e quase preta.
+  mancha(3.4, 1.2, 0x000000, 0.95, 0.95, 0.4, false);
 
   /* ------------------------------------------------------------------ */
   /* O laço                                                              */
@@ -808,14 +1039,14 @@ export function montarCena(
   const cor = new Color();
 
   return {
-    redimensionar(largura, altura) {
+    redimensionar(largura, altura, sangriaX, sangriaY) {
       // Teto no `devicePixelRatio`: numa head unit ele é 1, mas num celular
       // deitado ou num Mac ele é 2 ou 3 — e triplicar a área de pixel de uma
       // cena 3D por causa de um quadro de 500 px não paga.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(largura, altura, false);
       camera.aspect = largura / Math.max(1, altura);
-      enquadrar(camera.aspect);
+      enquadrar(camera.aspect, sangriaX, sangriaY);
       camera.updateProjectionMatrix();
     },
 
@@ -824,7 +1055,6 @@ export function montarCena(
         acentoAtual = estado.acento;
         cor.set(acentoAtual);
         contorno.color.copy(cor);
-        (anel.material as MeshBasicMaterial).color.copy(cor);
       }
 
       // Mergulho de freada e rolagem de curva, com a mesma assimetria do

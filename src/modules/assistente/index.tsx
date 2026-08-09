@@ -125,6 +125,9 @@ export const assistenteTile: AnyTileSpec = defineTile<AssistenteState>({
   // O herói do painel. O carro precisa flutuar sobre o fundo, com brilho e
   // sombra no chão — dentro de um card ele viraria uma figurinha numa caixa.
   chrome: "nu",
+  // E a luz que ele põe no chão passa da célula: cortada na quina do card, ela
+  // deixava de ler como luz e denunciava a caixa que `chrome: "nu"` tirou.
+  sangra: true,
   Compact: Assistente,
   Expanded: AssistenteCompleto,
 });

@@ -260,6 +260,19 @@ export interface TileSpec<T> {
    */
   chrome?: "card" | "nu";
   /**
+   * O conteúdo pode passar da beirada da célula.
+   *
+   * Um quadro recorta o que não cabe, e isso quase sempre é o certo — uma lista
+   * comprida escapando por cima do vizinho é defeito. Mas há conteúdo cuja
+   * borda é o próprio assunto: a luz que o carro do herói põe no chão precisa
+   * morrer sozinha nos vãos do painel, e cortada na quina do card ela deixa de
+   * ler como luz.
+   *
+   * Quem liga isto assume recortar o próprio conteúdo quando ele não for o
+   * transbordante — ver `.ia` no CSS.
+   */
+  sangra?: boolean;
+  /**
    * Tile que não lê de módulo nenhum (relógio, por ex.): nasce pronto em vez de
    * "carregando", já que nunca vai chegar um evento para ele.
    */

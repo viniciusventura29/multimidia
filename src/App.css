@@ -435,6 +435,23 @@ body {
   overflow: hidden;
 }
 
+/*
+ * O quadro que deixa o conteúdo passar da beirada.
+ *
+ * É exceção de um só: o herói do carro, cuja luz de chão precisa continuar nos
+ * vãos do painel em vez de acabar cortada na quina do card (ver `.carro3d`).
+ * O mapa, que é o outro quadro nu, continua recortado — ele sangra até a borda
+ * e é a borda que lhe dá forma.
+ *
+ * O corpo do tile recorta por um motivo real (lista mais alta que a célula
+ * escapando por cima do vizinho), então quem transborda assume a
+ * responsabilidade de recortar o próprio conteúdo — é o que `.ia` faz.
+ */
+.tile--sangra,
+.tile--sangra > .tile__body {
+  overflow: visible;
+}
+
 .tile--clicavel {
   cursor: pointer;
 }
@@ -450,6 +467,22 @@ body {
 .tile--nu.tile--clicavel:focus-visible {
   background: none;
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/*
+ * O herói não acende com o mouse em cima.
+ *
+ * O anel é o contorno de card que este quadro inteiro existe para não ter: o
+ * `chrome: "nu"` tirou o fundo, a `sangra` tirou o corte da luz na quina, e aí
+ * bastava passar o mouse para a caixa reaparecer desenhada em volta do carro.
+ *
+ * Sai só o `:hover`. O `:focus-visible` fica, e não por descuido: quem navega
+ * por teclado precisa ver onde está, e ali o anel não é ruído — é a única coisa
+ * dizendo qual quadro abre no Enter. Mouse já tem o cursor de arrastar do
+ * `.carro3d__quadro` como aviso de que o carro responde.
+ */
+.tile--nu.tile--sangra.tile--clicavel:hover {
+  box-shadow: none;
 }
 
 .tile__head {
@@ -1159,6 +1192,10 @@ body {
   gap: 0.4rem;
   min-height: 0;
   padding: 0 0.2rem;
+  /* O quadro do assistente transborda (`.tile--sangra`) para a luz do carro
+     poder sair do card. Quem paga essa conta é aqui: os cartões que a IA
+     escreve continuam recortados na célula, como em qualquer outro quadro. */
+  overflow: hidden;
 }
 
 .ia--pensando {
@@ -1468,8 +1505,33 @@ body {
   width: 100%;
 }
 
-.carro3d {
-  display: block;
+/*
+ * O quadro do carro, e a tela que SANGRA para fora dele.
+ *
+ * A luz que o carro põe no chão é o que o assenta na tela. Dentro dos limites
+ * do card ela acabava numa linha reta na beirada, e um brilho cortado a régua
+ * não lê como luz — lê como imagem recortada e colada. Era o que fazia o herói
+ * parecer um card entre cards, que é justamente o que ele não deve ser.
+ *
+ * A tela então passa da célula por todos os lados. Nos vãos do painel — que é
+ * onde a sobra cai — o brilho continua e morre sozinho, sem nada para cortá-lo.
+ *
+ * Duas coisas fazem isso funcionar, e as duas moram fora daqui:
+ *
+ * - `.tile--sangra` desliga o `overflow: hidden` do card e do corpo dele; sem
+ *   isso a tela cresce e continua recortada, só que no mesmo lugar.
+ * - A cena recebe a razão entre a tela e o quadro (ver `redimensionar` em
+ *   `cena.ts`) e alarga a caixa que ela enquadra na mesma proporção. Sem isso a
+ *   tela maior viraria zoom: o carro cresceria e a luz bateria na borda de novo.
+ *
+ * O tamanho da sobra é da ordem do vão entre os quadros do painel. Mais que
+ * isso seria pixel de cena pago para cair debaixo do card vizinho.
+ */
+.carro3d__quadro {
+  /* Quanto a tela passa da célula por lado. Da ordem do `--gap` do painel:
+     mais que isso é pixel de cena pago para cair debaixo do card vizinho. */
+  --sangria: 1.4rem;
+  position: relative;
   width: 100%;
   height: 100%;
   /* O carro gira com o dedo, e sem isto o navegador rouba o gesto para rolar a
@@ -1478,8 +1540,29 @@ body {
   cursor: grab;
 }
 
-.carro3d:active {
+.carro3d__quadro:active {
   cursor: grabbing;
+}
+
+/*
+ * Largura e altura em `calc`, e não `inset` negativo.
+ *
+ * `<canvas>` é elemento substituído: com `width: auto`, o CSS usa o tamanho
+ * INTRÍNSECO dele e simplesmente ignora o lado que sobra do `inset` — a tela
+ * ficava nos 300x150 de fábrica, encolhida dentro do quadro. Dizendo o tamanho,
+ * não há o que ser ignorado.
+ */
+.carro3d {
+  display: block;
+  position: absolute;
+  top: calc(var(--sangria) * -1);
+  left: calc(var(--sangria) * -1);
+  width: calc(100% + var(--sangria) * 2);
+  height: calc(100% + var(--sangria) * 2);
+  /* Surda ao dedo: quem escuta é o quadro, que tem o tamanho da célula. A
+     sangria passa por cima do nome do motorista e da beirada do mapa, e sem
+     isto ela roubaria o toque dos dois. */
+  pointer-events: none;
 }
 
 .carrinho__horizonte {

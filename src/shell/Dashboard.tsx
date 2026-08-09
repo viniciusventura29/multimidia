@@ -48,6 +48,7 @@ const TileHost = memo(function TileHost({
       status={status}
       reason={reason}
       chrome={spec.chrome}
+      sangra={spec.sangra}
       onExpand={spec.Expanded ? () => aoExpandir(spec.id) : undefined}
     >
       <Barreira titulo={spec.title}>
