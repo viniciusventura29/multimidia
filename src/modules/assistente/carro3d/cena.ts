@@ -203,14 +203,15 @@ export interface Cena {
 const COMPRIMENTO_REAL = 4.45;
 
 /**
- * Onde as duas listras começam e acabam, em fração da largura do carro.
+ * As três listras, em fração da largura do carro (1,90 m).
  *
- * O carro tem 1,90 m: 0,022 dá 4 cm do plano central (a folga entre elas) e
- * 0,088 dá 17 cm (a borda de fora). Sai um par de faixas de 13 cm com 8 cm de
- * respiro no meio, que é a proporção das fotos.
+ * Uma grossa no meio e duas finas de cada lado, que é o desenho do carro. A
+ * grossa é o assunto; as finas são o contorno que dá o ar de faixa de corrida,
+ * e num painel do tamanho deste elas viram quase um fio — o que está certo.
  */
-const BORDA_DE_DENTRO = 0.022;
-const BORDA_DE_FORA = 0.088;
+const GROSSA_ATE = 0.056;
+const FINA_DE = 0.076;
+const FINA_ATE = 0.094;
 
 /** Raio do pneu, em metros — 205/55 R16 dá ~0,32 m. */
 const RAIO_DA_RODA = 0.32;
@@ -274,15 +275,14 @@ function listrar(
   paraRaiz: Matrix4,
 ): void {
   const meio = (caixa.min.x + caixa.max.x) / 2;
-  const dentro = BORDA_DE_DENTRO * tamanho.x;
-  const fora = BORDA_DE_FORA * tamanho.x;
   // Uma borda de meio centímetro de carro: nítida sem serrilhar.
   const suave = tamanho.x * 0.0025;
 
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uMeio = { value: meio };
-    shader.uniforms.uDentro = { value: dentro };
-    shader.uniforms.uFora = { value: fora };
+    shader.uniforms.uGrossa = { value: GROSSA_ATE * tamanho.x };
+    shader.uniforms.uFinaDe = { value: FINA_DE * tamanho.x };
+    shader.uniforms.uFinaAte = { value: FINA_ATE * tamanho.x };
     shader.uniforms.uSuave = { value: suave };
     /*
      * A matriz que leva do espaço da malha para o do CARRO.
@@ -307,8 +307,9 @@ function listrar(
 
     shader.fragmentShader = `
       uniform float uMeio;
-      uniform float uDentro;
-      uniform float uFora;
+      uniform float uGrossa;
+      uniform float uFinaDe;
+      uniform float uFinaAte;
       uniform float uSuave;
       varying vec3 vLocal;
       varying vec3 vNormalLocal;
@@ -317,13 +318,30 @@ function listrar(
       `#include <map_fragment>
        {
          float d = abs(vLocal.x - uMeio);
-         // Entre as duas bordas: é o par de faixas com folga no meio.
-         float faixa = smoothstep(uDentro - uSuave, uDentro + uSuave, d)
-                     * (1.0 - smoothstep(uFora - uSuave, uFora + uSuave, d));
-         // E só onde a chapa não olha para o lado: listra corre por cima e
+
+         // A grossa do meio, e as duas finas de cada lado.
+         float grossa = 1.0 - smoothstep(uGrossa - uSuave, uGrossa + uSuave, d);
+         float fina = smoothstep(uFinaDe - uSuave, uFinaDe + uSuave, d)
+                    * (1.0 - smoothstep(uFinaAte - uSuave, uFinaAte + uSuave, d));
+         float faixa = max(grossa, fina);
+
+         // Só onde a chapa não olha para o lado: a listra corre por cima e
          // desce pelas pontas, mas não vira na lateral do carro.
          float deCima = 1.0 - smoothstep(0.55, 0.85, abs(normalize(vNormalLocal).x));
-         diffuseColor.rgb *= mix(1.0, 0.28, faixa * deCima);
+
+         /*
+          * E NUNCA no vidro.
+          *
+          * A carroceria e os vidros são a mesma malha com o mesmo material —
+          * não há o que desligar por peça. Mas há como distinguir pelo que já
+          * está na tela: a lataria é prata e o vidro é quase preto. Pular o que
+          * é escuro deixa a listra na chapa e fora do para-brisa, e de quebra
+          * protege grade, borracha e frisos, que são escuros pelo mesmo motivo.
+          */
+         float luz = dot(diffuseColor.rgb, vec3(0.3333));
+         float ehChapa = smoothstep(0.09, 0.2, luz);
+
+         diffuseColor.rgb *= mix(1.0, 0.3, faixa * deCima * ehChapa);
        }`,
     );
   };
@@ -664,7 +682,13 @@ export function montarCena(
       // trabalha com o carro apontando para +X, que é o lado de onde a câmera
       // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
       // traseira, que foi o que aconteceu na primeira tentativa.
-      modelo.rotation.y = Math.PI / 2 + 0.95;
+      /*
+       * A pose de descanso é o três-quartos dianteiro, como nas fotos de
+       * referência — e não o perfil. Perfil mostra a silhueta mas esconde tudo
+       * que identifica o carro: grade, faróis e, principalmente, as listras,
+       * que moram no capô e no teto.
+       */
+      modelo.rotation.y = 0.19;
       // O piso do scan fica 2,8 cm abaixo de zero — sobe para a roda tocar o chão.
       modelo.position.y = 0.028;
       corpo.add(modelo);
