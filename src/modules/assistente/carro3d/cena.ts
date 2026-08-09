@@ -48,6 +48,7 @@ import {
   PMREMGenerator,
   RingGeometry,
   Scene,
+  Vector3,
   WebGLRenderer,
 } from "three";
 
@@ -168,8 +169,35 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
    * parece miniatura.
    */
   const camera = new PerspectiveCamera(24, 1, 0.5, 40);
-  camera.position.set(8.6, 1.24, 5.8);
-  camera.lookAt(0, 0.62, 0);
+  const alvoDaCamera = new Vector3(0, 0.62, 0);
+  /** De onde se olha. O comprimento não importa — quem o define é `enquadrar`. */
+  const direcaoDaCamera = new Vector3(8.6, 0.62, 5.8).normalize();
+
+  /**
+   * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com o
+   * anel do chão, e a altura do teto com uma folga em cima.
+   */
+  const CENA_LARGA = 5.6;
+  const CENA_ALTA = 1.95;
+
+  /**
+   * Aproxima ou afasta a câmera para a cena caber na caixa que ela recebeu.
+   *
+   * Sem isto a distância seria fixa, e aí o carro só ficaria do tamanho certo
+   * numa proporção de tela: no herói do painel — que é bem mais largo do que
+   * alto — a altura mandava, e o carro virava uma miniatura no meio de dois
+   * vazios laterais. Com o ajuste, a câmera recua numa caixa alta e chega perto
+   * numa caixa larga, e o carro ocupa o quadro nos dois casos.
+   */
+  const enquadrar = (aspecto: number) => {
+    const tanV = Math.tan(((camera.fov * Math.PI) / 180) / 2);
+    const porAltura = CENA_ALTA / 2 / tanV;
+    const porLargura = CENA_LARGA / 2 / (tanV * aspecto);
+    const distancia = Math.max(porAltura, porLargura) * 1.06;
+
+    camera.position.copy(direcaoDaCamera).multiplyScalar(distancia).add(alvoDaCamera);
+    camera.lookAt(alvoDaCamera);
+  };
 
   /* --- luzes --- */
 
@@ -403,6 +431,7 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(largura, altura, false);
       camera.aspect = largura / Math.max(1, altura);
+      enquadrar(camera.aspect);
       camera.updateProjectionMatrix();
     },
 
