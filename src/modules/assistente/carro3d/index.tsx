@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 
 import { useTelemetriaDoCarro } from "../telemetria";
 import { montarCena, type Cena, type EstadoDaCena } from "./cena";
@@ -30,6 +34,9 @@ import { montarCena, type Cena, type EstadoDaCena } from "./cena";
  * alguém. 30 fps é metade do custo de 60 e, num carro girando devagar e numa
  * roda que já passa do limite de amostragem, é indistinguível.
  */
+
+/** Acima disto o dedo estava girando o carro, não tocando no quadro. */
+const LIMIAR_DE_ARRASTO = 6;
 
 /** ~30 fps. Em milissegundos, que é a moeda do `requestAnimationFrame`. */
 const PERIODO = 1000 / 30;
@@ -73,6 +80,15 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
 
   const cobertoRef = useRef(coberto);
   cobertoRef.current = coberto;
+
+  /*
+   * Quanto o dedo já girou o carro. Em `ref` e não em estado porque quem lê
+   * isto é o laço de desenho, trinta vezes por segundo: virar estado do React
+   * seria trinta renders do painel por segundo para mover um número.
+   */
+  const arrastoRef = useRef(0);
+  const arrastando = useRef<{ id: number; x: number; andou: number } | null>(null);
+  const naoAbrir = useRef(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -149,6 +165,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
         parado: t.parado,
         acento,
         menosMovimento,
+        arrasto: arrastoRef.current,
       };
 
       cena.atualizar(estado, dt);
@@ -165,7 +182,60 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     };
   }, [aoFalhar]);
 
+  /*
+   * Girar o carro com o dedo.
+   *
+   * Os `pointer*` cobrem mouse e toque de uma vez, que é o que importa num
+   * painel que roda no Mac enquanto se desenha e num vidro de head unit depois.
+   * O `setPointerCapture` mantém o arrasto vivo mesmo quando o dedo sai do
+   * canvas — sem ele, girar rápido solta o carro no meio do caminho.
+   */
+  const aoPegar = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    arrastando.current = { id: e.pointerId, x: e.clientX, andou: 0 };
+  };
+
+  const aoMover = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const a = arrastando.current;
+    if (!a || a.id !== e.pointerId) return;
+    const dx = e.clientX - a.x;
+    a.x = e.clientX;
+    a.andou += Math.abs(dx);
+    // 260 px de arrasto dão meia volta: rápido o bastante para dar a volta sem
+    // repicar o dedo, devagar o bastante para parar num ângulo escolhido.
+    arrastoRef.current += (dx / 260) * Math.PI;
+  };
+
+  const aoSoltar = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const a = arrastando.current;
+    arrastando.current = null;
+    if (a && a.andou > LIMIAR_DE_ARRASTO) {
+      // Foi arrasto, não toque: o quadro não deve abrir em tela cheia porque
+      // alguém girou o carro.
+      e.stopPropagation();
+      naoAbrir.current = true;
+    }
+  };
+
+  const aoClicar = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (naoAbrir.current) {
+      naoAbrir.current = false;
+      e.stopPropagation();
+    }
+  };
+
   if (!vivo) return null;
 
-  return <canvas className="carro3d" ref={canvasRef} aria-hidden />;
+  return (
+    <canvas
+      className="carro3d"
+      ref={canvasRef}
+      onPointerDown={aoPegar}
+      onPointerMove={aoMover}
+      onPointerUp={aoSoltar}
+      onPointerCancel={aoSoltar}
+      onClickCapture={aoClicar}
+      aria-hidden
+    />
+  );
 }

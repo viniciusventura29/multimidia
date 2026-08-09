@@ -1472,6 +1472,14 @@ body {
   display: block;
   width: 100%;
   height: 100%;
+  /* O carro gira com o dedo, e sem isto o navegador rouba o gesto para rolar a
+     página antes de o `pointermove` chegar. */
+  touch-action: none;
+  cursor: grab;
+}
+
+.carro3d:active {
+  cursor: grabbing;
 }
 
 .carrinho__horizonte {

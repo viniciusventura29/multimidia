@@ -67,6 +67,8 @@ export interface EstadoDaCena {
   acento: string;
   /** Quem pediu menos movimento não recebe o giro de vitrine. */
   menosMovimento: boolean;
+  /** Quanto o dedo já girou o carro, acumulado em radianos. */
+  arrasto: number;
 }
 
 const limitar = (v: number, min: number, max: number) =>
@@ -233,7 +235,7 @@ function encaixar(modelo: Object3D): Group[] {
   modelo.position.y = -caixa.min.y * escala;
 
   envernizar(modelo, caixa, tamanho);
-  return separarRodas(modelo, escala);
+  return separarRodas(modelo);
 }
 
 /**
@@ -307,12 +309,21 @@ const suavizar = (a: number, b: number, x: number) => {
 /**
  * Recorta as quatro rodas do grupo em que elas vieram.
  *
- * Cada triângulo vai para o quadrante do seu centro; o que sobra — o que está
- * acima da linha do eixo — fica onde estava. As quatro malhas novas nascem com a
- * geometria deslocada para o próprio centro, porque objeto gira em volta da
- * própria origem: sem isso a roda orbitaria o meio do carro em vez de rodar.
+ * ## Por quadrante, e depois por RAIO
+ *
+ * Só o quadrante não basta, e a primeira versão provou isso na tela: junto das
+ * rodas vinham os para-lamas internos, que moram no mesmo quadrante e na mesma
+ * altura. Girando com a roda, eles viravam lascas pretas orbitando o pneu.
+ *
+ * A segunda peneira é a que resolve. Roda é um disco: todo triângulo dela está
+ * a menos de um raio do centro, medido NO PLANO DA RODA — ou seja, ignorando o
+ * eixo do carro, senão o pneu do outro lado entraria na conta. O que passar do
+ * raio não é roda, é a caixa em volta dela, e fica parado.
+ *
+ * O raio sai da própria geometria: numa roda, a maior distância vertical é o
+ * diâmetro. Assim isto funciona para qualquer carro, sem número escrito à mão.
  */
-function separarRodas(modelo: Object3D, escala: number): Group[] {
+function separarRodas(modelo: Object3D): Group[] {
   const rodas: Group[] = [];
 
   const candidatos: Mesh[] = [];
@@ -327,13 +338,12 @@ function separarRodas(modelo: Object3D, escala: number): Group[] {
 
     const caixa = new Box3().setFromBufferAttribute(pos as BufferAttribute);
     const meio = caixa.getCenter(new Vector3());
-    // Acima disto não é roda: é retrovisor, aerofólio, acessório.
-    const tetoDaRoda = caixa.min.y + (caixa.max.y - caixa.min.y) * 0.55;
+    // Acima da metade da altura do grupo não há roda: há retrovisor e aerofólio.
+    const tetoDaRoda = caixa.min.y + (caixa.max.y - caixa.min.y) * 0.5;
 
-    // Um balde por quadrante, mais um para o que não é roda.
-    const baldes: number[][] = [[], [], [], [], []];
+    // Centro de cada triângulo, uma vez só — a peneira usa isto duas vezes.
+    const centros: number[] = [];
     const v = new Vector3();
-
     for (let t = 0; t < pos.count; t += 3) {
       let cx = 0;
       let cy = 0;
@@ -344,39 +354,65 @@ function separarRodas(modelo: Object3D, escala: number): Group[] {
         cy += v.y / 3;
         cz += v.z / 3;
       }
-      const balde =
-        cy > tetoDaRoda ? 4 : (cx < meio.x ? 0 : 1) + (cz < meio.z ? 0 : 2);
-      baldes[balde].push(t, t + 1, t + 2);
+      centros.push(cx, cy, cz);
+    }
+
+    // Primeira peneira: quadrante, entre o que está baixo.
+    const quadrantes: number[][] = [[], [], [], []];
+    const soltos: number[] = [];
+    for (let t = 0, c = 0; t < pos.count; t += 3, c += 3) {
+      if (centros[c + 1] > tetoDaRoda) {
+        soltos.push(t, t + 1, t + 2);
+        continue;
+      }
+      const q = (centros[c] < meio.x ? 0 : 1) + (centros[c + 2] < meio.z ? 0 : 2);
+      quadrantes[q].push(t, t + 1, t + 2);
     }
 
     const pai = malha.parent ?? modelo;
-    for (let b = 0; b < 5; b++) {
-      if (baldes[b].length === 0) continue;
-      const parte = extrair(geo, baldes[b]);
 
-      if (b === 4) {
-        // O que não é roda volta como estava.
-        pai.add(new Mesh(parte, malha.material));
-        continue;
+    for (const q of quadrantes) {
+      if (q.length === 0) continue;
+
+      // Centro e raio do candidato a roda.
+      const bruto = extrair(geo, q);
+      const cb = new Box3().setFromBufferAttribute(
+        bruto.attributes.position as BufferAttribute,
+      );
+      const centro = cb.getCenter(new Vector3());
+      const raio = (cb.max.y - cb.min.y) / 2;
+      bruto.dispose();
+
+      // Segunda peneira: dentro do disco, no plano da roda.
+      const dentro: number[] = [];
+      for (let n = 0; n < q.length; n += 3) {
+        const c = q[n];
+        const dy = centros[c + 1] - centro.y;
+        const dz = centros[c + 2] - centro.z;
+        if (Math.hypot(dy, dz) <= raio * 1.02) dentro.push(q[n], q[n + 1], q[n + 2]);
+        else soltos.push(q[n], q[n + 1], q[n + 2]);
       }
+      if (dentro.length === 0) continue;
 
-      // Centro da roda, para a geometria girar em volta dele.
-      const cx = new Box3().setFromBufferAttribute(
+      const parte = extrair(geo, dentro);
+      // A geometria vai para o próprio centro: objeto gira em volta da própria
+      // origem, e sem isto a roda orbitaria o meio do carro em vez de rodar.
+      const cf = new Box3().setFromBufferAttribute(
         parte.attributes.position as BufferAttribute,
       ).getCenter(new Vector3());
-      parte.translate(-cx.x, -cx.y, -cx.z);
+      parte.translate(-cf.x, -cf.y, -cf.z);
 
       const eixo = new Group();
-      eixo.position.copy(cx);
+      eixo.position.copy(cf);
       eixo.add(new Mesh(parte, malha.material));
       pai.add(eixo);
       rodas.push(eixo);
     }
 
+    if (soltos.length > 0) pai.add(new Mesh(extrair(geo, soltos), malha.material));
     pai.remove(malha);
   }
 
-  void escala;
   return rodas;
 }
 
@@ -679,6 +715,11 @@ export function montarCena(
        *
        * Só parado. Andando, quem manda no ângulo é a curva: o carro se apruma
        * para a frente e inclina para dentro do que o GPS está descrevendo.
+       *
+       * O que o dedo girou SOMA com isto, em vez de substituir. Somar é o que
+       * faz o carro ficar onde alguém o deixou: se o balanço voltasse a mandar
+       * sozinho, desfaria em segundos o que a pessoa acabou de fazer — e um
+       * carro que volta ao lugar é pior do que um carro que não gira.
        */
       if (estado.parado) {
         // Balanço de vitrine, e não volta completa.
@@ -697,7 +738,7 @@ export function montarCena(
         const alvo = limitar(estado.curva * 0.004, -0.22, 0.22);
         vitrine += (alvo - vitrine) * Math.min(1, dt * 1.5);
       }
-      carro.rotation.y = vitrine;
+      carro.rotation.y = vitrine + estado.arrasto;
     },
 
     desenhar() {
