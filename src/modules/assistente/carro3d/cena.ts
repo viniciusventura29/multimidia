@@ -39,10 +39,10 @@ import {
   DirectionalLight,
   DoubleSide,
   EquirectangularReflectionMapping,
-  ExtrudeGeometry,
   Group,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   PMREMGenerator,
@@ -52,12 +52,8 @@ import {
   WebGLRenderer,
 } from "three";
 
-import {
-  afunilar,
-  CARRO,
-  perfilDaCarroceria,
-  perfilDoVidro,
-} from "./blueprint";
+import { CARRO } from "./blueprint";
+import { construirCarroceria, construirEstufa } from "./carroceria";
 
 /** O que a cena precisa saber do carro de verdade a cada quadro. */
 export interface EstadoDaCena {
@@ -89,20 +85,48 @@ const limitar = (v: number, min: number, max: number) =>
  * cor do perfil na altura do horizonte, que é o que aparece escorrendo pela
  * lateral do carro.
  */
-function ambiente(renderer: WebGLRenderer, acento: string) {
+function ambiente(renderer: WebGLRenderer) {
+  const L = 256;
+  const A = 128;
   const cv = document.createElement("canvas");
-  cv.width = 64;
-  cv.height = 32;
+  cv.width = L;
+  cv.height = A;
   const ctx = cv.getContext("2d")!;
 
-  const g = ctx.createLinearGradient(0, 0, 0, 32);
-  g.addColorStop(0, "#8f9bb3");
-  g.addColorStop(0.42, "#39414f");
-  g.addColorStop(0.5, acento);
-  g.addColorStop(0.58, "#12151a");
-  g.addColorStop(1, "#05070a");
+  // Céu, horizonte e chão do estúdio.
+  const g = ctx.createLinearGradient(0, 0, 0, A);
+  g.addColorStop(0, "#c9d2de");
+  g.addColorStop(0.34, "#7f8896");
+  g.addColorStop(0.49, "#4a5058");
+  g.addColorStop(0.51, "#2a2e34");
+  g.addColorStop(0.78, "#1a1d21");
+  g.addColorStop(1, "#0d0f12");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 64, 32);
+  ctx.fillRect(0, 0, L, A);
+
+  /*
+   * As duas softboxes.
+   *
+   * São elas que desenham o carro. O brilho comprido e reto que escorre pela
+   * lateral de um carro em foto de estúdio não é "luz": é o REFLEXO de uma caixa
+   * de luz retangular. Sem uma forma clara no ambiente para a lataria espelhar,
+   * a pintura fica com um brilho redondo e sem graça, por mais luz direcional
+   * que se jogue nela.
+   */
+  const caixa = (x: number, y: number, w: number, h: number, forca: number) => {
+    const r = ctx.createRadialGradient(x + w / 2, y + h / 2, 0, x + w / 2, y + h / 2, w / 2);
+    r.addColorStop(0, `rgba(255,255,255,${forca})`);
+    r.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = r;
+    ctx.save();
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.scale(1, h / w);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+    ctx.fillRect(x - w, y - w, w * 3, w * 3);
+    ctx.restore();
+  };
+  caixa(L * 0.06, A * 0.1, L * 0.42, A * 0.22, 0.95);
+  caixa(L * 0.58, A * 0.14, L * 0.3, A * 0.16, 0.6);
 
   const textura = new CanvasTexture(cv);
   textura.mapping = EquirectangularReflectionMapping;
@@ -113,6 +137,30 @@ function ambiente(renderer: WebGLRenderer, acento: string) {
   textura.dispose();
 
   return alvo.texture;
+}
+
+/**
+ * A máscara que apaga o piso nas bordas.
+ *
+ * Um disco de chão opaco encheria o fundo de cinza e taparia o painel — o quadro
+ * do herói é nu, e o fundo dele é a tela. Some das beiradas para dentro, o piso
+ * existe só onde serve: embaixo do carro, dando o brilho de estúdio e o apoio
+ * para a roda tocar.
+ */
+function texturaDoPiso(): CanvasTexture {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = 128;
+  const ctx = cv.getContext("2d")!;
+
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, "#ffffff");
+  g.addColorStop(0.42, "#c8c8c8");
+  g.addColorStop(0.78, "#2a2a2a");
+  g.addColorStop(1, "#000000");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+
+  return new CanvasTexture(cv);
 }
 
 /** A mancha de sombra no chão. Custa um quad; sombra projetada custa um passe. */
@@ -157,7 +205,8 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   renderer.setClearAlpha(0);
 
   const cena = new Scene();
-  cena.environment = ambiente(renderer, acentoInicial);
+  cena.environment = ambiente(renderer);
+  cena.environmentIntensity = 1.15;
 
   /*
    * Câmera de lente longa e de baixo.
@@ -169,16 +218,24 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
    * parece miniatura.
    */
   const camera = new PerspectiveCamera(24, 1, 0.5, 40);
-  const alvoDaCamera = new Vector3(0, 0.62, 0);
+  const alvoDaCamera = new Vector3(0, 0.52, 0);
   /** De onde se olha. O comprimento não importa — quem o define é `enquadrar`. */
-  const direcaoDaCamera = new Vector3(8.6, 0.62, 5.8).normalize();
+  const direcaoDaCamera = new Vector3(8.4, 2.5, 5.6).normalize();
 
   /**
    * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com o
    * anel do chão, e a altura do teto com uma folga em cima.
    */
-  const CENA_LARGA = 5.6;
-  const CENA_ALTA = 1.95;
+  /*
+   * A caixa muda com a ALTURA da câmera, não só com o carro.
+   *
+   * Visto de cima, o comprimento do carro projeta em altura na tela: a esta
+   * inclinação, os 4,4 m de comprimento valem mais de um metro vertical, que
+   * somam com a altura do teto. Dimensionar pela altura real do carro cortava o
+   * para-choque fora do quadro.
+   */
+  const CENA_LARGA = 6.0;
+  const CENA_ALTA = 3.0;
 
   /**
    * Aproxima ou afasta a câmera para a cena caber na caixa que ela recebeu.
@@ -201,52 +258,65 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
 
   /* --- luzes --- */
 
-  // Preenchimento baixo: quem revela a forma é o ambiente e as duas direcionais.
-  cena.add(new AmbientLight(0xffffff, 0.28));
+  /*
+   * Três pontos, como num estúdio: principal alta à frente, preenchimento fraco
+   * do lado oposto para a sombra não fechar em preto, e contorno atrás para
+   * separar o carro do fundo. O grosso da luz, porém, vem do ambiente — numa
+   * pintura envernizada, luz direcional faz o brilho pontual e o AMBIENTE faz a
+   * superfície. Por isso a ambiente aqui é baixa: ela só levanta o piso.
+   */
+  cena.add(new AmbientLight(0xffffff, 0.18));
 
-  const principal = new DirectionalLight(0xffffff, 1.9);
-  principal.position.set(5, 6.5, 4.5);
+  const principal = new DirectionalLight(0xffffff, 2.1);
+  principal.position.set(4.5, 6.2, 5.2);
   cena.add(principal);
 
-  /*
-   * A luz de contorno, na cor do perfil, vindo de trás e de baixo.
-   *
-   * É ela que faz o carro existir. Numa carroceria escura sobre fundo escuro, a
-   * silhueta se perderia; o contorno aceso pela borda separa o carro do fundo
-   * sem precisar clarear a pintura, e amarra o desenho ao resto do painel —
-   * porque é a mesma cor de quem está dirigindo.
-   */
-  const contorno = new DirectionalLight(new Color(acentoInicial), 2.6);
-  contorno.position.set(-6, 1.6, -4);
+  const preenchimento = new DirectionalLight(0xcfd8e6, 0.5);
+  preenchimento.position.set(-5.5, 2.2, 4);
+  cena.add(preenchimento);
+
+  const contorno = new DirectionalLight(new Color(acentoInicial), 0.75);
+  contorno.position.set(-5, 2.4, -5.5);
   cena.add(contorno);
 
   /* --- materiais --- */
 
-  const pintura = new MeshStandardMaterial({
-    color: 0x0e1116,
-    metalness: 0.62,
-    roughness: 0.32,
+  /*
+   * Pintura automotiva de verdade: base clara e verniz por cima.
+   *
+   * A versão anterior era quase preta e metálica, e errava duas vezes. Escura,
+   * ela some no painel escuro e a forma vira silhueta; e `metalness` alto é
+   * *metal*, não pintura — carro pintado é dielétrico com uma camada de verniz,
+   * e é o verniz que faz o reflexo comprido e nítido escorrer pela lateral. O
+   * `clearcoat` do `MeshPhysicalMaterial` é exatamente essa camada.
+   */
+  const pintura = new MeshPhysicalMaterial({
+    color: 0xeef1f5,
+    metalness: 0.0,
+    roughness: 0.42,
+    clearcoat: 1,
+    clearcoatRoughness: 0.045,
+    envMapIntensity: 1.35,
   });
-  const vidro = new MeshStandardMaterial({
-    color: 0x05070a,
-    metalness: 0.1,
-    roughness: 0.06,
-    transparent: true,
-    opacity: 0.62,
-    side: DoubleSide,
+  const preto = new MeshStandardMaterial({
+    color: 0x14171c,
+    metalness: 0.25,
+    roughness: 0.5,
   });
   const borracha = new MeshStandardMaterial({
-    color: 0x08090b,
+    color: 0x0d0e10,
     metalness: 0.0,
-    roughness: 0.92,
+    roughness: 0.88,
   });
+  // Liga polida: é o contraponto claro e duro da pintura macia.
   const roda = new MeshStandardMaterial({
-    color: 0x2a2f38,
-    metalness: 0.85,
-    roughness: 0.28,
+    color: 0xb9c0c8,
+    metalness: 1,
+    roughness: 0.22,
+    envMapIntensity: 1.5,
   });
-  const aceso = new MeshBasicMaterial({ color: 0xffcf7a });
-  const brasa = new MeshBasicMaterial({ color: 0xff4d4d });
+  const aceso = new MeshBasicMaterial({ color: 0xfff3d8 });
+  const brasa = new MeshBasicMaterial({ color: 0xe8433c });
 
   /* --- carroceria --- */
 
@@ -266,48 +336,65 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   corpo.position.y = 0.075;
   carro.add(corpo);
 
-  const lata = new ExtrudeGeometry(perfilDaCarroceria(), {
-    depth: CARRO.meiaLargura * 2,
-    bevelEnabled: true,
-    // O chanfro é o que apaga a quina viva da extrusão e dá à lateral uma
-    // superfície virando — sem ele não existe reflexo escorrendo, e sem reflexo
-    // escorrendo não existe carro.
-    bevelThickness: 0.075,
-    bevelSize: 0.06,
-    bevelSegments: 3,
-    curveSegments: 14,
-  });
-  lata.translate(0, 0, -CARRO.meiaLargura);
-  afunilar(lata.attributes.position.array as Float32Array, CARRO.meiaLargura, CARRO.teto);
-  lata.computeVertexNormals();
-  corpo.add(new Mesh(lata, pintura));
+  corpo.add(new Mesh(construirCarroceria(), pintura));
 
-  const estufa = new ExtrudeGeometry(perfilDoVidro(), {
-    depth: CARRO.meiaLargura * 2 * 0.84,
-    bevelEnabled: true,
-    bevelThickness: 0.03,
-    bevelSize: 0.025,
-    bevelSegments: 2,
-    curveSegments: 12,
+  /*
+   * O vidro: pouco verniz e mais rugosidade que a lataria, de propósito. Com o
+   * mesmo verniz da pintura ele espelharia a softbox e voltaria a ficar claro —
+   * ver `construirEstufa`.
+   */
+  const vidro = new MeshPhysicalMaterial({
+    color: 0x090c12,
+    metalness: 0.0,
+    roughness: 0.22,
+    clearcoat: 0.35,
+    clearcoatRoughness: 0.16,
+    envMapIntensity: 0.55,
+    side: DoubleSide,
   });
-  estufa.translate(0, 0, -CARRO.meiaLargura * 0.84);
-  afunilar(
-    estufa.attributes.position.array as Float32Array,
-    CARRO.meiaLargura,
-    CARRO.teto,
-  );
-  estufa.computeVertexNormals();
-  corpo.add(new Mesh(estufa, vidro));
+  corpo.add(new Mesh(construirEstufa(), vidro));
 
-  // A asa sobre a rabeta — o traço que mais entrega o carro de longe.
-  const asa = new Mesh(new BoxGeometry(0.5, 0.04, 1.1), pintura);
-  asa.position.set(-1.94, 1.05, 0);
+  /*
+   * O aerofólio do 3G, que é discreto.
+   *
+   * Antes era uma prateleira de asa de pista, e era ela que fazia o carro ler
+   * como protótipo de Le Mans em vez de cupê de rua. Nas fotos do Eclipse o
+   * aerofólio é baixo, colado na tampa e com pés curtos — some de longe e só
+   * aparece no três-quartos.
+   */
+  const asa = new Mesh(new BoxGeometry(0.34, 0.035, 1.16), pintura);
+  asa.position.set(-1.9, 0.94, 0);
   corpo.add(asa);
-  for (const z of [-0.42, 0.42]) {
-    const pe = new Mesh(new BoxGeometry(0.06, 0.24, 0.045), pintura);
-    pe.position.set(-1.92, 0.92, z);
+  for (const z of [-0.44, 0.44]) {
+    const pe = new Mesh(new BoxGeometry(0.07, 0.1, 0.05), pintura);
+    pe.position.set(-1.88, 0.885, z);
     corpo.add(pe);
   }
+
+  // Retrovisores: pequenos, e é a ausência deles que mais faz um carro 3D
+  // parecer maquete.
+  for (const z of [-0.66, 0.66]) {
+    const braco = new Mesh(new BoxGeometry(0.1, 0.035, 0.09), preto);
+    braco.position.set(0.42, 0.86, z);
+    corpo.add(braco);
+    const concha = new Mesh(new BoxGeometry(0.17, 0.1, 0.07), pintura);
+    concha.position.set(0.52, 0.885, z * 1.09);
+    concha.rotation.y = z > 0 ? -0.18 : 0.18;
+    corpo.add(concha);
+  }
+
+  // Saia lateral e a faixa escura embaixo: cortam a altura da lataria e é o que
+  // faz o carro parecer baixo sem precisar deitar a soleira no chão.
+  for (const z of [-0.71, 0.71]) {
+    const saia = new Mesh(new BoxGeometry(2.5, 0.13, 0.05), preto);
+    saia.position.set(-0.05, 0.2, z);
+    corpo.add(saia);
+  }
+
+  // A grade e as entradas de ar do para-choque dianteiro.
+  const grade = new Mesh(new BoxGeometry(0.06, 0.11, 0.62), preto);
+  grade.position.set(2.16, 0.36, 0);
+  corpo.add(grade);
 
   // Farol repuxado e lanterna: dois pontos acesos que dão escala ao resto.
   for (const z of [-0.48, 0.48]) {
@@ -336,16 +423,46 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   const rodas: Group[] = [];
   const { eixo } = CARRO;
 
-  const pneuGeo = new CylinderGeometry(eixo.raio, eixo.raio, eixo.largura, 24, 1);
+  /*
+   * A roda, do pneu ao miolo.
+   *
+   * A versão anterior era um cilindro com cinco caixas atravessadas, e era o que
+   * mais denunciava que aquilo não era um carro: roda é a peça que todo mundo
+   * conhece de cor. Aqui ela tem as camadas que se veem numa foto — flanco de
+   * borracha fosco, aro de liga polida um pouco recuado, raios que afinam para
+   * fora e um cubo no centro. O contraste entre borracha fosca e liga espelhada
+   * é metade do efeito; a outra metade é o aro NÃO chegar até a borda do pneu.
+   */
+  const pneuGeo = new CylinderGeometry(eixo.raio, eixo.raio, eixo.largura, 28, 1);
   pneuGeo.rotateX(Math.PI / 2);
+
+  // O flanco: um disco levemente menor, para o pneu não ser um tubo reto.
+  const flancoGeo = new CylinderGeometry(
+    eixo.raio * 0.995,
+    eixo.raio * 0.93,
+    eixo.largura * 0.24,
+    28,
+    1,
+  );
+  flancoGeo.rotateX(Math.PI / 2);
+
   const aroGeo = new CylinderGeometry(
-    eixo.raio * 0.6,
-    eixo.raio * 0.6,
-    eixo.largura * 1.04,
-    20,
+    eixo.raio * 0.68,
+    eixo.raio * 0.68,
+    eixo.largura * 0.62,
+    28,
     1,
   );
   aroGeo.rotateX(Math.PI / 2);
+
+  const cuboGeo = new CylinderGeometry(
+    eixo.raio * 0.2,
+    eixo.raio * 0.2,
+    eixo.largura * 0.7,
+    16,
+    1,
+  );
+  cuboGeo.rotateX(Math.PI / 2);
 
   for (const x of [eixo.traseiro, eixo.dianteiro]) {
     for (const z of [-eixo.bitola, eixo.bitola]) {
@@ -353,20 +470,37 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
       conjunto.position.set(x, eixo.altura, z);
 
       conjunto.add(new Mesh(pneuGeo, borracha));
+      for (const lado of [-1, 1]) {
+        const flanco = new Mesh(flancoGeo, borracha);
+        flanco.position.z = lado * eixo.largura * 0.38;
+        flanco.rotation.x = lado > 0 ? 0 : Math.PI;
+        conjunto.add(flanco);
+      }
       conjunto.add(new Mesh(aroGeo, roda));
+      conjunto.add(new Mesh(cuboGeo, roda));
 
-      // Cinco raios, como no desenho de sempre. São eles que mostram o giro —
-      // um aro liso girando é indistinguível de um aro parado.
-      //
-      // O deslocamento vai na GEOMETRIA e não na posição da malha: objeto gira
-      // em volta da própria origem, então um raio posicionado e depois girado
-      // rodopiaria em torno de si mesmo em vez de abrir o leque a partir do
-      // centro da roda.
-      for (let i = 0; i < 5; i++) {
-        const g = new BoxGeometry(eixo.raio * 0.92, 0.05, eixo.largura * 1.06);
-        g.translate(eixo.raio * 0.46, 0, 0);
+      /*
+       * Seis raios que afinam para fora, como a liga das fotos.
+       *
+       * O deslocamento vai na GEOMETRIA e não na posição da malha: objeto gira
+       * em volta da própria origem, então um raio posicionado e depois girado
+       * rodopiaria em torno de si mesmo em vez de abrir o leque a partir do
+       * centro da roda.
+       */
+      for (let i = 0; i < 6; i++) {
+        const g = new CylinderGeometry(
+          eixo.raio * 0.075,
+          eixo.raio * 0.14,
+          eixo.raio * 0.66,
+          6,
+          1,
+        );
+        // O cilindro nasce em pé; deitá-lo em Z e depois deitar no plano da roda.
+        g.rotateZ(Math.PI / 2);
+        g.translate(eixo.raio * 0.4, 0, 0);
         const raio = new Mesh(g, roda);
-        raio.rotation.z = (i * Math.PI * 2) / 5;
+        raio.rotation.z = (i * Math.PI * 2) / 6;
+        raio.position.z = eixo.largura * 0.1;
         conjunto.add(raio);
       }
 
@@ -376,6 +510,31 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
   }
 
   /* --- chão --- */
+
+  /*
+   * O piso do estúdio.
+   *
+   * Escuro e polido: ele não reflete o carro — reflexo de verdade custaria um
+   * segundo passe de render, e a head unit não tem esse dinheiro —, mas reflete
+   * o AMBIENTE, e é isso que dá o chão brilhante das fotos. O carro aparece nele
+   * pela mancha de sombra, que é o que o olho procura para saber onde a roda
+   * toca.
+   */
+  const piso = new Mesh(
+    new CircleGeometry(4.4, 48),
+    new MeshStandardMaterial({
+      color: 0x14171b,
+      metalness: 0.9,
+      roughness: 0.3,
+      envMapIntensity: 0.9,
+      transparent: true,
+      alphaMap: texturaDoPiso(),
+      depthWrite: false,
+    }),
+  );
+  piso.rotation.x = -Math.PI / 2;
+  piso.scale.set(1, 0.66, 1);
+  cena.add(piso);
 
   const sombra = new Mesh(
     new CircleGeometry(3.1, 32),
@@ -387,7 +546,7 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
     }),
   );
   sombra.rotation.x = Math.PI / 2;
-  sombra.position.y = 0.004;
+  sombra.position.y = 0.006;
   sombra.scale.set(1, 0.62, 1);
   cena.add(sombra);
 
@@ -500,7 +659,7 @@ export function montarCena(canvas: HTMLCanvasElement, acentoInicial: string): Ce
         const mesh = o as Mesh;
         if (mesh.geometry) mesh.geometry.dispose();
       });
-      for (const mat of [pintura, vidro, borracha, roda, aceso, brasa]) mat.dispose();
+      for (const mat of [pintura, vidro, preto, borracha, roda, aceso, brasa]) mat.dispose();
       cena.environment?.dispose();
       renderer.dispose();
     },

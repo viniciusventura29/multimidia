@@ -145,6 +145,8 @@ export function afunilar(
   meiaLargura: number,
   teto: number,
 ): void {
+  const { traseiro, dianteiro } = CARRO.eixo;
+
   for (let i = 0; i < posicoes.length; i += 3) {
     const x = posicoes[i];
     const y = posicoes[i + 1];
@@ -160,5 +162,21 @@ export function afunilar(
     posicoes[i + 1] = y * (1 - fechaY * Math.pow(t, 2.4));
     // As pontas recuam de leve: nariz e rabeta arredondam em planta.
     posicoes[i] = x * (1 - 0.05 * Math.pow(t, 3));
+
+    /*
+     * Os para-lamas estufados.
+     *
+     * É o traço que mais identifica o 3G, e o que faltava para a lateral deixar
+     * de ser uma parede: no carro de verdade a lataria incha em volta de cada
+     * roda e volta a fechar no meio da porta. Aqui a largura ganha um sino
+     * centrado em cada eixo, forte na altura da roda e sumindo perto do teto —
+     * inchar o teto junto daria um carro barrigudo em vez de um carro com
+     * para-lama.
+     */
+    const perto = (eixoX: number) =>
+      Math.exp(-Math.pow((x - eixoX) / 0.78, 2));
+    const sino = Math.max(perto(traseiro), perto(dianteiro));
+    const naAlturaDaRoda = Math.exp(-Math.pow((alt - 0.34) / 0.3, 2));
+    posicoes[i + 2] = z * (1 + 0.13 * sino * naAlturaDaRoda);
   }
 }
