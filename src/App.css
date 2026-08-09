@@ -469,6 +469,22 @@ body {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+/*
+ * O herói não acende com o mouse em cima.
+ *
+ * O anel é o contorno de card que este quadro inteiro existe para não ter: o
+ * `chrome: "nu"` tirou o fundo, a `sangra` tirou o corte da luz na quina, e aí
+ * bastava passar o mouse para a caixa reaparecer desenhada em volta do carro.
+ *
+ * Sai só o `:hover`. O `:focus-visible` fica, e não por descuido: quem navega
+ * por teclado precisa ver onde está, e ali o anel não é ruído — é a única coisa
+ * dizendo qual quadro abre no Enter. Mouse já tem o cursor de arrastar do
+ * `.carro3d__quadro` como aviso de que o carro responde.
+ */
+.tile--nu.tile--sangra.tile--clicavel:hover {
+  box-shadow: none;
+}
+
 .tile__head {
   display: flex;
   align-items: center;
