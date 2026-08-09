@@ -41,6 +41,7 @@ import {
   DoubleSide,
   EquirectangularReflectionMapping,
   Group,
+  Matrix4,
   Mesh,
   Object3D,
   MeshBasicMaterial,
@@ -201,6 +202,16 @@ export interface Cena {
 /** Comprimento real de um Eclipse 3G, em metros. É o que dá a escala. */
 const COMPRIMENTO_REAL = 4.45;
 
+/**
+ * Onde as duas listras começam e acabam, em fração da largura do carro.
+ *
+ * O carro tem 1,90 m: 0,022 dá 4 cm do plano central (a folga entre elas) e
+ * 0,088 dá 17 cm (a borda de fora). Sai um par de faixas de 13 cm com 8 cm de
+ * respiro no meio, que é a proporção das fotos.
+ */
+const BORDA_DE_DENTRO = 0.022;
+const BORDA_DE_FORA = 0.088;
+
 /** Raio do pneu, em metros — 205/55 R16 dá ~0,32 m. */
 const RAIO_DA_RODA = 0.32;
 
@@ -239,6 +250,87 @@ function encaixar(modelo: Object3D): Group[] {
 }
 
 /**
+ * As duas listras, pintadas NO SHADER.
+ *
+ * A primeira tentativa foi por cor de vértice, e ela falhou por um motivo que
+ * só aparece com o modelo na mão: esta carroceria tem pouco mais de dois mil
+ * vértices. Um capô inteiro são poucos polígonos, e os vértices ficam a mais de
+ * vinte centímetros um do outro — uma faixa de treze centímetros simplesmente
+ * cai no vão entre eles. Cor de vértice pinta os CANTOS e interpola o meio: ela
+ * só sabe desenhar manchas maiores que a malha.
+ *
+ * Pintar no fragmento resolve porque a conta passa a ser por pixel, e a nitidez
+ * da borda deixa de ter relação com a densidade de triângulos. O custo é uma
+ * multiplicação por pixel, que numa área de 500x280 não é custo.
+ *
+ * A posição e a normal chegam ao fragmento em espaço de OBJETO, por varying
+ * próprio: as que o three já oferece estão em espaço de vista, e ali o eixo do
+ * carro se perde assim que a câmera ou o balanço mexem.
+ */
+function listrar(
+  mat: MeshPhysicalMaterial,
+  caixa: Box3,
+  tamanho: Vector3,
+  paraRaiz: Matrix4,
+): void {
+  const meio = (caixa.min.x + caixa.max.x) / 2;
+  const dentro = BORDA_DE_DENTRO * tamanho.x;
+  const fora = BORDA_DE_FORA * tamanho.x;
+  // Uma borda de meio centímetro de carro: nítida sem serrilhar.
+  const suave = tamanho.x * 0.0025;
+
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uMeio = { value: meio };
+    shader.uniforms.uDentro = { value: dentro };
+    shader.uniforms.uFora = { value: fora };
+    shader.uniforms.uSuave = { value: suave };
+    /*
+     * A matriz que leva do espaço da malha para o do CARRO.
+     *
+     * Sem ela a listra assume que o eixo X da malha é a largura do carro — e
+     * basta o exportador ter deixado um nó girado no meio do caminho para a
+     * faixa sair atravessada, ou não sair. Passando a transformação, a conta
+     * acontece onde ela faz sentido: no carro, não na peça.
+     */
+    shader.uniforms.uParaRaiz = { value: paraRaiz };
+
+    shader.vertexShader = `
+      uniform mat4 uParaRaiz;
+      varying vec3 vLocal;
+      varying vec3 vNormalLocal;
+    ` + shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+       vLocal = (uParaRaiz * vec4(position, 1.0)).xyz;
+       vNormalLocal = mat3(uParaRaiz) * normal;`,
+    );
+
+    shader.fragmentShader = `
+      uniform float uMeio;
+      uniform float uDentro;
+      uniform float uFora;
+      uniform float uSuave;
+      varying vec3 vLocal;
+      varying vec3 vNormalLocal;
+    ` + shader.fragmentShader.replace(
+      "#include <map_fragment>",
+      `#include <map_fragment>
+       {
+         float d = abs(vLocal.x - uMeio);
+         // Entre as duas bordas: é o par de faixas com folga no meio.
+         float faixa = smoothstep(uDentro - uSuave, uDentro + uSuave, d)
+                     * (1.0 - smoothstep(uFora - uSuave, uFora + uSuave, d));
+         // E só onde a chapa não olha para o lado: listra corre por cima e
+         // desce pelas pontas, mas não vira na lateral do carro.
+         float deCima = 1.0 - smoothstep(0.55, 0.85, abs(normalize(vNormalLocal).x));
+         diffuseColor.rgb *= mix(1.0, 0.28, faixa * deCima);
+       }`,
+    );
+  };
+  mat.needsUpdate = true;
+}
+
+/**
  * Verniz na pintura e a listra do meio.
  *
  * O modelo chega com material de brilho antigo (difuso mais especular), que o
@@ -253,7 +345,6 @@ function encaixar(modelo: Object3D): Group[] {
  * tem listra.
  */
 function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
-  const v = new Vector3();
 
   modelo.traverse((no) => {
     const malha = no as Mesh;
@@ -267,44 +358,25 @@ function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
       normalMap: mat.normalMap,
       roughnessMap: mat.roughnessMap,
       metalnessMap: mat.metalnessMap,
-      color: mat.color,
-      metalness: ehRoda ? 0.85 : 0.05,
-      roughness: ehRoda ? 0.3 : 0.34,
+      // A roda do modelo é de liga clara e a do carro é preta. `color`
+      // multiplica a textura, então um cinza bem escuro apaga o prata e deixa
+      // o desenho do aro — que é o que se vê de um aro preto na sombra.
+      color: ehRoda ? new Color(0x3e4247) : mat.color,
+      metalness: ehRoda ? 0.7 : 0.05,
+      roughness: ehRoda ? 0.42 : 0.34,
       clearcoat: ehRoda ? 0.2 : 1,
       clearcoatRoughness: 0.06,
-      envMapIntensity: ehRoda ? 1.4 : 1.15,
-      vertexColors: !ehRoda,
+      envMapIntensity: ehRoda ? 1.5 : 1.15,
     });
     malha.material = novo;
     mat.dispose();
 
     if (ehRoda) return;
+    listrar(novo, caixa, tamanho, malha.matrixWorld.clone());
 
-    const pos = malha.geometry.attributes.position;
-    const cores = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(malha.matrixWorld);
-      const fx = (v.x - caixa.min.x) / tamanho.x;
-      const fy = (v.y - caixa.min.y) / tamanho.y;
-
-      // Faixa estreita no plano central, só nas superfícies de cima.
-      const naFaixa = 1 - suavizar(0.052, 0.078, Math.abs(fx - 0.5));
-      const emCima = suavizar(0.4, 0.56, fy);
-      const t = 1 - naFaixa * emCima * 0.42;
-
-      cores[i * 3] = t;
-      cores[i * 3 + 1] = t;
-      cores[i * 3 + 2] = t;
-    }
-    malha.geometry.setAttribute("color", new BufferAttribute(cores, 3));
   });
 }
 
-/** Transição suave entre dois limites — sem ela, toda máscara vira uma quina. */
-const suavizar = (a: number, b: number, x: number) => {
-  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
 
 /**
  * Recorta as quatro rodas do grupo em que elas vieram.
@@ -374,22 +446,35 @@ function separarRodas(modelo: Object3D): Group[] {
     for (const q of quadrantes) {
       if (q.length === 0) continue;
 
-      // Centro e raio do candidato a roda.
-      const bruto = extrair(geo, q);
-      const cb = new Box3().setFromBufferAttribute(
-        bruto.attributes.position as BufferAttribute,
-      );
-      const centro = cb.getCenter(new Vector3());
-      const raio = (cb.max.y - cb.min.y) / 2;
-      bruto.dispose();
+      /*
+       * O eixo da roda sai da MEDIANA, e o raio de um percentil.
+       *
+       * A versão anterior usava o centro da caixa do quadrante inteiro — e a
+       * caixa incluía o para-lama interno, que puxava o centro para fora do
+       * eixo. Com o centro errado, o teste de disco cortava uma meia-lua do
+       * pneu: a roda aparecia rasgada, com pedaços faltando.
+       *
+       * Mediana resolve porque a roda tem muito mais triângulos que a peça
+       * agarrada nela: metade dos valores cai dentro do pneu, e o centro vai
+       * parar no eixo mesmo com lixo em volta. O raio pelo percentil 90 segue a
+       * mesma lógica — a nuvem densa de distâncias termina no bordo do pneu, e
+       * o que passa disso é a cauda esparsa do para-lama.
+       */
+      const ys: number[] = [];
+      const zs: number[] = [];
+      for (let n = 0; n < q.length; n += 3) {
+        ys.push(centros[q[n] + 1]);
+        zs.push(centros[q[n] + 2]);
+      }
+      const centro = new Vector3(0, mediana(ys), mediana(zs));
+
+      const distancias = ys.map((y, k) => Math.hypot(y - centro.y, zs[k] - centro.z));
+      const raio = percentil(distancias, 0.9);
 
       // Segunda peneira: dentro do disco, no plano da roda.
       const dentro: number[] = [];
-      for (let n = 0; n < q.length; n += 3) {
-        const c = q[n];
-        const dy = centros[c + 1] - centro.y;
-        const dz = centros[c + 2] - centro.z;
-        if (Math.hypot(dy, dz) <= raio * 1.02) dentro.push(q[n], q[n + 1], q[n + 2]);
+      for (let n = 0, k = 0; n < q.length; n += 3, k++) {
+        if (distancias[k] <= raio * 1.1) dentro.push(q[n], q[n + 1], q[n + 2]);
         else soltos.push(q[n], q[n + 1], q[n + 2]);
       }
       if (dentro.length === 0) continue;
@@ -414,6 +499,18 @@ function separarRodas(modelo: Object3D): Group[] {
   }
 
   return rodas;
+}
+
+/** Mediana de uma lista — resistente a lixo, ao contrário da média. */
+function mediana(v: number[]): number {
+  const o = [...v].sort((a, b) => a - b);
+  return o[Math.floor(o.length / 2)];
+}
+
+/** O valor abaixo do qual está a fração pedida da lista. */
+function percentil(v: number[], f: number): number {
+  const o = [...v].sort((a, b) => a - b);
+  return o[Math.min(o.length - 1, Math.floor(o.length * f))];
 }
 
 /** Copia os vértices escolhidos para uma geometria nova. */
@@ -472,7 +569,7 @@ export function montarCena(
   const camera = new PerspectiveCamera(24, 1, 0.5, 40);
   const alvoDaCamera = new Vector3(0, 0.52, 0);
   /** De onde se olha. O comprimento não importa — quem o define é `enquadrar`. */
-  const direcaoDaCamera = new Vector3(8.4, 1.55, 5.6).normalize();
+  const direcaoDaCamera = new Vector3(8.4, 2.9, 5.6).normalize();
 
   /**
    * O quanto a cena precisa caber, em metros: o carro de ponta a ponta com o
