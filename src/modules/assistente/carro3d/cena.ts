@@ -41,7 +41,6 @@ import {
   DoubleSide,
   EquirectangularReflectionMapping,
   Group,
-  Matrix4,
   Mesh,
   Object3D,
   MeshBasicMaterial,
@@ -51,7 +50,6 @@ import {
   PMREMGenerator,
   RingGeometry,
   Scene,
-  Texture,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -74,11 +72,6 @@ export interface EstadoDaCena {
 const limitar = (v: number, min: number, max: number) =>
   Math.max(min, Math.min(max, v));
 
-/** Transição suave entre dois limites — sem ela, toda máscara vira uma quina. */
-const suavizar = (a: number, b: number, x: number) => {
-  const t = limitar((x - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-};
 
 /* ------------------------------------------------------------------ */
 /* O ambiente                                                          */
@@ -200,229 +193,208 @@ export interface Cena {
 }
 
 /* ------------------------------------------------------------------ */
-/* Consertando o scan                                                  */
+/* Encaixando o modelo                                                 */
 /* ------------------------------------------------------------------ */
 
+/** Comprimento real de um Eclipse 3G, em metros. É o que dá a escala. */
+const COMPRIMENTO_REAL = 4.45;
+
+/** Raio do pneu, em metros — 205/55 R16 dá ~0,32 m. */
+const RAIO_DA_RODA = 0.32;
+
 /**
- * Os dois consertos que transformam um scan num carro.
+ * Põe o carro na escala e no chão, e separa as quatro rodas.
  *
- * ## O vidro
+ * ## Escala e apoio
  *
- * Fotogrametria **não captura vidro**: a câmera atravessa, o algoritmo não acha
- * correspondência e devolve ruído. É por isso que o para-brisa e o teto vêm com
- * aquelas manchas brancas — não é falha do modelo, é o limite da técnica que o
- * produziu. Nenhum ajuste de luz esconde isso, porque a mancha está na textura.
+ * O modelo vem em unidade de modelador — 69,9 de comprimento, sem dizer de quê.
+ * Em vez de adivinhar o fator, mede-se a caixa e divide-se pelo comprimento que
+ * um Eclipse tem de verdade: qualquer modelo que entre aqui sai no tamanho
+ * certo, venha em polegada, centímetro ou nada. O mesmo vale para a altura — o
+ * carro vem flutuando, e é a base da caixa que o assenta no chão.
  *
- * O conserto é escurecer a região da cabine por COR DE VÉRTICE, que multiplica a
- * textura: onde havia mancha branca passa a haver vidro escuro. Não custa um
- * triângulo, não depende de saber como o atlas de UV foi montado, e o degradê
- * suave nas bordas evita uma faixa preta com quina.
+ * ## As rodas
  *
- * E o teto ficar escuro junto não é acidente: o 3G tem o painel do teto em preto
- * de fábrica, então a cabine inteira escura é o que o carro tem de verdade.
- *
- * ## O brilho
- *
- * O scan vem `KHR_materials_unlit`, que o three carrega como material sem
- * iluminação nenhuma — a textura é desenhada crua na tela. Fica correto e fica
- * morto: carro sem reflexo é carro de papel. Trocando por material com verniz e
- * mapa de ambiente, a mesma textura passa a ganhar brilho especular e a
- * responder ao balanço, que é o que faz a lataria parecer lataria.
- *
- * A luz direta fica baixa de propósito: a iluminação do dia da captura já está
- * assada na textura, e somar as duas deixaria o carro estourado.
+ * Vêm num grupo só com os acessórios (`wheels_n_acc`), o que não serve: para
+ * girar, cada roda precisa ser um objeto com o próprio eixo. Separá-las por
+ * POSIÇÃO resolve — um carro tem exatamente uma roda por quadrante, e um
+ * triângulo baixo pertence à roda do quadrante em que ele está. O que estiver
+ * alto no mesmo grupo (retrovisor, aerofólio) fica de fora e continua parado,
+ * que é o correto.
  */
-function envidracarEDarBrilho(modelo: Object3D): void {
-  /*
-   * TUDO AQUI É EM FRAÇÃO DA CAIXA DO CARRO, e não em metros. A razão é uma
-   * pegadinha que custou um carro partido ao meio na tela.
-   *
-   * O modelo passou por `quantize` para caber no APK: as posições deixaram de
-   * ser float em metros e viraram inteiros de 16 bits normalizados, com a escala
-   * de volta guardada na matriz do nó. Ler `position.getY()` devolve, então, um
-   * número entre -1 e 1 que não tem relação nenhuma com altura — e um corte
-   * escrito em metros cai num lugar arbitrário da malha.
-   *
-   * Medindo a caixa depois das matrizes aplicadas e trabalhando em fração dela,
-   * a conta passa a ser independente de escala, de unidade e de quanto o modelo
-   * foi comprimido. Trocar o `.glb` por outro continua funcionando.
-   */
+function encaixar(modelo: Object3D): Group[] {
   modelo.updateWorldMatrix(true, true);
   const caixa = new Box3().setFromObject(modelo);
   const tamanho = caixa.getSize(new Vector3());
+
+  // O maior lado horizontal é o comprimento, seja ele X ou Z.
+  const escala = COMPRIMENTO_REAL / Math.max(tamanho.x, tamanho.z);
+  modelo.scale.setScalar(escala);
+  modelo.position.y = -caixa.min.y * escala;
+
+  envernizar(modelo, caixa, tamanho);
+  return separarRodas(modelo, escala);
+}
+
+/**
+ * Verniz na pintura e a listra do meio.
+ *
+ * O modelo chega com material de brilho antigo (difuso mais especular), que o
+ * conversor traduz para metálico-rugosidade do jeito conservador: sai uma
+ * pintura fosca, de argila. Um carro tem verniz, e verniz é uma camada
+ * espelhada por cima da cor — sem ela a lataria não devolve nada do ambiente e
+ * o olho lê maquete.
+ *
+ * A listra vai por cor de vértice, e não na textura, porque o eixo dela é o eixo
+ * do CARRO: é a faixa onde a largura está no meio. Mexer na textura exigiria
+ * saber como o `.tga` foi costurado, e ele foi feito para outro carro que não
+ * tem listra.
+ */
+function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
   const v = new Vector3();
 
   modelo.traverse((no) => {
     const malha = no as Mesh;
     if (!malha.isMesh) return;
 
-    const geo = malha.geometry;
-    const pos = geo.attributes.position;
-    const cores = new Float32Array(pos.count * 3);
+    const ehRoda = /wheel|roda/i.test(malha.name + (malha.parent?.name ?? ""));
+    const mat = malha.material as MeshStandardMaterial;
 
+    const novo = new MeshPhysicalMaterial({
+      map: mat.map,
+      normalMap: mat.normalMap,
+      roughnessMap: mat.roughnessMap,
+      metalnessMap: mat.metalnessMap,
+      color: mat.color,
+      metalness: ehRoda ? 0.85 : 0.05,
+      roughness: ehRoda ? 0.3 : 0.34,
+      clearcoat: ehRoda ? 0.2 : 1,
+      clearcoatRoughness: 0.06,
+      envMapIntensity: ehRoda ? 1.4 : 1.15,
+      vertexColors: !ehRoda,
+    });
+    malha.material = novo;
+    mat.dispose();
+
+    if (ehRoda) return;
+
+    const pos = malha.geometry.attributes.position;
+    const cores = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i).applyMatrix4(malha.matrixWorld);
-      // 0 a 1 dentro da caixa: largura, altura e comprimento.
       const fx = (v.x - caixa.min.x) / tamanho.x;
       const fy = (v.y - caixa.min.y) / tamanho.y;
-      const fz = (v.z - caixa.min.z) / tamanho.z;
 
-      /*
-       * A cabine, no comprimento, e acima da cintura.
-       *
-       * A faixa saiu da conta, não do olho: o carro tem 4,46 m, a base do
-       * para-brisa fica a ~2,2 m do nariz e o fim do vidro traseiro a ~3,9 m.
-       * Com o nariz na ponta 1 do eixo, isso dá a cabine entre 0,12 e 0,52. A
-       * primeira tentativa chutou 0,24 a 0,66 e escureceu o capô em vez das
-       * janelas — o vidro continuou branco e ninguém entendeu por quê.
-       */
-      const naCabine = suavizar(0.09, 0.16, fz) * (1 - suavizar(0.5, 0.58, fz));
-      const acima = suavizar(0.5, 0.62, fy);
-      const vidro = naCabine * acima;
-
-      // 1 é a lataria como veio; 0,12 é vidro. Nunca zero: preto absoluto
-      // apagaria o contorno da coluna e a cabine viraria um buraco.
-      let t = 1 - vidro * 0.88;
-
-      /*
-       * A listra do meio, do capô à tampa.
-       *
-       * Em cor de vértice e não na textura porque o eixo dela é o eixo do
-       * CARRO: a faixa é onde a largura está no meio. Fosse na textura, seria
-       * preciso saber como o atlas de UV foi costurado — e atlas de
-       * fotogrametria é picotado, sem costura previsível.
-       *
-       * Só em cima: listra de teto não desce pela lateral nem passa por baixo.
-       */
-      const naFaixa = 1 - suavizar(0.062, 0.088, Math.abs(fx - 0.5));
-      const emCima = suavizar(0.42, 0.58, fy);
-      t *= 1 - naFaixa * emCima * 0.55;
+      // Faixa estreita no plano central, só nas superfícies de cima.
+      const naFaixa = 1 - suavizar(0.052, 0.078, Math.abs(fx - 0.5));
+      const emCima = suavizar(0.4, 0.56, fy);
+      const t = 1 - naFaixa * emCima * 0.42;
 
       cores[i * 3] = t;
       cores[i * 3 + 1] = t;
-      cores[i * 3 + 2] = t * 1.04;
+      cores[i * 3 + 2] = t;
     }
-
-    geo.setAttribute("color", new BufferAttribute(cores, 3));
-    descascarOChao(geo, malha.matrixWorld, caixa.min.y, tamanho.y);
-
-    const antigo = malha.material as MeshBasicMaterial;
-    malha.material = new MeshPhysicalMaterial({
-      map: pratear(antigo.map),
-      vertexColors: true,
-      metalness: 0.0,
-      roughness: 0.4,
-      clearcoat: 0.95,
-      clearcoatRoughness: 0.07,
-      envMapIntensity: 1.0,
-    });
-    antigo.dispose();
+    malha.geometry.setAttribute("color", new BufferAttribute(cores, 3));
   });
 }
 
+/** Transição suave entre dois limites — sem ela, toda máscara vira uma quina. */
+const suavizar = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
 /**
- * Tira a crosta de chão que veio grudada no carro.
+ * Recorta as quatro rodas do grupo em que elas vieram.
  *
- * Fotogrametria captura o que está em volta junto: o asfalto embaixo do carro
- * virou uma saia irregular e escura presa nas soleiras e nos pneus. Não dá para
- * limpar por cor — a crosta e o pneu são igualmente escuros —, mas dá por
- * ALTURA: abaixo de quatro centímetros do chão não existe carro, existe chão. O
- * triângulo cujo centro cai ali é descartado, e a mancha de sombra da cena cobre
- * o corte.
+ * Cada triângulo vai para o quadrante do seu centro; o que sobra — o que está
+ * acima da linha do eixo — fica onde estava. As quatro malhas novas nascem com a
+ * geometria deslocada para o próprio centro, porque objeto gira em volta da
+ * própria origem: sem isso a roda orbitaria o meio do carro em vez de rodar.
  */
-function descascarOChao(
-  geo: BufferGeometry,
-  matriz: Matrix4,
-  baseY: number,
-  alturaTotal: number,
-): void {
-  const pos = geo.attributes.position;
-  const idx = geo.index;
-  if (!idx) return;
+function separarRodas(modelo: Object3D, escala: number): Group[] {
+  const rodas: Group[] = [];
 
-  // Os 2,5% de baixo da caixa. Em fração, pelo mesmo motivo do resto.
-  const CORTE = 0.025;
-  const v = new Vector3();
-  const alturas = new Float32Array(pos.count);
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i).applyMatrix4(matriz);
-    alturas[i] = (v.y - baseY) / alturaTotal;
+  const candidatos: Mesh[] = [];
+  modelo.traverse((no) => {
+    const m = no as Mesh;
+    if (m.isMesh && /wheel|roda/i.test(m.name + (m.parent?.name ?? ""))) candidatos.push(m);
+  });
+
+  for (const malha of candidatos) {
+    const geo = malha.geometry.index ? malha.geometry.toNonIndexed() : malha.geometry;
+    const pos = geo.attributes.position;
+
+    const caixa = new Box3().setFromBufferAttribute(pos as BufferAttribute);
+    const meio = caixa.getCenter(new Vector3());
+    // Acima disto não é roda: é retrovisor, aerofólio, acessório.
+    const tetoDaRoda = caixa.min.y + (caixa.max.y - caixa.min.y) * 0.55;
+
+    // Um balde por quadrante, mais um para o que não é roda.
+    const baldes: number[][] = [[], [], [], [], []];
+    const v = new Vector3();
+
+    for (let t = 0; t < pos.count; t += 3) {
+      let cx = 0;
+      let cy = 0;
+      let cz = 0;
+      for (let k = 0; k < 3; k++) {
+        v.fromBufferAttribute(pos, t + k);
+        cx += v.x / 3;
+        cy += v.y / 3;
+        cz += v.z / 3;
+      }
+      const balde =
+        cy > tetoDaRoda ? 4 : (cx < meio.x ? 0 : 1) + (cz < meio.z ? 0 : 2);
+      baldes[balde].push(t, t + 1, t + 2);
+    }
+
+    const pai = malha.parent ?? modelo;
+    for (let b = 0; b < 5; b++) {
+      if (baldes[b].length === 0) continue;
+      const parte = extrair(geo, baldes[b]);
+
+      if (b === 4) {
+        // O que não é roda volta como estava.
+        pai.add(new Mesh(parte, malha.material));
+        continue;
+      }
+
+      // Centro da roda, para a geometria girar em volta dele.
+      const cx = new Box3().setFromBufferAttribute(
+        parte.attributes.position as BufferAttribute,
+      ).getCenter(new Vector3());
+      parte.translate(-cx.x, -cx.y, -cx.z);
+
+      const eixo = new Group();
+      eixo.position.copy(cx);
+      eixo.add(new Mesh(parte, malha.material));
+      pai.add(eixo);
+      rodas.push(eixo);
+    }
+
+    pai.remove(malha);
   }
 
-  const mantidos: number[] = [];
-  for (let t = 0; t < idx.count; t += 3) {
-    const a = idx.getX(t);
-    const b = idx.getX(t + 1);
-    const c = idx.getX(t + 2);
-    if ((alturas[a] + alturas[b] + alturas[c]) / 3 >= CORTE) mantidos.push(a, b, c);
-  }
-
-  geo.setIndex(mantidos);
+  void escala;
+  return rodas;
 }
 
-/**
- * O carro fica prata.
- *
- * O scan é de um Eclipse vinho, e o carro do dono é prata com listra. Cor de
- * vértice não resolveria: ela MULTIPLICA, e multiplicação não tira saturação —
- * vinho vezes qualquer coisa continua vinho. Então a troca acontece na textura,
- * pixel a pixel, uma vez no carregamento.
- *
- * A seleção é por saturação e por canal dominante: pinta-se de prata o que é
- * avermelhado e medianamente saturado, que é a lataria. Fica de fora o que já é
- * neutro (roda, pneu, vidro, asfalto) e o que é MUITO saturado — que são as
- * lanternas, e lanterna prateada seria pior que carro vinho.
- */
-function pratear(mapa: Texture | null): Texture | null {
-  const img = mapa?.image as CanvasImageSource | undefined;
-  if (!mapa || !img) return mapa;
-
-  const largura = (img as { width: number }).width;
-  const altura = (img as { height: number }).height;
-  const cv = document.createElement("canvas");
-  cv.width = largura;
-  cv.height = altura;
-  const ctx = cv.getContext("2d", { willReadFrequently: false })!;
-  ctx.drawImage(img, 0, 0);
-
-  const dados = ctx.getImageData(0, 0, largura, altura);
-  const p = dados.data;
-
-  for (let i = 0; i < p.length; i += 4) {
-    const r = p[i];
-    const g = p[i + 1];
-    const b = p[i + 2];
-
-    const maior = Math.max(r, g, b);
-    const menor = Math.min(r, g, b);
-    if (maior < 12) continue;
-    const saturacao = (maior - menor) / maior;
-
-    // Lataria: avermelhada, saturada mas não gritante.
-    const ehPintura = r === maior && saturacao > 0.16 && saturacao < 0.52;
-    if (!ehPintura) continue;
-
-    // Guarda a sombra da foto e joga fora a cor: o prata é o mesmo desenho de
-    // luz, sem matiz. Um toque de azul, que é o que separa prata de cinza.
-    const cru = 0.3 * r + 0.59 * g + 0.11 * b;
-    // Curva de contraste: afunda a sujeira da captura e levanta o realce, que é
-    // o que separa prata de cinza encardido.
-    const luz = Math.min(255, Math.pow(cru / 255, 0.82) * 232 + 20);
-    p[i] = luz * 0.985;
-    p[i + 1] = luz * 0.995;
-    p[i + 2] = Math.min(255, luz * 1.025);
+/** Copia os vértices escolhidos para uma geometria nova. */
+function extrair(geo: BufferGeometry, indices: number[]): BufferGeometry {
+  const nova = new BufferGeometry();
+  for (const nome of ["position", "normal", "uv"]) {
+    const attr = geo.attributes[nome];
+    if (!attr) continue;
+    const n = attr.itemSize;
+    const dados = new Float32Array(indices.length * n);
+    for (let i = 0; i < indices.length; i++) {
+      for (let k = 0; k < n; k++) {
+        dados[i * n + k] = attr.array[indices[i] * n + k] as number;
+      }
+    }
+    nova.setAttribute(nome, new BufferAttribute(dados, n));
   }
-
-  ctx.putImageData(dados, 0, 0);
-
-  const nova = new CanvasTexture(cv);
-  // Textura de glTF não é espelhada no eixo vertical, e canvas por padrão é —
-  // sem isto o carro sai com a textura de cabeça para baixo.
-  nova.flipY = false;
-  nova.colorSpace = mapa.colorSpace;
-  nova.wrapS = mapa.wrapS;
-  nova.wrapT = mapa.wrapT;
-  nova.needsUpdate = true;
   return nova;
 }
 
@@ -554,12 +526,12 @@ export function montarCena(
     CAMINHO_DO_MODELO,
     (gltf) => {
       const modelo = gltf.scene;
-      envidracarEDarBrilho(modelo);
+      for (const eixo of encaixar(modelo)) rodas.push(eixo);
       // O scan tem o comprimento no eixo Z, com o nariz no +Z; esta cena
       // trabalha com o carro apontando para +X, que é o lado de onde a câmera
       // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
       // traseira, que foi o que aconteceu na primeira tentativa.
-      modelo.rotation.y = Math.PI / 2 + 0.55;
+      modelo.rotation.y = Math.PI / 2 + 0.95;
       // O piso do scan fica 2,8 cm abaixo de zero — sobe para a roda tocar o chão.
       modelo.position.y = 0.028;
       corpo.add(modelo);
@@ -635,6 +607,8 @@ export function montarCena(
   /* O laço                                                              */
   /* ------------------------------------------------------------------ */
 
+  const rodas: Group[] = [];
+  let giroDaRoda = 0;
   let vitrine = 0;
   let relogio = 0;
   // Suavizados, e não aplicados crus: o OBD entrega leitura a cada ~0,9 s, e
@@ -667,15 +641,13 @@ export function montarCena(
       }
 
       /*
-       * As rodas não giram, e a perda é declarada.
-       *
-       * O scan é uma malha única: não existe "a roda" para girar, existe uma
-       * superfície contínua que inclui o pneu. Separá-la exigiria recortar
-       * geometria por posição e torcer para o corte cair no lugar certo em
-       * quatro cantos — frágil, e caro para o que entrega. O que sobrou de
-       * telemetria continua: mergulho de freada, rolagem de curva e o giro de
-       * vitrine, que são o corpo inteiro e funcionam igual.
+       * A roda gira na velocidade de verdade. A 100 km/h, um pneu de 0,32 m de
+       * raio dá ~14 voltas por segundo — bem além do que 30 quadros mostram,
+       * então ela vai "andar para trás" como no cinema. É o comportamento certo:
+       * uma roda girando devagar a 100 km/h mentiria mais.
        */
+      giroDaRoda += (estado.velocidade / 3.6 / RAIO_DA_RODA) * dt;
+      for (const r of rodas) r.rotation.x = -giroDaRoda;
 
       // Mergulho de freada e rolagem de curva, com a mesma assimetria do
       // desenho em SVG: frear afunda o nariz mais do que acelerar o levanta.
