@@ -254,27 +254,31 @@ function encaixar(modelo: Object3D): void {
 }
 
 /**
- * Onde o emblema mora no atlas da textura, em coordenadas de 0 a 1.
+ * Onde os emblemas moram no atlas da textura, em coordenadas de 0 a 1.
  *
- * Medido olhando o atlas: o losango triplo fica no painel traseiro, entre a
- * terceira luz de freio e o "GTS". Em fração e não em pixel porque a textura é
- * reduzida antes de entrar no APK — a caixa continua valendo em 2048, em 1024
- * ou no que vier.
+ * São dois, e foi preciso caçar os dois: o da tampa traseira, entre a terceira
+ * luz de freio e o "GTS", e o do bico do capô, que é bem mais discreto e mora
+ * numa parte completamente diferente do atlas — costura de fotogrametria não
+ * tem, mas costura de modelador também não segue ordem nenhuma.
+ *
+ * Em fração e não em pixel porque a textura é reduzida antes de entrar no APK:
+ * a mesma caixa vale em 2048, em 1024 ou no que vier.
  */
-const EMBLEMA = { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308 };
+const EMBLEMAS = [
+  { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308 },
+  { x0: 0.7, x1: 0.727, y0: 0.432, y1: 0.459 },
+];
 
 /**
  * O emblema da Mitsubishi, em vermelho.
  *
- * O losango vem claro na textura, como no carro de fábrica, e o do dono é
- * vermelho. Não dá para trocar por material — o emblema não é peça, é um
+ * Os dois losangos — o da tampa e o do bico do capô — vêm cinza na textura, e
+ * os do carro do dono são vermelhos. Não dá para trocar por material — o emblema não é peça, é um
  * desenho pintado no mesmo atlas da lataria —, então a troca acontece nos
  * pixels, uma vez, no carregamento.
  *
- * Dentro da caixa do emblema, só o que é CLARO vira vermelho: é assim que o
- * losango pega e o cinza da tampa ao redor não. E a luminosidade de cada pixel é
- * preservada no vermelho, de modo que o relevo e a borda do emblema continuam
- * lá — pintar de vermelho chapado apagaria o desenho e deixaria uma mancha.
+ * O que separa o emblema da chapa em volta é diferente em cada um deles — ver o
+ * comentário dentro do laço, que é onde a medida está.
  */
 function emblemaVermelho(mapa: Texture | null): Texture | null {
   const img = mapa?.image as CanvasImageSource | undefined;
@@ -288,22 +292,49 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
   const ctx = cv.getContext("2d")!;
   ctx.drawImage(img, 0, 0);
 
-  const x0 = Math.floor(EMBLEMA.x0 * largura);
-  const x1 = Math.ceil(EMBLEMA.x1 * largura);
-  const y0 = Math.floor(EMBLEMA.y0 * altura);
-  const y1 = Math.ceil(EMBLEMA.y1 * altura);
+  for (const caixa of EMBLEMAS) {
+    const x0 = Math.floor(caixa.x0 * largura);
+    const y0 = Math.floor(caixa.y0 * altura);
+    const dados = ctx.getImageData(
+      x0,
+      y0,
+      Math.ceil(caixa.x1 * largura) - x0,
+      Math.ceil(caixa.y1 * altura) - y0,
+    );
+    const p = dados.data;
 
-  const dados = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
-  const p = dados.data;
-  for (let i = 0; i < p.length; i += 4) {
-    const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
-    // O losango é bem mais claro que a tampa em volta; o corte fica no meio.
-    if (luz < 168) continue;
-    p[i] = Math.min(255, 96 + luz * 0.62);
-    p[i + 1] = luz * 0.1;
-    p[i + 2] = luz * 0.1;
+    for (let i = 0; i < p.length; i += 4) {
+      const r = p[i];
+      const g = p[i + 1];
+      const b = p[i + 2];
+      const luz = 0.3 * r + 0.59 * g + 0.11 * b;
+
+      /*
+       * Dois testes, porque os dois emblemas se destacam da chapa de maneiras
+       * diferentes — e isso não é capricho, é o que a textura tem:
+       *
+       * - O DE TRÁS é um losango branco sobre uma tampa escura: o que o separa
+       *   é a luz. Ele é neutro, sem uma gota de cor.
+       * - O DA FRENTE é do mesmo tom do capô, e um corte por luz não o acharia.
+       *   Mas ele já vem com tinta avermelhada de fábrica, enquanto o capô em
+       *   volta é cinza exato — então o que o separa é a COR.
+       *
+       * Medido no atlas, e não chutado: o de trás dá 205 a 234 de luz contra 85
+       * do fundo, com croma 1; o da frente dá croma de 16 a 33 contra 0 do capô.
+       */
+      const croma = r - Math.min(g, b);
+      if (luz < 168 && croma < 8) continue;
+
+      // A luminosidade de cada pixel é preservada no vermelho, de modo que o
+      // relevo e a borda do emblema continuam lá — vermelho chapado apagaria o
+      // desenho e deixaria uma mancha.
+      p[i] = Math.min(255, 96 + luz * 0.62);
+      p[i + 1] = luz * 0.1;
+      p[i + 2] = luz * 0.1;
+    }
+
+    ctx.putImageData(dados, x0, y0);
   }
-  ctx.putImageData(dados, x0, y0);
 
   const nova = new CanvasTexture(cv);
   // Textura de glTF não é espelhada no eixo vertical, e canvas por padrão é —
