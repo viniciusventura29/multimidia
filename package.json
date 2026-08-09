@@ -16,13 +16,15 @@
     "lucide-react": "^1.27.0",
     "maplibre-gl": "^6.2.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^4.6.0",
     "eslint": "^10.8.1",
     "eslint-plugin-react-hooks": "^7.1.1",

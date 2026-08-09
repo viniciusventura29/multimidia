@@ -18,21 +18,16 @@
  * Frame` quadro a quadro: o WebView de uma head unit barata não sobra CPU, e
  * animação declarada é a única que o compositor consegue tocar sozinho. Mesma
  * técnica da barra do `Gauge`.
+ *
+ * **E é exatamente por isso que ele continua aqui depois do 3D chegar.** Este
+ * desenho não gasta GPU nenhuma, então ele é o plano B do carro em três
+ * dimensões: entra enquanto o chunk do `three` carrega, entra num aparelho sem
+ * WebGL sobrando, e entra se o contexto cair no meio do caminho. Ver `carro.tsx`.
  */
 
-import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
-import { shallowEqual, useModuleSelector } from "../../core/moduleStore";
-import type { ObdReadings } from "../../core/types";
-
-interface Fix {
-  heading: number;
-  speedKmh: number;
-}
-
-/** Abaixo disto o carro conta como parado. GPS parado treme uns décimos. */
-const LIMIAR_PARADO = 2;
+import { limitar, useTelemetriaDoCarro } from "./telemetria";
 
 /** Onde o carro é encaixado dentro da cena. */
 const CARRO_X = 25;
@@ -65,85 +60,8 @@ const EIXO_Y = 65;
  */
 const origemDaRoda = (eixoX: number) => `${eixoX}px ${EIXO_Y}px`;
 
-function limitar(valor: number, minimo: number, maximo: number): number {
-  return Math.max(minimo, Math.min(maximo, valor));
-}
-
-/**
- * Diferença de rumo pelo caminho mais curto, em graus (-180 a 180).
- *
- * Sem isto, passar de 359° para 1° pareceria uma guinada de 358 graus e o carro
- * daria um pulo na tela. Mesmo cuidado que a câmera do mapa toma.
- */
-function diferencaDeRumo(atual: number, anterior: number): number {
-  return ((atual - anterior + 540) % 360) - 180;
-}
-
-/** Aceleração (km/h por segundo) e velocidade de guinada (graus por segundo). */
-function useDinamica(velocidade: number | null, rumo: number | null) {
-  const anterior = useRef<{ v: number; r: number | null; t: number } | null>(null);
-  const [dinamica, setDinamica] = useState({ aceleracao: 0, curva: 0 });
-
-  useEffect(() => {
-    const agora = performance.now();
-    const v = velocidade ?? 0;
-    const antes = anterior.current;
-    anterior.current = { v, r: rumo, t: agora };
-
-    if (!antes) return;
-
-    const dt = (agora - antes.t) / 1000;
-    // Duas amostras coladas dariam uma derivada absurda — e um mergulho de
-    // freada onde não houve freada nenhuma.
-    if (dt < 0.05) return;
-
-    setDinamica({
-      aceleracao: (v - antes.v) / dt,
-      curva:
-        antes.r === null || rumo === null
-          ? 0
-          : diferencaDeRumo(rumo, antes.r) / dt,
-    });
-  }, [velocidade, rumo]);
-
-  return dinamica;
-}
-
 export function Carrinho() {
-  // A exceção declarada do painel: a animação reage à telemetria de verdade, e
-  // isso exige ler os módulos vizinhos. Assina direto no store, com seletores —
-  // o resto do tile do assistente não paga por estes ticks.
-  const obd = useModuleSelector<
-    ObdReadings,
-    { speedKmh: number | null; rpm: number | null }
-  >(
-    "obd",
-    (d) => ({ speedKmh: d?.speedKmh ?? null, rpm: d?.rpm ?? null }),
-    shallowEqual,
-  );
-  const fix = useModuleSelector<
-    { fix?: Fix | null },
-    { heading: number | null; speedKmh: number | null }
-  >(
-    "nav",
-    (d) => ({
-      heading: d?.fix?.heading ?? null,
-      speedKmh: d?.fix?.speedKmh ?? null,
-    }),
-    shallowEqual,
-  );
-
-  // O OBD primeiro, o GPS como reserva. No Mac o OBD é sempre degradado (é
-  // Bluetooth, só existe no Android), e é o GPS que faz a animação funcionar
-  // enquanto se trabalha no layout.
-  const velocidade = obd.speedKmh ?? fix.speedKmh ?? null;
-  const rpm = obd.rpm;
-  const rumo = fix.heading;
-
-  const { aceleracao, curva } = useDinamica(velocidade, rumo);
-
-  const vel = velocidade ?? 0;
-  const parado = vel < LIMIAR_PARADO;
+  const { velocidade: vel, rpm, aceleracao, curva, parado } = useTelemetriaDoCarro();
 
   const estilo = {
     // Períodos, não velocidades: é o que `animation-duration` consome. Quanto
