@@ -111,11 +111,30 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     }
     cenaRef.current = cena;
 
+    /*
+     * A cena precisa de DOIS tamanhos.
+     *
+     * O canvas é maior que o quadro do painel — ele sangra para fora do card
+     * para a luz do chão não terminar numa linha reta na beirada (ver
+     * `.carro3d` no CSS). Se a cena soubesse só do canvas, ela enquadraria o
+     * carro no tamanho maior e a sangria viraria zoom: o carro cresceria e a luz
+     * continuaria batendo na borda, só que mais longe.
+     *
+     * Medindo os dois e passando a razão, o carro fica do tamanho que tem hoje
+     * e os pixels de sobra ficam sendo o que deviam ser: chão.
+     */
     const medir = () => {
+      const quadro = canvas.parentElement;
       const { clientWidth, clientHeight } = canvas;
-      if (clientWidth > 0 && clientHeight > 0) {
-        cena.redimensionar(clientWidth, clientHeight);
-      }
+      if (clientWidth <= 0 || clientHeight <= 0) return;
+      const utilX = quadro?.clientWidth || clientWidth;
+      const utilY = quadro?.clientHeight || clientHeight;
+      cena.redimensionar(
+        clientWidth,
+        clientHeight,
+        clientWidth / utilX,
+        clientHeight / utilY,
+      );
     };
     medir();
 
@@ -190,12 +209,12 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
    * O `setPointerCapture` mantém o arrasto vivo mesmo quando o dedo sai do
    * canvas — sem ele, girar rápido solta o carro no meio do caminho.
    */
-  const aoPegar = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+  const aoPegar = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     arrastando.current = { id: e.pointerId, x: e.clientX, andou: 0 };
   };
 
-  const aoMover = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+  const aoMover = (e: ReactPointerEvent<HTMLDivElement>) => {
     const a = arrastando.current;
     if (!a || a.id !== e.pointerId) return;
     const dx = e.clientX - a.x;
@@ -206,7 +225,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     arrastoRef.current += (dx / 260) * Math.PI;
   };
 
-  const aoSoltar = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+  const aoSoltar = (e: ReactPointerEvent<HTMLDivElement>) => {
     const a = arrastando.current;
     arrastando.current = null;
     if (a && a.andou > LIMIAR_DE_ARRASTO) {
@@ -217,7 +236,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     }
   };
 
-  const aoClicar = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+  const aoClicar = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (naoAbrir.current) {
       naoAbrir.current = false;
       e.stopPropagation();
@@ -226,16 +245,25 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
 
   if (!vivo) return null;
 
+  /*
+   * O gesto mora no QUADRO, não no canvas.
+   *
+   * O canvas transborda o card, e um canvas que transborda também transborda a
+   * área de toque: ele passaria por cima do nome do motorista e da beirada do
+   * mapa, roubando o toque de quem estivesse mirando neles. Com o gesto no
+   * quadro — que tem exatamente o tamanho da célula — e o canvas surdo
+   * (`pointer-events: none`), a sangria só carrega luz.
+   */
   return (
-    <canvas
-      className="carro3d"
-      ref={canvasRef}
+    <div
+      className="carro3d__quadro"
       onPointerDown={aoPegar}
       onPointerMove={aoMover}
       onPointerUp={aoSoltar}
       onPointerCancel={aoSoltar}
       onClickCapture={aoClicar}
-      aria-hidden
-    />
+    >
+      <canvas className="carro3d" ref={canvasRef} aria-hidden />
+    </div>
   );
 }

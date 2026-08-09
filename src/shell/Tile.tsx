@@ -8,6 +8,7 @@ interface Props {
   area?: string;
   icon?: ReactNode;
   chrome?: TileSpec<unknown>["chrome"];
+  sangra?: boolean;
   onExpand?: () => void;
   children: ReactNode;
 }
@@ -32,6 +33,7 @@ export function Tile({
   area,
   icon,
   chrome = "card",
+  sangra = false,
   onExpand,
   children,
 }: Props) {
@@ -49,8 +51,8 @@ export function Tile({
   return (
     <section
       className={`tile tile--${status}${nu ? " tile--nu" : ""}${
-        clicavel ? " tile--clicavel" : ""
-      }`}
+        sangra ? " tile--sangra" : ""
+      }${clicavel ? " tile--clicavel" : ""}`}
       style={area ? { gridArea: area } : undefined}
       onClick={onExpand}
       onKeyDown={aoTeclar}

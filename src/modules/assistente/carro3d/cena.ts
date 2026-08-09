@@ -191,7 +191,22 @@ function texturaDaMancha(nucleo: number, meio: number): CanvasTexture {
 /* ------------------------------------------------------------------ */
 
 export interface Cena {
-  redimensionar(largura: number, altura: number): void;
+  /**
+   * O canvas mudou de tamanho.
+   *
+   * `largura` e `altura` são as do CANVAS, que é maior que o quadro do painel —
+   * ele sangra para fora do card de propósito, para a luz do chão não acabar
+   * numa linha reta na beirada. As sangrias são a razão entre um e outro (1 =
+   * sem sangria), e servem para o carro ficar do MESMO tamanho de antes: sem
+   * elas, um canvas maior só aproximaria a câmera e a sangria não sangraria
+   * nada. Ver `.carro3d` no CSS.
+   */
+  redimensionar(
+    largura: number,
+    altura: number,
+    sangriaX: number,
+    sangriaY: number,
+  ): void;
   atualizar(estado: EstadoDaCena, dt: number): void;
   desenhar(): void;
   destruir(): void;
@@ -792,10 +807,13 @@ export function montarCena(
    * vazios laterais. Com o ajuste, a câmera recua numa caixa alta e chega perto
    * numa caixa larga, e o carro ocupa o quadro nos dois casos.
    */
-  const enquadrar = (aspecto: number) => {
+  const enquadrar = (aspecto: number, sangriaX: number, sangriaY: number) => {
     const tanV = Math.tan(((camera.fov * Math.PI) / 180) / 2);
-    const porAltura = CENA_ALTA / 2 / tanV;
-    const porLargura = CENA_LARGA / 2 / (tanV * aspecto);
+    // A caixa cresce junto com a sangria: é isso que faz os pixels de sobra
+    // serem SOBRA, e não um zoom. O carro continua do tamanho que tinha dentro
+    // do quadro do painel; o que o canvas ganhou é chão em volta.
+    const porAltura = (CENA_ALTA * sangriaY) / 2 / tanV;
+    const porLargura = (CENA_LARGA * sangriaX) / 2 / (tanV * aspecto);
     const distancia = Math.max(porAltura, porLargura) * 1.06;
 
     camera.position.copy(direcaoDaCamera).multiplyScalar(distancia).add(alvoDaCamera);
@@ -989,7 +1007,17 @@ export function montarCena(
    * A poça precisa transbordar a sombra por todos os lados — é ela que dá o
    * chão, e a sombra é o que ela perde onde o carro tapa.
    */
-  mancha(9.0, 4.8, 0x9fb6d4, 0.42, 0.85, 0.32, true);
+  /*
+   * E a poça tem de morrer DENTRO da tela.
+   *
+   * Ela sangra para fora do card justamente para não acabar num corte reto (ver
+   * `.carro3d` no CSS); se ela chegasse viva na beirada da tela, o corte só
+   * teria mudado de lugar — de cima do card para dois centímetros ao lado dele,
+   * que é pior, porque ali não há quina nenhuma que justifique a linha. Sete
+   * metros e meio é o maior tamanho que ainda cabe com folga: medido no canto
+   * esquerdo, que é onde o eixo comprido dela chega mais perto da borda.
+   */
+  mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true);
   // A larga: a luz do estúdio contornando a carroceria.
   mancha(4.9, 2.5, 0x000000, 0.8, 0.8, 0.34, false);
   // A de contato: onde o pneu tapa o chão. Curta, estreita e quase preta.
@@ -1011,14 +1039,14 @@ export function montarCena(
   const cor = new Color();
 
   return {
-    redimensionar(largura, altura) {
+    redimensionar(largura, altura, sangriaX, sangriaY) {
       // Teto no `devicePixelRatio`: numa head unit ele é 1, mas num celular
       // deitado ou num Mac ele é 2 ou 3 — e triplicar a área de pixel de uma
       // cena 3D por causa de um quadro de 500 px não paga.
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       renderer.setSize(largura, altura, false);
       camera.aspect = largura / Math.max(1, altura);
-      enquadrar(camera.aspect);
+      enquadrar(camera.aspect, sangriaX, sangriaY);
       camera.updateProjectionMatrix();
     },
 
