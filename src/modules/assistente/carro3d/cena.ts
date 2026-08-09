@@ -51,6 +51,7 @@ import {
   PMREMGenerator,
   RingGeometry,
   Scene,
+  Texture,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -251,6 +252,69 @@ function encaixar(modelo: Object3D): Group[] {
 }
 
 /**
+ * Onde o emblema mora no atlas da textura, em coordenadas de 0 a 1.
+ *
+ * Medido olhando o atlas: o losango triplo fica no painel traseiro, entre a
+ * terceira luz de freio e o "GTS". Em fração e não em pixel porque a textura é
+ * reduzida antes de entrar no APK — a caixa continua valendo em 2048, em 1024
+ * ou no que vier.
+ */
+const EMBLEMA = { x0: 0.193, x1: 0.223, y0: 0.283, y1: 0.308 };
+
+/**
+ * O emblema da Mitsubishi, em vermelho.
+ *
+ * O losango vem claro na textura, como no carro de fábrica, e o do dono é
+ * vermelho. Não dá para trocar por material — o emblema não é peça, é um
+ * desenho pintado no mesmo atlas da lataria —, então a troca acontece nos
+ * pixels, uma vez, no carregamento.
+ *
+ * Dentro da caixa do emblema, só o que é CLARO vira vermelho: é assim que o
+ * losango pega e o cinza da tampa ao redor não. E a luminosidade de cada pixel é
+ * preservada no vermelho, de modo que o relevo e a borda do emblema continuam
+ * lá — pintar de vermelho chapado apagaria o desenho e deixaria uma mancha.
+ */
+function emblemaVermelho(mapa: Texture | null): Texture | null {
+  const img = mapa?.image as CanvasImageSource | undefined;
+  if (!mapa || !img) return mapa;
+
+  const largura = (img as { width: number }).width;
+  const altura = (img as { height: number }).height;
+  const cv = document.createElement("canvas");
+  cv.width = largura;
+  cv.height = altura;
+  const ctx = cv.getContext("2d")!;
+  ctx.drawImage(img, 0, 0);
+
+  const x0 = Math.floor(EMBLEMA.x0 * largura);
+  const x1 = Math.ceil(EMBLEMA.x1 * largura);
+  const y0 = Math.floor(EMBLEMA.y0 * altura);
+  const y1 = Math.ceil(EMBLEMA.y1 * altura);
+
+  const dados = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
+  const p = dados.data;
+  for (let i = 0; i < p.length; i += 4) {
+    const luz = 0.3 * p[i] + 0.59 * p[i + 1] + 0.11 * p[i + 2];
+    // O losango é bem mais claro que a tampa em volta; o corte fica no meio.
+    if (luz < 168) continue;
+    p[i] = Math.min(255, 96 + luz * 0.62);
+    p[i + 1] = luz * 0.1;
+    p[i + 2] = luz * 0.1;
+  }
+  ctx.putImageData(dados, x0, y0);
+
+  const nova = new CanvasTexture(cv);
+  // Textura de glTF não é espelhada no eixo vertical, e canvas por padrão é —
+  // sem isto o carro sai com a textura de cabeça para baixo.
+  nova.flipY = false;
+  nova.colorSpace = mapa.colorSpace;
+  nova.wrapS = mapa.wrapS;
+  nova.wrapT = mapa.wrapT;
+  nova.needsUpdate = true;
+  return nova;
+}
+
+/**
  * As duas listras, pintadas NO SHADER.
  *
  * A primeira tentativa foi por cor de vértice, e ela falhou por um motivo que
@@ -372,7 +436,7 @@ function envernizar(modelo: Object3D, caixa: Box3, tamanho: Vector3): void {
     const mat = malha.material as MeshStandardMaterial;
 
     const novo = new MeshPhysicalMaterial({
-      map: mat.map,
+      map: ehRoda ? mat.map : emblemaVermelho(mat.map),
       normalMap: mat.normalMap,
       roughnessMap: mat.roughnessMap,
       metalnessMap: mat.metalnessMap,
