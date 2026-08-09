@@ -34,17 +34,24 @@ import {
   CanvasTexture,
   CircleGeometry,
   Color,
+  BufferAttribute,
+  BufferGeometry,
+  Box3,
   DirectionalLight,
   DoubleSide,
   EquirectangularReflectionMapping,
   Group,
+  Matrix4,
   Mesh,
+  Object3D,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   PMREMGenerator,
   RingGeometry,
   Scene,
+  Texture,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -66,6 +73,12 @@ export interface EstadoDaCena {
 
 const limitar = (v: number, min: number, max: number) =>
   Math.max(min, Math.min(max, v));
+
+/** Transição suave entre dois limites — sem ela, toda máscara vira uma quina. */
+const suavizar = (a: number, b: number, x: number) => {
+  const t = limitar((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
 
 /* ------------------------------------------------------------------ */
 /* O ambiente                                                          */
@@ -186,6 +199,233 @@ export interface Cena {
   destruir(): void;
 }
 
+/* ------------------------------------------------------------------ */
+/* Consertando o scan                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Os dois consertos que transformam um scan num carro.
+ *
+ * ## O vidro
+ *
+ * Fotogrametria **não captura vidro**: a câmera atravessa, o algoritmo não acha
+ * correspondência e devolve ruído. É por isso que o para-brisa e o teto vêm com
+ * aquelas manchas brancas — não é falha do modelo, é o limite da técnica que o
+ * produziu. Nenhum ajuste de luz esconde isso, porque a mancha está na textura.
+ *
+ * O conserto é escurecer a região da cabine por COR DE VÉRTICE, que multiplica a
+ * textura: onde havia mancha branca passa a haver vidro escuro. Não custa um
+ * triângulo, não depende de saber como o atlas de UV foi montado, e o degradê
+ * suave nas bordas evita uma faixa preta com quina.
+ *
+ * E o teto ficar escuro junto não é acidente: o 3G tem o painel do teto em preto
+ * de fábrica, então a cabine inteira escura é o que o carro tem de verdade.
+ *
+ * ## O brilho
+ *
+ * O scan vem `KHR_materials_unlit`, que o three carrega como material sem
+ * iluminação nenhuma — a textura é desenhada crua na tela. Fica correto e fica
+ * morto: carro sem reflexo é carro de papel. Trocando por material com verniz e
+ * mapa de ambiente, a mesma textura passa a ganhar brilho especular e a
+ * responder ao balanço, que é o que faz a lataria parecer lataria.
+ *
+ * A luz direta fica baixa de propósito: a iluminação do dia da captura já está
+ * assada na textura, e somar as duas deixaria o carro estourado.
+ */
+function envidracarEDarBrilho(modelo: Object3D): void {
+  /*
+   * TUDO AQUI É EM FRAÇÃO DA CAIXA DO CARRO, e não em metros. A razão é uma
+   * pegadinha que custou um carro partido ao meio na tela.
+   *
+   * O modelo passou por `quantize` para caber no APK: as posições deixaram de
+   * ser float em metros e viraram inteiros de 16 bits normalizados, com a escala
+   * de volta guardada na matriz do nó. Ler `position.getY()` devolve, então, um
+   * número entre -1 e 1 que não tem relação nenhuma com altura — e um corte
+   * escrito em metros cai num lugar arbitrário da malha.
+   *
+   * Medindo a caixa depois das matrizes aplicadas e trabalhando em fração dela,
+   * a conta passa a ser independente de escala, de unidade e de quanto o modelo
+   * foi comprimido. Trocar o `.glb` por outro continua funcionando.
+   */
+  modelo.updateWorldMatrix(true, true);
+  const caixa = new Box3().setFromObject(modelo);
+  const tamanho = caixa.getSize(new Vector3());
+  const v = new Vector3();
+
+  modelo.traverse((no) => {
+    const malha = no as Mesh;
+    if (!malha.isMesh) return;
+
+    const geo = malha.geometry;
+    const pos = geo.attributes.position;
+    const cores = new Float32Array(pos.count * 3);
+
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(malha.matrixWorld);
+      // 0 a 1 dentro da caixa: largura, altura e comprimento.
+      const fx = (v.x - caixa.min.x) / tamanho.x;
+      const fy = (v.y - caixa.min.y) / tamanho.y;
+      const fz = (v.z - caixa.min.z) / tamanho.z;
+
+      /*
+       * A cabine, no comprimento, e acima da cintura.
+       *
+       * A faixa saiu da conta, não do olho: o carro tem 4,46 m, a base do
+       * para-brisa fica a ~2,2 m do nariz e o fim do vidro traseiro a ~3,9 m.
+       * Com o nariz na ponta 1 do eixo, isso dá a cabine entre 0,12 e 0,52. A
+       * primeira tentativa chutou 0,24 a 0,66 e escureceu o capô em vez das
+       * janelas — o vidro continuou branco e ninguém entendeu por quê.
+       */
+      const naCabine = suavizar(0.09, 0.16, fz) * (1 - suavizar(0.5, 0.58, fz));
+      const acima = suavizar(0.5, 0.62, fy);
+      const vidro = naCabine * acima;
+
+      // 1 é a lataria como veio; 0,12 é vidro. Nunca zero: preto absoluto
+      // apagaria o contorno da coluna e a cabine viraria um buraco.
+      let t = 1 - vidro * 0.88;
+
+      /*
+       * A listra do meio, do capô à tampa.
+       *
+       * Em cor de vértice e não na textura porque o eixo dela é o eixo do
+       * CARRO: a faixa é onde a largura está no meio. Fosse na textura, seria
+       * preciso saber como o atlas de UV foi costurado — e atlas de
+       * fotogrametria é picotado, sem costura previsível.
+       *
+       * Só em cima: listra de teto não desce pela lateral nem passa por baixo.
+       */
+      const naFaixa = 1 - suavizar(0.062, 0.088, Math.abs(fx - 0.5));
+      const emCima = suavizar(0.42, 0.58, fy);
+      t *= 1 - naFaixa * emCima * 0.55;
+
+      cores[i * 3] = t;
+      cores[i * 3 + 1] = t;
+      cores[i * 3 + 2] = t * 1.04;
+    }
+
+    geo.setAttribute("color", new BufferAttribute(cores, 3));
+    descascarOChao(geo, malha.matrixWorld, caixa.min.y, tamanho.y);
+
+    const antigo = malha.material as MeshBasicMaterial;
+    malha.material = new MeshPhysicalMaterial({
+      map: pratear(antigo.map),
+      vertexColors: true,
+      metalness: 0.0,
+      roughness: 0.4,
+      clearcoat: 0.95,
+      clearcoatRoughness: 0.07,
+      envMapIntensity: 1.0,
+    });
+    antigo.dispose();
+  });
+}
+
+/**
+ * Tira a crosta de chão que veio grudada no carro.
+ *
+ * Fotogrametria captura o que está em volta junto: o asfalto embaixo do carro
+ * virou uma saia irregular e escura presa nas soleiras e nos pneus. Não dá para
+ * limpar por cor — a crosta e o pneu são igualmente escuros —, mas dá por
+ * ALTURA: abaixo de quatro centímetros do chão não existe carro, existe chão. O
+ * triângulo cujo centro cai ali é descartado, e a mancha de sombra da cena cobre
+ * o corte.
+ */
+function descascarOChao(
+  geo: BufferGeometry,
+  matriz: Matrix4,
+  baseY: number,
+  alturaTotal: number,
+): void {
+  const pos = geo.attributes.position;
+  const idx = geo.index;
+  if (!idx) return;
+
+  // Os 2,5% de baixo da caixa. Em fração, pelo mesmo motivo do resto.
+  const CORTE = 0.025;
+  const v = new Vector3();
+  const alturas = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(matriz);
+    alturas[i] = (v.y - baseY) / alturaTotal;
+  }
+
+  const mantidos: number[] = [];
+  for (let t = 0; t < idx.count; t += 3) {
+    const a = idx.getX(t);
+    const b = idx.getX(t + 1);
+    const c = idx.getX(t + 2);
+    if ((alturas[a] + alturas[b] + alturas[c]) / 3 >= CORTE) mantidos.push(a, b, c);
+  }
+
+  geo.setIndex(mantidos);
+}
+
+/**
+ * O carro fica prata.
+ *
+ * O scan é de um Eclipse vinho, e o carro do dono é prata com listra. Cor de
+ * vértice não resolveria: ela MULTIPLICA, e multiplicação não tira saturação —
+ * vinho vezes qualquer coisa continua vinho. Então a troca acontece na textura,
+ * pixel a pixel, uma vez no carregamento.
+ *
+ * A seleção é por saturação e por canal dominante: pinta-se de prata o que é
+ * avermelhado e medianamente saturado, que é a lataria. Fica de fora o que já é
+ * neutro (roda, pneu, vidro, asfalto) e o que é MUITO saturado — que são as
+ * lanternas, e lanterna prateada seria pior que carro vinho.
+ */
+function pratear(mapa: Texture | null): Texture | null {
+  const img = mapa?.image as CanvasImageSource | undefined;
+  if (!mapa || !img) return mapa;
+
+  const largura = (img as { width: number }).width;
+  const altura = (img as { height: number }).height;
+  const cv = document.createElement("canvas");
+  cv.width = largura;
+  cv.height = altura;
+  const ctx = cv.getContext("2d", { willReadFrequently: false })!;
+  ctx.drawImage(img, 0, 0);
+
+  const dados = ctx.getImageData(0, 0, largura, altura);
+  const p = dados.data;
+
+  for (let i = 0; i < p.length; i += 4) {
+    const r = p[i];
+    const g = p[i + 1];
+    const b = p[i + 2];
+
+    const maior = Math.max(r, g, b);
+    const menor = Math.min(r, g, b);
+    if (maior < 12) continue;
+    const saturacao = (maior - menor) / maior;
+
+    // Lataria: avermelhada, saturada mas não gritante.
+    const ehPintura = r === maior && saturacao > 0.16 && saturacao < 0.52;
+    if (!ehPintura) continue;
+
+    // Guarda a sombra da foto e joga fora a cor: o prata é o mesmo desenho de
+    // luz, sem matiz. Um toque de azul, que é o que separa prata de cinza.
+    const cru = 0.3 * r + 0.59 * g + 0.11 * b;
+    // Curva de contraste: afunda a sujeira da captura e levanta o realce, que é
+    // o que separa prata de cinza encardido.
+    const luz = Math.min(255, Math.pow(cru / 255, 0.82) * 232 + 20);
+    p[i] = luz * 0.985;
+    p[i + 1] = luz * 0.995;
+    p[i + 2] = Math.min(255, luz * 1.025);
+  }
+
+  ctx.putImageData(dados, 0, 0);
+
+  const nova = new CanvasTexture(cv);
+  // Textura de glTF não é espelhada no eixo vertical, e canvas por padrão é —
+  // sem isto o carro sai com a textura de cabeça para baixo.
+  nova.flipY = false;
+  nova.colorSpace = mapa.colorSpace;
+  nova.wrapS = mapa.wrapS;
+  nova.wrapT = mapa.wrapT;
+  nova.needsUpdate = true;
+  return nova;
+}
+
 /** Onde o modelo mora. Em `public/`, então o Vite o copia cru para o `dist`. */
 const CAMINHO_DO_MODELO = "/carro.glb";
 
@@ -269,13 +509,13 @@ export function montarCena(
    * pintura envernizada, luz direcional faz o brilho pontual e o AMBIENTE faz a
    * superfície. Por isso a ambiente aqui é baixa: ela só levanta o piso.
    */
-  cena.add(new AmbientLight(0xffffff, 0.18));
+  cena.add(new AmbientLight(0xffffff, 0.5));
 
-  const principal = new DirectionalLight(0xffffff, 2.1);
+  const principal = new DirectionalLight(0xffffff, 0.75);
   principal.position.set(4.5, 6.2, 5.2);
   cena.add(principal);
 
-  const preenchimento = new DirectionalLight(0xcfd8e6, 0.5);
+  const preenchimento = new DirectionalLight(0xcfd8e6, 0.25);
   preenchimento.position.set(-5.5, 2.2, 4);
   cena.add(preenchimento);
 
@@ -314,6 +554,7 @@ export function montarCena(
     CAMINHO_DO_MODELO,
     (gltf) => {
       const modelo = gltf.scene;
+      envidracarEDarBrilho(modelo);
       // O scan tem o comprimento no eixo Z, com o nariz no +Z; esta cena
       // trabalha com o carro apontando para +X, que é o lado de onde a câmera
       // olha. Um quarto de volta no sentido certo — o outro sentido mostra a
