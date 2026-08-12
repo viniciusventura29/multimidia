@@ -2201,10 +2201,22 @@ body {
   place-items: center;
 }
 
-/* Maior que o disco e desfocado: é luz, não anel. */
+/*
+ * Maior que o disco e desfocado: é luz, não anel.
+ *
+ * `inset: 0`, e NÃO um inset negativo. Ele já foi 12% maior que o palco, e o
+ * palco encosta na borda do `.tile__body`, que recorta (`overflow: hidden`, e
+ * por um motivo real — ver lá). O resultado era o halo com o topo cortado numa
+ * linha reta atravessando o quadro: uma luz redonda guilhotinada.
+ *
+ * Não dá para ter luz MAIOR que o disco dentro de uma caixa recortada sem o
+ * disco ser MENOR que a caixa. Então quem encolheu foi o disco (ver
+ * `.vinil__disco`), e a luz ficou do tamanho do palco. A relação entre os dois —
+ * que é o que importa — não mudou; o que mudou é que agora ela cabe.
+ */
 .vinil__brilho {
   position: absolute;
-  inset: -12%;
+  inset: 0;
   border-radius: 50%;
   background: radial-gradient(
     circle at 50% 45%,
@@ -2245,13 +2257,20 @@ body {
   position: absolute;
   z-index: 0;
   width: 74%;
-  height: 30%;
-  top: 68%;
+  height: 24%;
+  /*
+   * Montada NA barriga do disco, não atrás dela: o disco termina em 94% do
+   * palco, e a elipse vai de 72% a 96% — ou seja, ela atravessa a borda de baixo
+   * e sobra um pouco embaixo, que é onde a cor precisa aparecer. Mais para cima
+   * ela some inteira atrás do disco; mais para baixo o desfoque de 14px bate no
+   * recorte do `.tile__body` (o mesmo que guilhotinava o brilho).
+   */
+  top: 72%;
   border-radius: 50%;
   object-fit: cover;
   /* `saturate` porque desfocar mistura cores e mistura sempre desbota: sem isto
      a aura fica um borrão pastel de qualquer capa. */
-  filter: blur(18px) saturate(1.8);
+  filter: blur(14px) saturate(1.8);
   opacity: 0.85;
   pointer-events: none;
 }
@@ -2267,10 +2286,16 @@ body {
  * de trezentos círculos —, e por cima vai um radial que escurece o miolo e a
  * borda, que é o que dá o vinil em vez de um alvo de tiro.
  */
+/*
+ * 88% DO PALCO, e não 100%. É este recuo que dá à luz e à aura um lugar para
+ * existirem sem baterem no recorte do `.tile__body` — ver `.vinil__brilho`.
+ * O disco perde um dedo de tamanho e ganha em volta dele o ar que faz um objeto
+ * pousado parecer pousado.
+ */
 .vinil__disco {
   position: relative;
-  width: 100%;
-  height: 100%;
+  width: 88%;
+  height: 88%;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -2350,7 +2375,11 @@ body {
      com `auto`, venha ele antes ou depois no DOM —, e o reflexo é justamente o
      que denuncia a rotação. */
   z-index: 2;
-  inset: 0;
+  /* 88% como o disco, e centrado pelo `place-items` do palco (por isso `inset`
+     fica em `auto`): o reflexo tem de cobrir o disco EXATAMENTE, senão ele passa
+     da beirada e vira um risco solto no ar. */
+  width: 88%;
+  height: 88%;
   border-radius: 50%;
   pointer-events: none;
   background: linear-gradient(
