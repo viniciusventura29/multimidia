@@ -2228,50 +2228,70 @@ body {
 }
 
 /*
- * A aura: a cor da capa derramada no chão, embaixo do disco.
- *
- * A sombra sozinha é cinza, e um disco pousado num painel claro com uma sombra
- * cinza fraca lê como adesivo. O que dá peso a um objeto brilhante é ele
- * MANCHAR o que está embaixo — e a mancha de um disco é a cor da capa.
+ * A aura: a cor da capa irradiando EM VOLTA do disco.
  *
  * É a capa de verdade, ampliada e desfocada, e não uma cor média extraída dela:
  * capa raramente é uma cor só, e a média de uma capa colorida dá cinza sujo.
  * Também evita canvas, leitura de pixel e CORS com o CDN do Spotify.
  *
- * Empurrada para baixo (`top`), porque sombra cai para o lado oposto à luz — e
- * a luz deste painel vem de cima (é a mesma premissa do `--luz-de-cima`).
+ * ## Halo concêntrico, e não poça embaixo
+ *
+ * Ela já foi uma elipse achatada sob a barriga do disco — sombra de chão. Estava
+ * errado: um vinil não é um objeto pousado numa mesa vista de cima, é um disco
+ * de frente, e o que ele espalha espalha para todo lado. Concêntrica, a cor
+ * envolve o disco em vez de escorrer para um lado só.
+ *
+ * ## A MÁSCARA é o que garante que nada seja cortado
+ *
+ * O `.tile__body` recorta (`overflow: hidden`, por um motivo real — ver lá), e o
+ * palco encosta na borda dele: são ZERO pixels de folga em cima. Torcer para o
+ * desfoque caber é o que já rendeu uma luz guilhotinada uma vez.
+ *
+ * A ordem é `filter` e DEPOIS `mask`. Ou seja: o desfoque pode espalhar à
+ * vontade, e a máscara corta o transbordo dentro da PRÓPRIA caixa da aura, que
+ * é do tamanho do palco. Nada nunca chega na borda do recorte — o corte deixa de
+ * ser uma questão de sorte com o raio do blur e vira impossível por construção.
+ *
+ * Ela também é a razão de a aura poder ser generosa: o desfoque de 18px mistura
+ * as cores da capa de verdade, e a máscara limpa a sujeira da borda.
+ *
+ * ## Onde ela cabe
+ *
+ * O halo mora no anel entre o disco (74% do palco) e a borda do palco. É por
+ * isso que o disco encolheu: não existe halo em volta de um disco que já ocupa
+ * a caixa inteira.
  *
  * Custa um `filter: blur` numa head unit sem GPU sobrando, e por isso ela é
  * ESTÁTICA: não gira com o disco, não pulsa, não transiciona. Composta uma vez e
  * esquecida — o que gira é o `.vinil__disco`, numa camada própria.
  */
-/*
- * ELIPSE ACHATADA E BAIXA, não um círculo do tamanho do disco.
- *
- * Redonda e concêntrica, ela vazava por cima também e lia como halo — um disco
- * com aura de santo, não um disco pousado. O que faz ler como CHÃO é a forma:
- * achatada (a altura é pouco mais de um terço da largura, que é o que uma
- * circunferência vista de cima vira) e centrada abaixo da barriga do disco.
- */
 .vinil__aura {
   position: absolute;
   z-index: 0;
-  width: 74%;
-  height: 24%;
-  /*
-   * Montada NA barriga do disco, não atrás dela: o disco termina em 94% do
-   * palco, e a elipse vai de 72% a 96% — ou seja, ela atravessa a borda de baixo
-   * e sobra um pouco embaixo, que é onde a cor precisa aparecer. Mais para cima
-   * ela some inteira atrás do disco; mais para baixo o desfoque de 14px bate no
-   * recorte do `.tile__body` (o mesmo que guilhotinava o brilho).
-   */
-  top: 72%;
+  /* Do tamanho do palco e centrada pelo `place-items` dele (por isso sem
+     `inset`): concêntrica com o disco, que mora no mesmo centro. */
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   object-fit: cover;
   /* `saturate` porque desfocar mistura cores e mistura sempre desbota: sem isto
      a aura fica um borrão pastel de qualquer capa. */
-  filter: blur(14px) saturate(1.8);
-  opacity: 0.85;
+  filter: blur(18px) saturate(1.8);
+  /* Morre em 92% do raio, bem antes da borda da caixa. O `-webkit-` fica para
+     WebView de Android mais velho, onde `mask-image` sem prefixo não existe. */
+  -webkit-mask-image: radial-gradient(
+    closest-side,
+    #000 42%,
+    rgba(0, 0, 0, 0.55) 70%,
+    transparent 92%
+  );
+  mask-image: radial-gradient(
+    closest-side,
+    #000 42%,
+    rgba(0, 0, 0, 0.55) 70%,
+    transparent 92%
+  );
+  opacity: 0.9;
   pointer-events: none;
 }
 
@@ -2287,15 +2307,14 @@ body {
  * borda, que é o que dá o vinil em vez de um alvo de tiro.
  */
 /*
- * 88% DO PALCO, e não 100%. É este recuo que dá à luz e à aura um lugar para
- * existirem sem baterem no recorte do `.tile__body` — ver `.vinil__brilho`.
- * O disco perde um dedo de tamanho e ganha em volta dele o ar que faz um objeto
- * pousado parecer pousado.
+ * 74% DO PALCO, e não 100%. O anel que sobra é onde a aura e a luz existem —
+ * não há halo em volta de um disco que já ocupa a caixa inteira, e a caixa não
+ * pode crescer (o `.tile__body` recorta, e o palco encosta nele).
  */
 .vinil__disco {
   position: relative;
-  width: 88%;
-  height: 88%;
+  width: 74%;
+  height: 74%;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -2375,11 +2394,11 @@ body {
      com `auto`, venha ele antes ou depois no DOM —, e o reflexo é justamente o
      que denuncia a rotação. */
   z-index: 2;
-  /* 88% como o disco, e centrado pelo `place-items` do palco (por isso `inset`
+  /* 74% como o disco, e centrado pelo `place-items` do palco (por isso `inset`
      fica em `auto`): o reflexo tem de cobrir o disco EXATAMENTE, senão ele passa
      da beirada e vira um risco solto no ar. */
-  width: 88%;
-  height: 88%;
+  width: 74%;
+  height: 74%;
   border-radius: 50%;
   pointer-events: none;
   background: linear-gradient(
