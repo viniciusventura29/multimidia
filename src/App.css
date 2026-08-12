@@ -101,7 +101,10 @@
    *              ideia com o sinal trocado.
    * `--sombra`   sombra projetada. Continua preta nos dois temas: sombra é
    *              ausência de luz, e ela não inverte. Só a opacidade cai no claro.
-   * `--scrim`    o breu da tela cheia por cima do painel inteiro.
+   * `--scrim`    o breu da tela cheia por cima do painel inteiro. Como a sombra,
+   *              NÃO inverte: a função dele é fazer o painel RECUAR, e recuar é
+   *              escurecer nos dois temas. Clarear um painel claro não o manda
+   *              para trás — só apaga a tela. Só a força cai no claro.
    *
    * NÃO ENTRA AQUI o branco que pousa sobre CAPA DE ÁLBUM ou sobre foto: capa é
    * imagem imprevisível, o véu ali é escuro e o texto branco nos DOIS temas, e
@@ -111,6 +114,10 @@
   --realce: 255 255 255;
   --sombra: 0 0 0;
   --scrim: 4 6 9;
+  /* Multiplica a opacidade do scrim. Escuro pesado por cima de painel escuro é
+     quase de graça — os dois são pretos, e o que se perde é pouco. Por cima de
+     painel CLARO o mesmo alfa apaga a tela inteira. */
+  --forca-scrim: 1;
   /* Multiplica a opacidade de toda sombra. Sombra dura sobre superfície clara lê
      como sujeira; sobre escura, ela é o único jeito de destacar. */
   --forca-sombra: 1;
@@ -315,7 +322,11 @@
    */
   --veu: 255 255 255;
   --realce: 0 0 0;
-  --scrim: 226 229 234;
+  /* NÃO inverte — ver `--scrim` no `:root`. Um pouco mais claro que o breu do
+     tema escuro, para não virar um buraco preto no meio de um painel claro. */
+  --scrim: 16 20 26;
+  /* 0,82 x 0,55 dá ~0,45, que é o alfa de um modal de tema claro. */
+  --forca-scrim: 0.55;
   --forca-sombra: 0.45;
 
   /* Negativo do acento: ele escureceu, então a tinta em cima dele clareia. */
@@ -694,33 +705,56 @@ body {
   cursor: pointer;
 }
 
+/*
+ * `:hover` reage enquanto o mouse está em cima, e pronto. O `:focus-visible`
+ * leva a trava `[data-mouse]` pelo mesmo motivo do quadro nu, logo abaixo: o
+ * `.tile` é um `<div tabindex="0">`, o Chrome trata o clique do mouse como foco
+ * visível, e sem a trava o card ficava com o fundo de toque aceso DEPOIS do
+ * clique — até alguém tocar em outro lugar da tela.
+ */
 .tile--clicavel:hover,
-.tile--clicavel:focus-visible {
+.tile--clicavel:focus-visible:not([data-mouse]) {
   background-color: var(--toque);
   outline: none;
 }
 
-/* Nu não tem fundo para clarear, então o retorno ao toque é um anel. */
+/*
+ * O QUADRO NU NÃO REAGE AO MOUSE. Nem no hover, nem no clique.
+ *
+ * Ele já reagiu: hover pintava um anel no acento. A ideia era dar retorno num
+ * quadro que não tem fundo para clarear — mas o anel é exatamente o contorno de
+ * card que este quadro existe para NÃO ter. O `chrome: "nu"` tirou o fundo, a
+ * `sangra` tirou o corte da luz na quina, e bastava aproximar o mouse para a
+ * caixa reaparecer desenhada em volta do carro.
+ *
+ * Some sem deixar o quadro mudo: o mapa e o herói já dizem que respondem pelo
+ * cursor (`.tile--clicavel` é `pointer`, e o `.carro3d__quadro` é `grab`), e
+ * quem toca com o dedo não tem hover nenhum de qualquer forma.
+ *
+ * O `background: none` no hover não é redundante: sem ele o quadro nu herdaria o
+ * `--toque` da regra de cima e ganharia o fundo cinza que ele acabou de não ter.
+ */
 .tile--nu.tile--clicavel:hover,
 .tile--nu.tile--clicavel:focus-visible {
   background: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /*
- * O herói não acende com o mouse em cima.
+ * O anel fica só para o TECLADO.
  *
- * O anel é o contorno de card que este quadro inteiro existe para não ter: o
- * `chrome: "nu"` tirou o fundo, a `sangra` tirou o corte da luz na quina, e aí
- * bastava passar o mouse para a caixa reaparecer desenhada em volta do carro.
+ * Quem navega por teclado precisa ver onde está, e ali o anel não é ruído — é a
+ * única coisa dizendo qual quadro abre no Enter.
  *
- * Sai só o `:hover`. O `:focus-visible` fica, e não por descuido: quem navega
- * por teclado precisa ver onde está, e ali o anel não é ruído — é a única coisa
- * dizendo qual quadro abre no Enter. Mouse já tem o cursor de arrastar do
- * `.carro3d__quadro` como aviso de que o carro responde.
+ * `:focus-visible` sozinho não basta: o `.tile` é um `<div tabindex="0">`, e
+ * elemento assim recebe foco no clique do mouse também. Se o navegador resolver
+ * que aquele foco é "visível", o anel acende DEPOIS do toque e fica ligado até
+ * alguém tocar em outro lugar — que é o pior dos dois mundos, porque a essa
+ * altura o quadro já abriu. O `:not(:active)` não resolveria (o clique já
+ * terminou), então quem resolve é o JS: o `Tile` marca `data-mouse` enquanto o
+ * foco veio de ponteiro, e esta regra se recusa a acender nesse caso.
  */
-.tile--nu.tile--sangra.tile--clicavel:hover {
-  box-shadow: none;
+.tile--nu.tile--clicavel:focus-visible:not([data-mouse]) {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .tile__head {
@@ -2857,7 +2891,7 @@ body {
      "tocando agora", com os controles) ficava atrás da barra do Android. */
   padding: max(0.6rem, env(safe-area-inset-top)) max(0.6rem, env(safe-area-inset-right))
     max(0.6rem, env(safe-area-inset-bottom)) max(0.6rem, env(safe-area-inset-left));
-  background: rgb(var(--scrim) / 0.82);
+  background: rgb(var(--scrim) / calc(0.82 * var(--forca-scrim)));
   backdrop-filter: blur(6px);
 }
 
@@ -2953,7 +2987,7 @@ body {
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgb(var(--scrim) / 0.9);
+  background: rgb(var(--scrim) / calc(0.9 * var(--forca-scrim)));
   backdrop-filter: blur(8px);
 }
 
