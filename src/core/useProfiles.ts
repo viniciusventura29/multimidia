@@ -91,10 +91,23 @@ export function useProfiles(): Perfis {
  */
 export function useTema(active: Profile | null): void {
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--accent-perfil",
-      active?.color ?? "#3ddc97",
-    );
+    const raiz = document.documentElement;
+    /*
+     * APAGA UM `--accent` INLINE ANTIGO antes de escrever a cor nova.
+     *
+     * Até este arquivo mudar, era `--accent` que se escrevia aqui — inline, no
+     * `<html>`. Estilo inline ganha de folha de estilo, então uma instância que
+     * rodou a versão antiga e depois recebeu a nova (recarga a quente no `tauri
+     * dev`, ou o app já aberto quando a atualização chega) fica com o acento CRU
+     * grudado para sempre: o `[data-tema="claro"]` deriva um `--accent`
+     * escurecido e o inline velho continua vencendo. O sintoma é discreto e
+     * confunde — o painel troca de tema direitinho e só a cor do perfil fica
+     * berrante, o que parece bug do tema claro e não é.
+     *
+     * Uma linha, e o estado sujo não sobrevive à primeira renderização.
+     */
+    raiz.style.removeProperty("--accent");
+    raiz.style.setProperty("--accent-perfil", active?.color ?? "#3ddc97");
   }, [active]);
 }
 
