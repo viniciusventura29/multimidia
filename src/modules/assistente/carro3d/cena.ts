@@ -1133,15 +1133,12 @@ export function montarCena(
     // isto, e não a distância à câmera, que muda com o balanço.
     m.renderOrder = ordem++;
     /*
-     * Dentro de `carro`, e não da cena: assim a mancha GIRA junto.
-     *
-     * Uma sombra comprida presa ao mundo fica certa na pose de descanso e
-     * atravessada assim que o dedo vira o carro — o carro aponta para um lado e
-     * a mancha continua apontando para o outro. Em `carro` ela acompanha o giro
-     * de vitrine e o arrasto; e como o mergulho e a rolagem moram em `corpo`,
-     * ela não inclina junto, que é o certo: sombra fica no chão.
+     * Quem pendura decide, e a decisão não é a mesma para as três — ver abaixo.
+     * O que vale para todas: pendurando em `carro` a mancha acompanha o giro de
+     * vitrine e o arrasto, e como o mergulho e a rolagem moram em `corpo`, ela
+     * não inclina junto. Sombra fica no chão.
      */
-    carro.add(m);
+    return m;
   };
 
   /*
@@ -1163,11 +1160,28 @@ export function montarCena(
    * metros e meio é o maior tamanho que ainda cabe com folga: medido no canto
    * esquerdo, que é onde o eixo comprido dela chega mais perto da borda.
    */
-  mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true);
+  /*
+   * A POÇA FICA NO MUNDO. É a única das três que não é do carro.
+   *
+   * As três nasceram penduradas em `carro`, e com isso o giro de vitrine levava
+   * o chão junto: o carro ficava parado no quadro e a mancha embaixo dele é que
+   * varria. A leitura saía invertida — em vez de um carro girando numa vitrine,
+   * uma vitrine girando debaixo de um carro.
+   *
+   * A divisão certa é de posse. A poça é do ESTÚDIO: é a luz caindo no chão, e
+   * luz de estúdio não se mexe porque o carro virou. As duas sombras são do
+   * CARRO — são a marca que ELE tapa —, e essas têm de acompanhar o giro e o
+   * arrasto, senão o carro aponta para um lado e a própria sombra para o outro.
+   *
+   * Parada, a poça também deixa de precisar concordar com o carro: ela guarda
+   * os 11° da pose de descanso para sempre, que é a direção em que a luz foi
+   * montada.
+   */
+  cena.add(mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true));
   // A larga: a luz do estúdio contornando a carroceria.
-  mancha(4.9, 2.5, 0x000000, 0.8, 0.8, 0.34, false);
+  carro.add(mancha(4.9, 2.5, 0x000000, 0.8, 0.8, 0.34, false));
   // A de contato: onde o pneu tapa o chão. Curta, estreita e quase preta.
-  mancha(3.4, 1.2, 0x000000, 0.95, 0.95, 0.4, false);
+  carro.add(mancha(3.4, 1.2, 0x000000, 0.95, 0.95, 0.4, false));
 
   /* ------------------------------------------------------------------ */
   /* O laço                                                              */
