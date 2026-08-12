@@ -329,18 +329,20 @@ body {
 }
 
 /*
- * A faixa de status, por cima do mapa. Cápsula própria em vez de barra que
- * atravessa a tela: é o cabeçalho da coluna da direita, e não do sistema.
+ * A faixa de status, por cima do mapa: é o cabeçalho da coluna da direita, e
+ * não do sistema.
  *
- * Ela ocupa a linha inteira (`stretch`), e não a altura do próprio texto.
- * Centrada, sobrava vão em cima e embaixo dela — e o de baixo, entre a barra e o
- * mapa, era o maior buraco da tela: dois blocos da mesma coluna separados por
- * mais ar do que qualquer outro par do painel. Esticada, ela encosta no mapa
- * como quem é o cabeçalho dele, que é o que ela é.
+ * NÃO É SUPERFÍCIE, é uma linha de leitura. A cápsula de vidro saiu: a barra já
+ * mora numa célula do grid, separada do mapa e do nome por vão — o retângulo
+ * escuro só repetia, desenhado, a divisão que o espaço já fazia. O que sobrou é
+ * o que ela sempre foi: quatro números soltos no alto da tela.
  *
- * O padding vertical continua pequeno: quem dá a altura é a linha, não a folga
- * interna. E o raio acompanha o dos cards em vez de ser pílula — cápsula
- * perfeita ao lado de retângulos arredondados lê como peça de outro conjunto.
+ * Sem fundo, raio e padding perdem serviço junto — não há quina para amaciar
+ * nem beirada de caixa da qual afastar o texto. Zerados, os itens alinham com a
+ * beirada da própria célula, junto com o mapa embaixo.
+ *
+ * Ela ocupa a linha inteira (`stretch`), e não a altura do próprio texto, e o
+ * `align-items: center` centra a linha nessa altura.
  */
 .barra {
   grid-area: barra;
@@ -350,11 +352,6 @@ body {
   justify-content: space-evenly;
   gap: 0.5rem;
   min-width: 0;
-  padding: 0.3rem 0.9rem;
-  border-radius: var(--r-lg);
-  background-color: var(--vidro);
-  background-image: var(--luz-de-cima);
-  backdrop-filter: blur(var(--desfoque));
 }
 
 .barra__item {
@@ -391,15 +388,15 @@ body {
  * por cima da tela.
  *
  * SOBRE O VIDRO. A superfície é translúcida e desfoca o que está atrás
- * (`--vidro` + `backdrop-filter`). Vale dizer onde isso aparece e onde não: por
- * cima de fundo chapado, desfocar um borrão de uma cor só não produz imagem
- * nenhuma — o que se ganha ali é só a translucidez, que amacia a quina do card.
- * O efeito de vidro de verdade acontece onde há desenho atrás, que hoje é a
- * barra de status por cima do mapa. É de lá que ele vem.
+ * (`--vidro` + `backdrop-filter`). Vale dizer o que isso rende hoje: os cards
+ * pousam sobre fundo chapado, e desfocar um borrão de uma cor só não produz
+ * imagem nenhuma — o que se ganha aqui é a translucidez, que amacia a quina.
+ * Vidro de verdade, com desenho atrás, o painel não tem mais desde que a barra
+ * de status deixou de ser cápsula.
  *
  * Custa GPU, e a head unit não tem sobrando. Por isso o raio do desfoque é
- * curto e o vidro está só no que é superfície de painel — card e barra —, nunca
- * em algo que se mexa quadro a quadro.
+ * curto e o vidro está só no card, que é a única superfície de painel que
+ * sobrou — nunca em algo que se mexa quadro a quadro.
  */
 .tile {
   position: relative;
@@ -606,13 +603,17 @@ body {
   }
 }
 
-/* Sem borda, o sinal de degradado virou um anel por dentro — mesma leitura de
-   "esta caixa está com problema", sem reintroduzir contorno em todo mundo. */
-.tile--degraded {
-  box-shadow: inset 0 0 0 1px var(--warn);
-}
-
 /*
+ * SEM ANEL. O degradado já teve um contorno âmbar em volta do quadro inteiro, e
+ * ele era contorno de card — a mesma grade por cima da tela que o `.tile`
+ * existe para não desenhar, só que amarela e num quadro de cada vez. Pior no
+ * quadro nu: o mapa e o herói não têm caixa, e o anel inventava uma.
+ *
+ * O aviso não some com ele — sobrou dito quatro vezes, todas dentro do quadro:
+ * o selo "sem sinal", o corpo esmaecido logo abaixo, o motivo no rodapé e o
+ * âmbar tomando conta dos números (`gauge__fill`, `dado__valor`, `dado__selo`).
+ * Quatro portadores bastam; o quinto era moldura.
+ *
  * Degradado esmaece, não apaga. O último valor bom continua legível para o
  * motorista perceber que está velho — some é pior do que velho.
  */
@@ -723,17 +724,19 @@ body {
  * "AUTONO…" — trocar a palavra pelo ícone é perder as duas coisas. Empilhado,
  * cada um fica inteiro. Nas telas cheias, onde não há ícone, sobram as mesmas
  * duas linhas de sempre e nada engorda.
+ *
+ * DEIXOU DE SER PLACA. A anatomia já dizia tudo três vezes — selo colorido,
+ * rótulo em versalete e número grande —, e o retângulo cinza por baixo era a
+ * quarta. Dentro de um card, sobre o card: caixa em cima de caixa. Sem fundo,
+ * padding e raio saem junto (não há beirada da qual afastar o texto), e o que
+ * separa um chip do vizinho passa a ser o vão de quem os arruma — o `gap` do
+ * `.velo__chips` e o do `.carro__grade`.
  */
 .dado {
   min-width: 0;
   display: grid;
   align-content: center;
   gap: 0.2rem;
-  padding: 0.45rem 0.65rem;
-  border: 0;
-  border-radius: var(--r-md);
-  background-color: var(--tile-alto);
-  background-image: var(--luz-de-cima);
 }
 
 .dado__selo {
@@ -790,8 +793,14 @@ body {
 
 /* Alerta não é um dado: ele grita. Anel e fundo no tom, e um pulso lento — a
    visão periférica pega o pulso antes de o motorista virar a cabeça. Anel por
-   dentro, e não borda, porque o `.dado` deixou de ter contorno. */
+   dentro, e não borda, porque o `.dado` deixou de ter contorno.
+
+   O padding e o raio moram aqui, e não no `.dado`: superfície é privilégio do
+   alerta agora, e caixa colorida sem folga por dentro fica colada no texto.
+   Sendo o único `.dado` com fundo, ele grita mais alto do que gritava. */
 .dado--alerta {
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--r-md);
   box-shadow: inset 0 0 0 1px var(--tom);
   background: color-mix(in srgb, var(--tom) 16%, var(--tile-alto));
   animation: alerta-pulsa 1.4s ease-in-out infinite;
