@@ -29,8 +29,27 @@
   --bg: #16181c;
   /* O card, afundado no fundo. */
   --tile: #0a0b0e;
-  /* O que sobe dentro de um card: chips, hover. Entre o card e o fundo. */
+  /* O que sobe dentro de um card: chips, blocos. Entre o card e o fundo. */
   --tile-alto: #121417;
+
+  /*
+   * O RETORNO AO TOQUE — e por que ele não é o `--tile-alto`.
+   *
+   * Os dois eram a mesma coisa, e no tema escuro continuam sendo o mesmo valor:
+   * hover clareia o card, e num painel escuro qualquer luz a mais lê como
+   * "levantou". Só que `--tile-alto` fica ENTRE o card e o fundo da página, ou
+   * seja, clarear aproxima o card da cor da página.
+   *
+   * No escuro isso passa: o card sobe do poço em direção ao nível da página e
+   * ainda sobra separação. No claro é o contrário — o card já é mais escuro que
+   * a página, e clarear apaga a quina dele. Somado à poça de luz do carro 3D,
+   * que também é aditiva, o herói inteiro chegava a #ffffff.
+   *
+   * Então o toque não é "clarear", é AFASTAR-SE DA PÁGINA: no escuro, para
+   * cima; no claro, para baixo. O mesmo gesto, o sinal trocado — e nos dois
+   * casos o quadro fica mais definido ao ser tocado, nunca menos.
+   */
+  --toque: var(--tile-alto);
   /* O ponto mais escuro: ausência de luz, não superfície. O furo do vinil, e o
      véu do que pousa sobre o mapa. Continua escuro nos DOIS temas — um furo é um
      furo. Quem era poço de campo de texto saiu daqui para o `--poco`, porque
@@ -240,6 +259,10 @@
   --bg: #f1f2f5;
   --tile: #e3e5ea;
   --tile-alto: #ebedf1;
+  /* PARA BAIXO, não para cima — ver `--toque` no `:root`. Clarear aqui levaria o
+     card para a cor da página e apagaria a quina dele: tocar não pode fazer o
+     quadro sumir. */
+  --toque: #d5d8df;
   /* O poço. Continua sendo o extremo da rampa, e no claro o extremo é escuro:
      furo de vinil e campo de texto são ausência de luz nos dois temas. */
   --tinta: #0d0f13;
@@ -248,7 +271,10 @@
   --line: #cfd3da;
 
   --text: #14161a;
-  --muted: #5c6570;
+  /* Escuro o bastante para sobreviver ao HOVER, que é a superfície mais escura
+     do tema (`--toque`, #d5d8df) e não o card. A #5c6570 o rótulo caía para
+     4,15:1 numa linha sob o dedo — legível só até alguém encostar nela. */
+  --muted: #525b65;
   /* O âmbar #f5a524 rende 1,9:1 sobre o card claro. Queimado, chega a 5,7. */
   --warn: #8a4500;
 
@@ -262,14 +288,21 @@
    */
   --accent: color-mix(in srgb, var(--accent-perfil) 42%, #000);
 
-  /* As cinco da telemetria, todas reprovadas no claro na versão viva. */
+  /*
+   * As cinco da telemetria, todas reprovadas no claro na versão viva.
+   *
+   * O piso não é o card: é o `--toque`, que é a superfície mais escura do tema e
+   * aparece embaixo do dedo. Um número que se lê parado e some ao ser tocado é
+   * pior que um número escuro demais — daí verde e ciano serem um degrau mais
+   * fundos do que a leitura sobre o card pediria.
+   */
   --tom-azul: #0b5cad;
-  --tom-verde: #0c7048;
+  --tom-verde: #0a6740;
   --tom-amarelo: #7a5600;
   --tom-laranja: #8a4500;
   --tom-vermelho: #b3161c;
-  /* 4,89:1 no ícone sobre o card e 4,10:1 na barra sobre o trilho. */
-  --tom-ciano: #0a6c74;
+  /* Ver `--tom-verde`: o piso é a superfície de hover, não o card. */
+  --tom-ciano: #09646b;
 
   /*
    * As quatro famílias invertem — menos a sombra.
@@ -663,7 +696,7 @@ body {
 
 .tile--clicavel:hover,
 .tile--clicavel:focus-visible {
-  background-color: var(--tile-alto);
+  background-color: var(--toque);
   outline: none;
 }
 
@@ -2149,6 +2182,53 @@ body {
 }
 
 /*
+ * A aura: a cor da capa derramada no chão, embaixo do disco.
+ *
+ * A sombra sozinha é cinza, e um disco pousado num painel claro com uma sombra
+ * cinza fraca lê como adesivo. O que dá peso a um objeto brilhante é ele
+ * MANCHAR o que está embaixo — e a mancha de um disco é a cor da capa.
+ *
+ * É a capa de verdade, ampliada e desfocada, e não uma cor média extraída dela:
+ * capa raramente é uma cor só, e a média de uma capa colorida dá cinza sujo.
+ * Também evita canvas, leitura de pixel e CORS com o CDN do Spotify.
+ *
+ * Empurrada para baixo (`top`), porque sombra cai para o lado oposto à luz — e
+ * a luz deste painel vem de cima (é a mesma premissa do `--luz-de-cima`).
+ *
+ * Custa um `filter: blur` numa head unit sem GPU sobrando, e por isso ela é
+ * ESTÁTICA: não gira com o disco, não pulsa, não transiciona. Composta uma vez e
+ * esquecida — o que gira é o `.vinil__disco`, numa camada própria.
+ */
+/*
+ * ELIPSE ACHATADA E BAIXA, não um círculo do tamanho do disco.
+ *
+ * Redonda e concêntrica, ela vazava por cima também e lia como halo — um disco
+ * com aura de santo, não um disco pousado. O que faz ler como CHÃO é a forma:
+ * achatada (a altura é pouco mais de um terço da largura, que é o que uma
+ * circunferência vista de cima vira) e centrada abaixo da barriga do disco.
+ */
+.vinil__aura {
+  position: absolute;
+  z-index: 0;
+  width: 74%;
+  height: 30%;
+  top: 68%;
+  border-radius: 50%;
+  object-fit: cover;
+  /* `saturate` porque desfocar mistura cores e mistura sempre desbota: sem isto
+     a aura fica um borrão pastel de qualquer capa. */
+  filter: blur(18px) saturate(1.8);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Sobre fundo escuro a mesma aura precisa de menos: ali ela é luz somando num
+   painel quase preto, e a 0,7 virava um holofote colorido embaixo do disco. */
+[data-tema="escuro"] .vinil__aura {
+  opacity: 0.55;
+}
+
+/*
  * O disco. Os sulcos são um `repeating-radial-gradient` — uma declaração em vez
  * de trezentos círculos —, e por cima vai um radial que escurece o miolo e a
  * borda, que é o que dá o vinil em vez de um alvo de tiro.
@@ -2161,14 +2241,36 @@ body {
   display: grid;
   place-items: center;
   background:
-    radial-gradient(circle at 50% 50%, rgb(var(--sombra) / calc(0.55 * var(--forca-sombra))) 0 32%, transparent 32%),
+    /* MATERIAL, e não sombra: é o vinil escurecendo em volta do selo. Alfa
+       cravado de propósito — passou por engano pelo `--forca-sombra` na conversão
+       dos tokens, e de dia o disco perdia o próprio miolo. Disco é preto nos dois
+       temas; o que muda de tema é o que o disco projeta, não o que ele é. */
+    radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.55) 0 32%, transparent 32%),
     repeating-radial-gradient(
       circle at 50% 50%,
       rgba(255, 255, 255, 0.055) 0 1px,
       rgb(var(--sombra) / 0) 1px 4px
     ),
     radial-gradient(circle at 50% 50%, #22262e 0 60%, #12151b 100%);
-  box-shadow: 0 6px 18px rgb(var(--sombra) / calc(0.45 * var(--forca-sombra)));
+  /*
+   * Duas sombras, e não uma. É a mesma divisão do carro 3D: a LARGA dá o peso
+   * do objeto, a de CONTATO diz onde ele encosta. Com só a larga o disco paira
+   * num borrão; com só a de contato ele fica recortado com tesoura.
+   *
+   * A larga não usa `--forca-sombra`. Aquele multiplicador existe porque sombra
+   * dura em superfície clara lê como sujeira — vale para um card, que é um
+   * retângulo pousado. O vinil não é um card: é um objeto pesado e brilhante, e
+   * o que faz um objeto assim parecer pousado numa mesa é justamente a sombra
+   * ter força. Enfraquecida pelo tema, ela sumia de dia e o disco virava adesivo.
+   * Quem tinge esse chão é a `.vinil__aura`, com a cor da capa.
+   *
+   * Fica acima da aura no eixo Z para a sombra escurecer a cor derramada, e não
+   * o contrário.
+   */
+  z-index: 1;
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.42),
+    0 3px 8px rgba(0, 0, 0, 0.3);
   animation: vinil-gira 12s linear infinite;
 }
 
@@ -2209,6 +2311,11 @@ body {
  */
 .vinil__reflexo {
   position: absolute;
+  /* A pilha do palco, de baixo para cima: aura (0) · disco (1) · reflexo (2).
+     Sem este 2 o disco passaria por cima — irmão com `z-index` ganha de irmão
+     com `auto`, venha ele antes ou depois no DOM —, e o reflexo é justamente o
+     que denuncia a rotação. */
+  z-index: 2;
   inset: 0;
   border-radius: 50%;
   pointer-events: none;
@@ -2614,7 +2721,7 @@ body {
 
 .sp-linha:hover,
 .sp-linha:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 
@@ -2810,7 +2917,7 @@ body {
 
 .overlay__fechar:hover,
 .overlay__fechar:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 
@@ -3565,7 +3672,7 @@ body {
 
 .sugestao:hover,
 .sugestao:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 

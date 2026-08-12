@@ -60,6 +60,17 @@ function lerAcento(): string {
   return v || "#3ddc97";
 }
 
+/**
+ * O painel está claro? Lido do mesmo lugar e no mesmo relógio do acento.
+ *
+ * Um atributo, e não `getComputedStyle`: quem escreve é o `useTemaDoDia`, no
+ * `<html>`, e ler `dataset` é mais barato ainda. Vale a mesma preguiça — o tema
+ * vira uma vez por dia, no pôr do sol; um segundo de atraso não existe.
+ */
+function lerClaro(): boolean {
+  return document.documentElement.dataset.tema === "claro";
+}
+
 interface Props {
   /** A tela cheia de algum quadro está por cima. Ver defesa 2 acima. */
   coberto?: boolean;
@@ -156,6 +167,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     let anterior = performance.now();
     let ultimoDesenho = 0;
     let acento = lerAcento();
+    let claro = lerClaro();
     let ultimaLeituraDoAcento = anterior;
 
     const laco = (agora: number) => {
@@ -172,6 +184,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
 
       if (agora - ultimaLeituraDoAcento > RELOGIO_DO_ACENTO) {
         acento = lerAcento();
+        claro = lerClaro();
         ultimaLeituraDoAcento = agora;
       }
 
@@ -185,6 +198,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
         acento,
         menosMovimento,
         arrasto: arrastoRef.current,
+        claro,
       };
 
       cena.atualizar(estado, dt);

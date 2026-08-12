@@ -72,6 +72,13 @@ export interface EstadoDaCena {
   menosMovimento: boolean;
   /** Quanto o dedo já girou o carro, acumulado em radianos. */
   arrasto: number;
+  /**
+   * O painel está no tema claro (é dia).
+   *
+   * Muda uma coisa só, e é uma coisa grande: a poça de luz do chão. Ver o bloco
+   * do chão, mais abaixo.
+   */
+  claro: boolean;
 }
 
 const limitar = (v: number, min: number, max: number) =>
@@ -1177,7 +1184,23 @@ export function montarCena(
    * os 11° da pose de descanso para sempre, que é a direção em que a luz foi
    * montada.
    */
-  cena.add(mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true));
+  /*
+   * ## E DE DIA A POÇA NÃO EXISTE
+   *
+   * Ela é ADITIVA — soma luz ao que está atrás. Sobre o painel escuro isso é
+   * exatamente o que se quer, e é a razão de ela existir: não há o que subtrair
+   * de um fundo quase preto, então a poça inventa o chão que a sombra vai
+   * escurecer. Sobre o painel CLARO, somar luz a #f1f2f5 satura: o quadro
+   * inteiro do herói virava um retângulo #ffffff, estourado, com o carro branco
+   * sumindo dentro dele.
+   *
+   * E a poça não faz falta no claro, pelo mesmo motivo que a justificava no
+   * escuro invertido: agora há muito o que subtrair. As duas sombras pretas
+   * pousam direto no painel e fazem sozinhas o serviço que a poça existia para
+   * viabilizar. Some a muleta, fica o que ela sustentava.
+   */
+  const poca = mancha(7.5, 4.4, 0x9fb6d4, 0.46, 0.85, 0.32, true);
+  cena.add(poca);
   // A larga: a luz do estúdio contornando a carroceria.
   carro.add(mancha(4.9, 2.5, 0x000000, 0.8, 0.8, 0.34, false));
   // A de contato: onde o pneu tapa o chão. Curta, estreita e quase preta.
@@ -1216,6 +1239,10 @@ export function montarCena(
         cor.set(acentoAtual);
         contorno.color.copy(cor);
       }
+
+      // De dia a poça sai de cena — ver o bloco do chão. `visible` e não
+      // remover: o tema vira no pôr do sol, com o painel ligado.
+      poca.visible = !estado.claro;
 
       // Mergulho de freada e rolagem de curva, com a mesma assimetria do
       // desenho em SVG: frear afunda o nariz mais do que acelerar o levanta.
