@@ -529,7 +529,50 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
 }
 
 /**
- * As duas listras, pintadas NO SHADER.
+ * Onde a fração da altura do carro passa a linha de cintura.
+ *
+ * É a fronteira entre o que é estufa (para-brisa, janelas, friso) e o que é
+ * corpo (grade, borracha de para-choque, pneu). Medida em fração da altura, e
+ * não em metros, porque ela precisa valer para qualquer modelo que entre aqui —
+ * é a mesma disciplina do resto do arquivo.
+ *
+ * 0,55 e não mais alto porque a base do para-brisa desce até o cofre: uma
+ * cintura na altura da janela lateral cortaria o para-brisa ao meio, e vidro
+ * fosco na metade de baixo é pior do que vidro fosco inteiro.
+ */
+const CINTURA = 0.55;
+
+/**
+ * A cabine, em LINEAR: o poço embaixo e o forro em cima.
+ *
+ * NÃO É A COR DO VIDRO — é o que se enxerga ATRAVÉS dele, e a diferença é o que
+ * faz a janela parecer janela. Um tom só, chapado, devolve um painel pintado de
+ * preto: o olho não tem como saber que aquilo tem fundo. Com o poço mais escuro
+ * que o forro, ele lê profundidade, e profundidade é o que "translúcido"
+ * significa aqui.
+ *
+ * Transmissão de verdade não serve: o passe do three desenha só objetos opacos
+ * no buffer que o vidro amostra, e este carro é um material só. Ligada, ela
+ * mostraria o CHÃO do estúdio pelo para-brisa — carro oco —, e ainda cobraria um
+ * render inteiro por quadro. Uma cabine desenhada custa duas contas e acerta.
+ *
+ * Os dois valores são baixíssimos porque cabine de carro é escura mesmo, e
+ * porque o reflexo entra POR CIMA disto: o que vale é a diferença entre eles,
+ * não o brilho de nenhum dos dois.
+ */
+const POCO: [number, number, number] = [0.006, 0.009, 0.012];
+const FORRO: [number, number, number] = [0.028, 0.033, 0.042];
+
+/**
+ * As listras, o verniz e o vidro — tudo o que se decide POR PIXEL.
+ *
+ * Os três moram juntos porque dependem do mesmo achado: esta carroceria é uma
+ * malha só. Lataria, vidro, grade, borracha e friso chegam no mesmo material, e
+ * não há o que ligar ou desligar por peça. O que existe é o que já está na
+ * tela — a cor do pixel e onde ele está no carro —, e é com esses dois que se
+ * separa peça de peça aqui dentro.
+ *
+ * ## As listras
  *
  * A primeira tentativa foi por cor de vértice, e ela falhou por um motivo que
  * só aparece com o modelo na mão: esta carroceria tem pouco mais de dois mil
@@ -542,11 +585,25 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
  * da borda deixa de ter relação com a densidade de triângulos. O custo é uma
  * multiplicação por pixel, que numa área de 500x280 não é custo.
  *
+ * ## O segundo eixo
+ *
+ * Claro/escuro sozinho tem um limite, e ele custou caro: o vidro é escuro, o
+ * pneu é escuro, e um discriminador de um eixo só põe os dois no mesmo balde.
+ * O balde era o do fosco — o certo para borracha e o exato oposto do certo para
+ * vidro, que é a superfície mais lisa do carro inteiro. O para-brisa passou um
+ * tempo sendo a peça mais fosca da tela.
+ *
+ * A ALTURA é o eixo que faltava. Escuro e em cima é estufa; escuro e embaixo é
+ * borracha. Dois `smoothstep` e a conta fecha, sem textura nova e sem passe
+ * novo — dentro de um shader que já rodava.
+ *
+ * ## A posição
+ *
  * A posição e a normal chegam ao fragmento em espaço de OBJETO, por varying
  * próprio: as que o three já oferece estão em espaço de vista, e ali o eixo do
  * carro se perde assim que a câmera ou o balanço mexem.
  */
-function listrar(
+function acabamentos(
   mat: MeshPhysicalMaterial,
   caixa: Box3,
   tamanho: Vector3,
@@ -557,6 +614,14 @@ function listrar(
   const suave = tamanho.x * 0.0025;
 
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCintura = { value: caixa.min.y + CINTURA * tamanho.y };
+    /* Uma faixa de transição de 3% da altura — uns quatro centímetros de carro.
+       Nítida o bastante para a cintura ser uma linha, macia o bastante para o
+       friso não serrilhar quando o balanço de vitrine passa por ele. */
+    shader.uniforms.uSuaveY = { value: tamanho.y * 0.03 };
+    shader.uniforms.uTeto = { value: caixa.max.y };
+    shader.uniforms.uPoco = { value: new Color(...POCO) };
+    shader.uniforms.uForro = { value: new Color(...FORRO) };
     shader.uniforms.uMeio = { value: meio };
     shader.uniforms.uGrossa = { value: GROSSA_ATE * tamanho.x };
     shader.uniforms.uFinaDe = { value: FINA_DE * tamanho.x };
@@ -589,8 +654,27 @@ function listrar(
       uniform float uFinaDe;
       uniform float uFinaAte;
       uniform float uSuave;
+      uniform float uCintura;
+      uniform float uSuaveY;
+      uniform float uTeto;
+      uniform vec3 uPoco;
+      uniform vec3 uForro;
       varying vec3 vLocal;
       varying vec3 vNormalLocal;
+
+      /*
+       * Quanto este pixel é estufa: escuro E acima da cintura.
+       *
+       * Decidido UMA vez, no map_fragment, e lido depois pela normal e pelo
+       * acabamento. Recalcular em cada etapa daria respostas diferentes — o
+       * map_fragment troca o diffuseColor pelo tom do vidro, e quem perguntasse
+       * de novo depois estaria perguntando à resposta.
+       *
+       * Junto com o vidro vêm o friso e o blackout do pilar, que são escuros e
+       * altos pelo mesmo motivo. Estão certos: no carro de verdade são gloss
+       * black, e ganham o acabamento certo de graça.
+       */
+      float gVidro;
     ` + shader.fragmentShader.replace(
       "#include <map_fragment>",
       `#include <map_fragment>
@@ -620,6 +704,47 @@ function listrar(
          float ehChapa = smoothstep(0.09, 0.2, luz);
 
          diffuseColor.rgb *= mix(1.0, 0.3, faixa * deCima * ehChapa);
+
+         /*
+          * O VIDRO NÃO VEM DA TEXTURA, e é por isso que as manchas somem.
+          *
+          * Um scan de fotogrametria não tem como capturar vidro: a câmera vê
+          * através dele e o algoritmo, sem ponto em comum entre as fotos,
+          * devolve mancha branca. O para-brisa e o teto vinham assim — e era
+          * essa sujeira que limitava o balanço de vitrine a vinte graus.
+          *
+          * Elas não são apagadas nem remendadas: a textura simplesmente para de
+          * mandar ali. É o certo mesmo sem mancha nenhuma — vidro não tem cor
+          * difusa própria; o que ocupa o lugar dela é a CABINE, que é o que se
+          * enxerga através do vidro. A textura ali carregava só o erro.
+          *
+          * O gradiente é o truque inteiro: o poço do assoalho é mais escuro que
+          * o forro, e é essa diferença que o olho lê como fundo. Chapado, o
+          * mesmo tom lê como painel pintado de preto. Custa um smoothstep.
+          */
+         float alto = smoothstep(uCintura - uSuaveY, uCintura + uSuaveY, vLocal.y);
+         gVidro = (1.0 - ehChapa) * alto;
+
+         float fundura = smoothstep(uCintura, uTeto, vLocal.y);
+         diffuseColor.rgb = mix(diffuseColor.rgb, mix(uPoco, uForro, fundura), gVidro);
+       }`,
+    ).replace(
+      "#include <normal_fragment_maps>",
+      `#include <normal_fragment_maps>
+       {
+         /*
+          * O VIDRO NÃO TEM RELEVO.
+          *
+          * O mapa de normais do scan é ruído em cima do vidro — a fotogrametria
+          * não achou superfície ali e devolveu grumo. Com a lataria fosca isso
+          * não aparecia; com o vidro liso, cada grumo passa a espelhar para um
+          * lado diferente e a janela lateral vira uma poça manchada. Foi o que
+          * apareceu no primeiro ângulo em que o carro virou.
+          *
+          * Volta para a normal da geometria, que é o que vidro é: uma superfície
+          * lisa. O relevo ali nunca foi relevo, era erro.
+          */
+         normal = normalize(mix(normal, nonPerturbedNormal, gVidro));
        }`,
     ).replace(
       "#include <lights_physical_fragment>",
@@ -638,9 +763,30 @@ function listrar(
           * que é escuro fica fosco, que é o que borracha e plástico texturizado
           * fazem com a luz.
           */
-         float chapa = smoothstep(0.06, 0.22, dot(diffuseColor.rgb, vec3(0.3333)));
+         float claridade = dot(diffuseColor.rgb, vec3(0.3333));
+         float chapa = smoothstep(0.06, 0.22, claridade);
          material.clearcoat *= chapa;
          material.roughness = mix(0.78, material.roughness, chapa);
+
+         /*
+          * E O VIDRO POR ÚLTIMO, porque ele desfaz o que a linha de cima fez.
+          *
+          * A regra do fosco acabou de pegar o vidro junto — ele é escuro, e
+          * mais escuro ainda desde que o map_fragment trocou a textura pelo
+          * tom chapado. Sem esta correção o conserto da cor pioraria o
+          * acabamento: vidro mais fosco do que era antes.
+          *
+          * Ele vai para o extremo oposto da rampa. 0,06 é o piso útil do three
+          * (abaixo disso não há mip mais nítido no cubemap de 256), então é o
+          * mais espelhado que esta cena sabe ser — e é onde vidro mora.
+          *
+          * O reflexo que aparece é Fresnel de dielétrico, e é ele que faz o
+          * efeito ser convincente em vez de ser um espelho de adesivo: de
+          * frente o para-brisa devolve uns 4% e continua escuro; de raspão ele
+          * fecha e vira a softbox inteira. É a razão de o carro parado ficar
+          * bonito no balanço — o ângulo muda e o vidro acende sozinho.
+          */
+         material.roughness = mix(material.roughness, 0.16, gVidro);
        }`,
     );
   };
@@ -710,7 +856,7 @@ function envernizar(
     mat.dispose();
 
     if (ehRoda) return;
-    listrar(novo, caixa, tamanho, malha.matrixWorld.clone());
+    acabamentos(novo, caixa, tamanho, malha.matrixWorld.clone());
 
   });
 }
