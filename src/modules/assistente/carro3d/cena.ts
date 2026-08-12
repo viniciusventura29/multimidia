@@ -967,7 +967,19 @@ export function montarCena(
     // do quadro do painel; o que o canvas ganhou é chão em volta.
     const porAltura = (CENA_ALTA * sangriaY) / 2 / tanV;
     const porLargura = (CENA_LARGA * sangriaX) / 2 / (tanV * aspecto);
-    const distancia = Math.max(porAltura, porLargura) * 1.06;
+    /*
+     * A FOLGA. Ela é o único lugar honesto para mexer no tamanho do carro:
+     * `CENA_LARGA` e `CENA_ALTA` são as medidas do que precisa caber (o carro
+     * com a sombra, o teto com ar em cima), e encolher aquilo seria mentir
+     * sobre o tamanho da cena para ganhar zoom — o que corta para-choque.
+     *
+     * Caiu de 1,06 para 0,95: a câmera chega ~10% mais perto e o carro cresce na
+     * mesma proporção. A margem que sobrava era generosa demais para um quadro
+     * que é o herói do painel. O que ele ganha vem da SANGRIA (ver `.carro3d`),
+     * que é pixel de canvas fora do card — então o carro cresce dentro do quadro
+     * sem que a sombra passe a morrer numa linha reta na quina.
+     */
+    const distancia = Math.max(porAltura, porLargura) * 0.95;
 
     camera.position.copy(direcaoDaCamera).multiplyScalar(distancia).add(alvoDaCamera);
     camera.lookAt(alvoDaCamera);
