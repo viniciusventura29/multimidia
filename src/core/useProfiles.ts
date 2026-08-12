@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+import { useModuleSelector } from "./moduleStore";
+import type { MapaState } from "../modules/nav/tipos";
 import type { Profile } from "./types";
 
 const EVENT_PROFILE = "profile-changed";
@@ -78,12 +80,50 @@ export function useProfiles(): Perfis {
   };
 }
 
-/** Pinta o app com a cor do perfil ativo. */
+/**
+ * Pinta o app com a cor do perfil ativo.
+ *
+ * Escreve `--accent-perfil` (a cor CRUA escolhida), e não `--accent`. Quem lê a
+ * crua e decide o que o painel usa é o CSS: no tema escuro `--accent` é ela
+ * mesma; no claro, uma versão escurecida dela, porque as cores do seletor foram
+ * escolhidas para brilhar sobre quase-preto e somem sobre fundo claro. Ver o
+ * comentário do `--accent` no `App.css`.
+ */
 export function useTema(active: Profile | null): void {
   useEffect(() => {
     document.documentElement.style.setProperty(
-      "--accent",
+      "--accent-perfil",
       active?.color ?? "#3ddc97",
     );
   }, [active]);
+}
+
+/**
+ * Claro de dia, escuro de noite.
+ *
+ * O sinal vem do módulo `nav`, e é o MESMO que já troca o estilo do mapa: quem
+ * decide é a elevação do sol na posição do carro (`crates/eclipse-gps/src/sol.rs`,
+ * NOAA simplificada), não a hora do relógio — que erraria uma hora e meia entre
+ * junho e dezembro. O Rust reavalia de minuto em minuto mesmo sem fix novo, então
+ * o painel vira sozinho no pôr do sol com o carro parado na garagem.
+ *
+ * Escreve num atributo do `<html>` em vez de numa classe de componente porque o
+ * tema tem de valer para o que mora FORA da árvore do React: o `color-scheme`
+ * (barra de rolagem, `input`), e as camadas do MapLibre.
+ *
+ * **O padrão é escuro** quando o `nav` ainda não respondeu (`?? true`). Não é
+ * arbitrário: piscar branco na cara de quem está dirigindo à noite é bem pior que
+ * meio segundo de escuro num dia claro. É também o padrão que o mapa já usa, em
+ * `modules/nav/mapa.tsx` — os dois precisam concordar, senão o painel abre claro
+ * com um mapa escuro dentro.
+ */
+export function useTemaDoDia(): void {
+  const noite = useModuleSelector<MapaState, boolean>(
+    "nav",
+    (nav) => nav?.noite ?? true,
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.tema = noite ? "escuro" : "claro";
+  }, [noite]);
 }

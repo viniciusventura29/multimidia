@@ -6,11 +6,24 @@
  * qualquer canto da tela.
  */
 
-export const AZUL = "#4da3ff";
-export const VERDE = "#3ddc97";
-export const AMARELO = "#f5c542";
-export const LARANJA = "#f5a524";
-export const VERMELHO = "#e5484d";
+/*
+ * O PIGMENTO MORA NO CSS, os limiares moram aqui.
+ *
+ * Estas eram cinco constantes de hex. Viraram ponteiros para tokens porque o
+ * painel tem dois temas, e "verde = está bom" precisa de dois verdes diferentes
+ * para dizer a mesma coisa: o #3ddc97 que rende 11:1 sobre o card escuro rende
+ * 1,4:1 sobre o card claro, ou seja, desaparece. Ver `--tom-*` no `App.css`.
+ *
+ * Continuam sendo `string` e continuam servindo para comparar (`cor === VERDE`
+ * em `modules/obd/index.tsx` compara duas vezes a MESMA constante, não dois
+ * hex), e continuam viajando do mesmo jeito: como valor de `--tom` num `style`
+ * inline, de onde os ícones herdam por `currentColor`.
+ */
+export const AZUL = "var(--tom-azul)";
+export const VERDE = "var(--tom-verde)";
+export const AMARELO = "var(--tom-amarelo)";
+export const LARANJA = "var(--tom-laranja)";
+export const VERMELHO = "var(--tom-vermelho)";
 
 /** Fundo de escala dos mostradores do motor. É escala de display, não limiar. */
 export const RPM_MAX = 6500;

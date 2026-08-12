@@ -46,7 +46,9 @@ export function BarraStatus() {
     { clima: Clima | null; noite: boolean }
   >(
     "nav",
-    (nav) => ({ clima: nav?.clima ?? null, noite: nav?.noite ?? false }),
+    // `?? true` como no mapa e no tema (ver `useTemaDoDia`): a mesma pergunta
+    // respondida de dois jeitos dava lua no ícone com o painel claro em volta.
+    (nav) => ({ clima: nav?.clima ?? null, noite: nav?.noite ?? true }),
     shallowEqual,
   );
 
