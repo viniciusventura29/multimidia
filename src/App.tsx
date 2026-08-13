@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useModuleSelector } from "./core/moduleStore";
 import { useSpotifyPlayer } from "./modules/spotifyPlayer";
-import { useProfiles, useTema } from "./core/useProfiles";
+import { useProfiles, useTema, useTemaDoDia } from "./core/useProfiles";
 import { useLocalizacaoReal } from "./modules/nav";
 import { ProfilePicker } from "./profiles/ProfilePicker";
 import { BemVindo } from "./shell/BemVindo";
@@ -15,6 +15,10 @@ export default function App() {
   const [trocando, setTrocando] = useState(false);
 
   useTema(perfis.active);
+  // Claro de dia, escuro de noite, pelo mesmo sinal de sol que o mapa usa. Mora
+  // aqui, e não num quadro: o tema é do `<html>` inteiro, e vale também para a
+  // tela de boot e o seletor de perfil, que existem antes de qualquer quadro.
+  useTemaDoDia();
   // Mora aqui, e não dentro do tile do mapa, porque o tile monta duas vezes
   // (grid + tela expandida) — abrir dois `watchPosition` ao mesmo tempo seria
   // desperdício. Aqui só existe uma instância do App.

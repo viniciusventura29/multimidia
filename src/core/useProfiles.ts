@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+import { useModuleSelector } from "./moduleStore";
+import type { MapaState } from "../modules/nav/tipos";
 import type { Profile } from "./types";
 
 const EVENT_PROFILE = "profile-changed";
@@ -78,12 +80,63 @@ export function useProfiles(): Perfis {
   };
 }
 
-/** Pinta o app com a cor do perfil ativo. */
+/**
+ * Pinta o app com a cor do perfil ativo.
+ *
+ * Escreve `--accent-perfil` (a cor CRUA escolhida), e não `--accent`. Quem lê a
+ * crua e decide o que o painel usa é o CSS: no tema escuro `--accent` é ela
+ * mesma; no claro, uma versão escurecida dela, porque as cores do seletor foram
+ * escolhidas para brilhar sobre quase-preto e somem sobre fundo claro. Ver o
+ * comentário do `--accent` no `App.css`.
+ */
 export function useTema(active: Profile | null): void {
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      "--accent",
-      active?.color ?? "#3ddc97",
-    );
+    const raiz = document.documentElement;
+    /*
+     * APAGA UM `--accent` INLINE ANTIGO antes de escrever a cor nova.
+     *
+     * Até este arquivo mudar, era `--accent` que se escrevia aqui — inline, no
+     * `<html>`. Estilo inline ganha de folha de estilo, então uma instância que
+     * rodou a versão antiga e depois recebeu a nova (recarga a quente no `tauri
+     * dev`, ou o app já aberto quando a atualização chega) fica com o acento CRU
+     * grudado para sempre: o `[data-tema="claro"]` deriva um `--accent`
+     * escurecido e o inline velho continua vencendo. O sintoma é discreto e
+     * confunde — o painel troca de tema direitinho e só a cor do perfil fica
+     * berrante, o que parece bug do tema claro e não é.
+     *
+     * Uma linha, e o estado sujo não sobrevive à primeira renderização.
+     */
+    raiz.style.removeProperty("--accent");
+    raiz.style.setProperty("--accent-perfil", active?.color ?? "#3ddc97");
   }, [active]);
+}
+
+/**
+ * Claro de dia, escuro de noite.
+ *
+ * O sinal vem do módulo `nav`, e é o MESMO que já troca o estilo do mapa: quem
+ * decide é a elevação do sol na posição do carro (`crates/eclipse-gps/src/sol.rs`,
+ * NOAA simplificada), não a hora do relógio — que erraria uma hora e meia entre
+ * junho e dezembro. O Rust reavalia de minuto em minuto mesmo sem fix novo, então
+ * o painel vira sozinho no pôr do sol com o carro parado na garagem.
+ *
+ * Escreve num atributo do `<html>` em vez de numa classe de componente porque o
+ * tema tem de valer para o que mora FORA da árvore do React: o `color-scheme`
+ * (barra de rolagem, `input`), e as camadas do MapLibre.
+ *
+ * **O padrão é escuro** quando o `nav` ainda não respondeu (`?? true`). Não é
+ * arbitrário: piscar branco na cara de quem está dirigindo à noite é bem pior que
+ * meio segundo de escuro num dia claro. É também o padrão que o mapa já usa, em
+ * `modules/nav/mapa.tsx` — os dois precisam concordar, senão o painel abre claro
+ * com um mapa escuro dentro.
+ */
+export function useTemaDoDia(): void {
+  const noite = useModuleSelector<MapaState, boolean>(
+    "nav",
+    (nav) => nav?.noite ?? true,
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.tema = noite ? "escuro" : "claro";
+  }, [noite]);
 }

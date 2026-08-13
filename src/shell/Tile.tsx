@@ -48,6 +48,25 @@ export function Tile({
     }
   };
 
+  /*
+   * "Este foco veio de um ponteiro."
+   *
+   * Um `<div tabindex="0">` recebe foco no clique, e o navegador pode considerar
+   * esse foco VISÍVEL — aí o anel de `:focus-visible` acende depois do toque e
+   * fica ligado até alguém tocar em outro lugar. Num painel de carro isso não é
+   * um detalhe de estilo: é uma moldura acesa no meio da tela enquanto se dirige.
+   *
+   * O `pointerdown` chega ANTES do foco, então marcar aqui é o bastante para o
+   * CSS recusar o anel (`:not([data-mouse])`). O `keydown` desmarca: quem chegou
+   * de Tab ou saiu com Tab precisa ver onde está.
+   */
+  const marcarPonteiro = (event: { currentTarget: HTMLElement }) => {
+    event.currentTarget.dataset.mouse = "";
+  };
+  const desmarcarPonteiro = (event: { currentTarget: HTMLElement }) => {
+    delete event.currentTarget.dataset.mouse;
+  };
+
   return (
     <section
       className={`tile tile--${status}${nu ? " tile--nu" : ""}${
@@ -55,7 +74,12 @@ export function Tile({
       }${clicavel ? " tile--clicavel" : ""}`}
       style={area ? { gridArea: area } : undefined}
       onClick={onExpand}
-      onKeyDown={aoTeclar}
+      onKeyDown={(event) => {
+        desmarcarPonteiro(event);
+        aoTeclar(event);
+      }}
+      onPointerDown={clicavel ? marcarPonteiro : undefined}
+      onBlur={clicavel ? desmarcarPonteiro : undefined}
       role={clicavel ? "button" : undefined}
       tabIndex={clicavel ? 0 : undefined}
       aria-label={nu ? title : undefined}

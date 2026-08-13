@@ -302,6 +302,20 @@ function Vinil({ capa }: { capa: string | null }) {
             por alguma coisa fora do quadro, não ter uma lâmpada colada nele. */}
         <span className="vinil__brilho" aria-hidden />
 
+        {/*
+          A cor que o disco derrama no chão.
+
+          É a PRÓPRIA capa, ampliada, desfocada e jogada para baixo — não uma cor
+          média extraída dela. Sai mais barato (nenhum canvas, nenhuma leitura de
+          pixel, nenhum problema de CORS com o CDN do Spotify) e sai melhor: uma
+          capa raramente é uma cor só, e a média de uma capa colorida costuma dar
+          um cinza sujo. Desfocada, ela mantém as duas ou três manchas que a
+          pessoa reconhece.
+
+          Não gira junto com o disco: é o que ele derrama, não o que ele é.
+        */}
+        {capa && <img className="vinil__aura" src={capa} alt="" aria-hidden />}
+
         <span className="vinil__disco" aria-hidden>
           <span className="vinil__selo">
             {capa && <img className="vinil__capa" src={capa} alt="" />}
@@ -357,7 +371,11 @@ function Compacto({ data }: TileView<MusicState>) {
   const { posicaoMs, duracaoMs } = progresso(local, data);
 
   return (
-    <div className="player">
+    // `--sem-capa` não é enfeite: sem capa, o miolo do quadro passa a ser
+    // superfície do PAINEL, e aí ele segue o tema. Com capa, ele é uma foto
+    // imprevisível, e o texto continua branco sobre véu escuro nos dois temas.
+    // Ver `.player--sem-capa` no CSS.
+    <div className={`player${np.albumArt ? "" : " player--sem-capa"}`}>
       {np.albumArt ? (
         <img className="player__capa" src={np.albumArt} alt="" />
       ) : (

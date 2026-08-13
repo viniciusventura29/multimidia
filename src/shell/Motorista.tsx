@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type { Profile } from "../core/types";
 
 interface Props {
@@ -25,7 +27,7 @@ export function Motorista({ profile, aoTrocar }: Props) {
       <span className="motorista__nome">
         <span
           className="motorista__ponto"
-          style={{ background: profile.color }}
+          style={{ "--ponto": profile.color } as CSSProperties}
           aria-hidden
         />
         {profile.name}

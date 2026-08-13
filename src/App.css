@@ -29,11 +29,42 @@
   --bg: #16181c;
   /* O card, afundado no fundo. */
   --tile: #0a0b0e;
-  /* O que sobe dentro de um card: chips, hover. Entre o card e o fundo. */
+  /* O que sobe dentro de um card: chips, blocos. Entre o card e o fundo. */
   --tile-alto: #121417;
-  /* O ponto mais escuro. Poço (furo do vinil, campo de texto) e tinta sobre o
-     acento — não é superfície, é ausência de luz. */
+
+  /*
+   * O RETORNO AO TOQUE — e por que ele não é o `--tile-alto`.
+   *
+   * Os dois eram a mesma coisa, e no tema escuro continuam sendo o mesmo valor:
+   * hover clareia o card, e num painel escuro qualquer luz a mais lê como
+   * "levantou". Só que `--tile-alto` fica ENTRE o card e o fundo da página, ou
+   * seja, clarear aproxima o card da cor da página.
+   *
+   * No escuro isso passa: o card sobe do poço em direção ao nível da página e
+   * ainda sobra separação. No claro é o contrário — o card já é mais escuro que
+   * a página, e clarear apaga a quina dele. Somado à poça de luz do carro 3D,
+   * que também é aditiva, o herói inteiro chegava a #ffffff.
+   *
+   * Então o toque não é "clarear", é AFASTAR-SE DA PÁGINA: no escuro, para
+   * cima; no claro, para baixo. O mesmo gesto, o sinal trocado — e nos dois
+   * casos o quadro fica mais definido ao ser tocado, nunca menos.
+   */
+  --toque: var(--tile-alto);
+  /* O ponto mais escuro: ausência de luz, não superfície. O furo do vinil, e o
+     véu do que pousa sobre o mapa. Continua escuro nos DOIS temas — um furo é um
+     furo. Quem era poço de campo de texto saiu daqui para o `--poco`, porque
+     aquilo é um degrau da rampa, e rampa inverte. */
   --tinta: #040406;
+
+  /*
+   * O poço: um degrau ALÉM do card, afastando-se da luz.
+   *
+   * É onde se digita (`.novo__nome`). No escuro ele é mais preto que o card; no
+   * claro, mais cinza — a mesma relação, e não a mesma cor. Ele morava no
+   * `--tinta`, e no tema claro isso dava um campo quase preto dentro de um painel
+   * claro, com o texto escuro em cima: invisível.
+   */
+  --poco: #040406;
   --line: #24272d;
 
   /*
@@ -50,6 +81,56 @@
    */
   --vidro: color-mix(in srgb, var(--tile) 80%, transparent);
   --desfoque: 10px;
+
+  /*
+   * AS QUATRO FAMÍLIAS DE COR QUE NÃO SÃO SUPERFÍCIE.
+   *
+   * Fora dos tokens acima havia ~50 cores cravadas no arquivo, e cada uma delas
+   * era uma mancha preta esperando o tema claro. Elas não são cinquenta decisões:
+   * são quatro, repetidas. Cada família é uma TRÍADE de canais (`R G B`, sem
+   * `rgb()` em volta), para que cada uso continue escolhendo a própria opacidade
+   * — `rgb(var(--veu) / 0.85)`. Um token por opacidade seriam vinte tokens.
+   *
+   * `--veu`      véu por cima de IMAGEM DO PAINEL — o mapa, sobretudo. Vira claro
+   *              no tema claro, porque o mapa vira claro junto (o MapLibre troca
+   *              `positron` por `dark` no mesmo sinal que troca o tema). É o que
+   *              deixa "sem sinal" e o nome da rua legíveis por cima da rua.
+   * `--realce`   o que LEVANTA uma superfície do painel: hover, esqueleto de
+   *              carregamento, trilho de barra. Branco no escuro, preto no claro —
+   *              "mais claro que o fundo" e "mais escuro que o fundo" são a mesma
+   *              ideia com o sinal trocado.
+   * `--sombra`   sombra projetada. Continua preta nos dois temas: sombra é
+   *              ausência de luz, e ela não inverte. Só a opacidade cai no claro.
+   * `--scrim`    o breu da tela cheia por cima do painel inteiro. Como a sombra,
+   *              NÃO inverte: a função dele é fazer o painel RECUAR, e recuar é
+   *              escurecer nos dois temas. Clarear um painel claro não o manda
+   *              para trás — só apaga a tela. Só a força cai no claro.
+   *
+   * NÃO ENTRA AQUI o branco que pousa sobre CAPA DE ÁLBUM ou sobre foto: capa é
+   * imagem imprevisível, o véu ali é escuro e o texto branco nos DOIS temas, e
+   * trocar isso pelo tema deixaria texto claro sobre capa clara. Ver `.player__*`.
+   */
+  --veu: 7 9 13;
+  --realce: 255 255 255;
+  --sombra: 0 0 0;
+  --scrim: 4 6 9;
+  /* Multiplica a opacidade do scrim. Escuro pesado por cima de painel escuro é
+     quase de graça — os dois são pretos, e o que se perde é pouco. Por cima de
+     painel CLARO o mesmo alfa apaga a tela inteira. */
+  --forca-scrim: 1;
+  /* Multiplica a opacidade de toda sombra. Sombra dura sobre superfície clara lê
+     como sujeira; sobre escura, ela é o único jeito de destacar. */
+  --forca-sombra: 1;
+
+  /* A tinta que pousa EM CIMA do acento (o botão "tocar tudo"). Ela é o negativo
+     do acento, então acompanha a inversão dele: escura sobre um acento vivo,
+     clara sobre um acento escurecido. */
+  --sobre-acento: #07090d;
+
+  /* O mapa antes de os tiles chegarem, e o contorno do pino contra a rua. Segue
+     o estilo do MapLibre, que troca `positron` por `dark` no mesmo sinal que
+     troca este tema — ver `ESTILOS` em `modules/nav/mapa.tsx`. */
+  --mapa-vazio: #0d1117;
 
   /*
    * A luz vem de cima.
@@ -71,8 +152,44 @@
   --text: #e8edf5;
   --muted: #7c8899;
   --warn: #f5a524;
-  /* Sobrescrita em runtime pela cor do perfil ativo — ver `useTema`. */
-  --accent: #3ddc97;
+
+  /*
+   * O acento, em dois degraus.
+   *
+   * `--accent-perfil` é a cor CRUA que o motorista escolheu, escrita em runtime
+   * pelo `useTema`. `--accent` é a cor que o painel usa — e no escuro elas são a
+   * mesma coisa.
+   *
+   * Elas se separam por causa do tema claro. As seis cores do seletor
+   * (`ProfilePicker`) foram escolhidas para brilhar sobre quase-preto: o verde
+   * #3ddc97 rende 11:1 sobre o card escuro e **1,4:1** sobre o card claro — some.
+   * Num painel de carro isso não é questão de gosto: a diretriz automotiva do
+   * Google pede 4,5:1 no mínimo para qualquer coisa legível. Então o claro deriva
+   * um acento escurecido a partir da mesma escolha, em vez de ter uma segunda
+   * paleta que o motorista não pediu. Ver o bloco `[data-tema="claro"]`.
+   */
+  --accent-perfil: #3ddc97;
+  --accent: var(--accent-perfil);
+
+  /*
+   * As cores da telemetria.
+   *
+   * Elas moravam só em `core/telemetria.ts`, como constantes de TypeScript, e de
+   * lá viajavam para a tela como valor de `--tom`. Agora o TS aponta para estes
+   * tokens (`VERDE = "var(--tom-verde)"`) e o valor mora aqui — porque "verde =
+   * está bom" precisa de dois verdes diferentes para significar a mesma coisa nos
+   * dois temas. Todas as cinco falhavam o contraste mínimo sobre fundo claro.
+   *
+   * Os limiares (quando é verde, quando é vermelho) continuam no TS: aquilo é
+   * regra do carro, isto é pigmento.
+   */
+  --tom-azul: #4da3ff;
+  --tom-verde: #3ddc97;
+  --tom-amarelo: #f5c542;
+  --tom-laranja: #f5a524;
+  --tom-vermelho: #e5484d;
+  /* Só o RPM usa este — ver `modules/obd/cores.ts`. */
+  --tom-ciano: #4dd8e0;
 
   /*
    * Raio e respiro.
@@ -105,6 +222,118 @@
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * ------------------------------------------------------------------
+ * O TEMA CLARO, para quando o sol está no céu
+ * ------------------------------------------------------------------
+ *
+ * Escrito no `<html>` como `data-tema="claro"` pelo `useTemaDoDia`, a partir do
+ * mesmo `nav.noite` que já troca o estilo do mapa — elevação solar na posição do
+ * carro (`crates/eclipse-gps/src/sol.rs`), não hora do relógio.
+ *
+ * POR QUE ISTO EXISTE, já que a diretriz automotiva do Google diz o contrário.
+ * Ela recomenda "construir a partir do preto" justamente para NÃO haver troca
+ * brusca entre dia e noite. O argumento é bom e não se aplica a este carro: ela
+ * pressupõe um painel de fábrica com revestimento antirreflexo e 800 nits, e o
+ * alvo aqui é uma central chinesa de ~R$1,5k. Neste vidro, o comentário no topo
+ * deste arquivo já tinha diagnosticado o problema sem tirar a conclusão: sob sol,
+ * um painel quase preto "vira um espelho onde se vê a cara do motorista e mais
+ * nada". Um fundo claro não briga com o reflexo — ele soma com a luz ambiente em
+ * vez de competir. É o mesmo motivo pelo qual o mapa usa `positron` de dia.
+ * O CarPlay faz exatamente isto, atrelado à luz de dia do carro.
+ *
+ * COMO A PALETA FOI ESCOLHIDA. O claro é o espelho da LÓGICA do escuro, não da
+ * direção: lá o fundo é o mais claro dos escuros e o card AFUNDA nele; aqui o
+ * fundo é o mais escuro dos claros e o card afunda igual. A separação
+ * card/fundo é 1,13:1 — praticamente a mesma 1,11:1 do escuro —, então o quadro
+ * lê como recorte nos dois temas, e o painel não vira um app genérico de cards
+ * brancos de dia. Registro do gosto: é o "concreto claro" de Rivian e Polestar,
+ * superfície quase monocromática com uma cor só de acento.
+ *
+ * NADA AQUI É BRANCO PURO, pelo mesmo motivo que nada lá é preto puro. Branco
+ * absoluto atrás de um vidro de central barata estoura e some o texto fino junto.
+ *
+ * TODO PAR TEXTO/SUPERFÍCIE FOI MEDIDO, não escolhido no olho. O mínimo é 4,5:1,
+ * que é o que a diretriz automotiva do Google pede para qualquer coisa legível.
+ * Sobre o card (`--tile`, o caso mais apertado): text 14,4 · muted 4,7 ·
+ * warn 5,7 · azul 5,3 · verde 4,9 · amarelo 5,3 · laranja 5,7 · vermelho 5,5.
+ * O acento derivado do perfil vai de 4,7 (o perfil "branco", o pior) a 9,8.
+ */
+[data-tema="claro"] {
+  /* A rampa, do mais claro ao mais escuro — mesma ordem do escuro, invertida. */
+  --bg: #f1f2f5;
+  --tile: #e3e5ea;
+  --tile-alto: #ebedf1;
+  /* PARA BAIXO, não para cima — ver `--toque` no `:root`. Clarear aqui levaria o
+     card para a cor da página e apagaria a quina dele: tocar não pode fazer o
+     quadro sumir. */
+  --toque: #d5d8df;
+  /* O poço. Continua sendo o extremo da rampa, e no claro o extremo é escuro:
+     furo de vinil e campo de texto são ausência de luz nos dois temas. */
+  --tinta: #0d0f13;
+  /* Um degrau além do card, na direção oposta à luz — ver `--poco` no `:root`. */
+  --poco: #d7dae1;
+  --line: #cfd3da;
+
+  --text: #14161a;
+  /* Escuro o bastante para sobreviver ao HOVER, que é a superfície mais escura
+     do tema (`--toque`, #d5d8df) e não o card. A #5c6570 o rótulo caía para
+     4,15:1 numa linha sob o dedo — legível só até alguém encostar nela. */
+  --muted: #525b65;
+  /* O âmbar #f5a524 rende 1,9:1 sobre o card claro. Queimado, chega a 5,7. */
+  --warn: #8a4500;
+
+  /*
+   * O acento do perfil, escurecido em 58%.
+   *
+   * O fator não é gosto, é o menor que atende as SEIS cores do `ProfilePicker`.
+   * Medido sobre o card: a 45% o perfil "branco" (#e8edf5) para em 4,25 e não
+   * passa; a 42% o pior caso é 4,72. Mais escuro que isso só empobrece a cor sem
+   * ganhar legibilidade que já está garantida.
+   */
+  --accent: color-mix(in srgb, var(--accent-perfil) 42%, #000);
+
+  /*
+   * As cinco da telemetria, todas reprovadas no claro na versão viva.
+   *
+   * O piso não é o card: é o `--toque`, que é a superfície mais escura do tema e
+   * aparece embaixo do dedo. Um número que se lê parado e some ao ser tocado é
+   * pior que um número escuro demais — daí verde e ciano serem um degrau mais
+   * fundos do que a leitura sobre o card pediria.
+   */
+  --tom-azul: #0b5cad;
+  --tom-verde: #0a6740;
+  --tom-amarelo: #7a5600;
+  --tom-laranja: #8a4500;
+  --tom-vermelho: #b3161c;
+  /* Ver `--tom-verde`: o piso é a superfície de hover, não o card. */
+  --tom-ciano: #09646b;
+
+  /*
+   * As quatro famílias invertem — menos a sombra.
+   *
+   * `--veu` clareia porque o mapa clareia junto. `--realce` vira preto: "levantar
+   * uma superfície" é clarear no escuro e escurecer no claro, a mesma ideia com o
+   * sinal trocado. `--sombra` continua preta, porque sombra é ausência de luz e
+   * ausência não inverte — mas cai a 45% da força, já que sobre superfície clara
+   * a mesma sombra lê como sujeira.
+   */
+  --veu: 255 255 255;
+  --realce: 0 0 0;
+  /* NÃO inverte — ver `--scrim` no `:root`. Um pouco mais claro que o breu do
+     tema escuro, para não virar um buraco preto no meio de um painel claro. */
+  --scrim: 16 20 26;
+  /* 0,82 x 0,55 dá ~0,45, que é o alfa de um modal de tema claro. */
+  --forca-scrim: 0.55;
+  --forca-sombra: 0.45;
+
+  /* Negativo do acento: ele escureceu, então a tinta em cima dele clareia. */
+  --sobre-acento: #f4f6f8;
+  --mapa-vazio: #e8eaee;
+
+  color-scheme: light;
 }
 
 * {
@@ -154,7 +383,7 @@ body {
       color-mix(in srgb, var(--accent) 4%, transparent),
       transparent 62%
     ),
-    radial-gradient(90% 70% at 92% 108%, rgba(255, 255, 255, 0.03), transparent 60%);
+    radial-gradient(90% 70% at 92% 108%, rgb(var(--realce) / 0.03), transparent 60%);
   background-attachment: fixed;
   color: var(--text);
   /* Painel de carro: nada de seleção acidental, bounce de scroll ou zoom. */
@@ -321,6 +550,29 @@ body {
   letter-spacing: -0.01em;
 }
 
+/*
+ * O ponto da cor do perfil.
+ *
+ * A cor vem do TSX numa custom property (`--ponto`) e não como `background`
+ * direto, e é por causa do tema claro: `background: profile.color` escapava da
+ * derivação do acento e o verde #3ddc97 saía cru, a 1,4:1 sobre o card claro —
+ * um ponto invisível ao lado do nome. Aqui ele passa pelo mesmo escurecimento
+ * que `--accent` (ver `[data-tema="claro"]`).
+ *
+ * Não dá para simplesmente usar `var(--accent)`: no seletor de perfil, cada linha
+ * mostra a cor de OUTRO motorista, e `--accent` é a do ativo. A derivação tem de
+ * ser por elemento, e é por isso que ela se repete em vez de morar no `:root`.
+ */
+.motorista__ponto,
+.perfil__ponto {
+  background: var(--ponto);
+}
+
+[data-tema="claro"] .motorista__ponto,
+[data-tema="claro"] .perfil__ponto {
+  background: color-mix(in srgb, var(--ponto) 42%, #000);
+}
+
 .motorista__ponto {
   width: 0.5rem;
   height: 0.5rem;
@@ -453,33 +705,56 @@ body {
   cursor: pointer;
 }
 
+/*
+ * `:hover` reage enquanto o mouse está em cima, e pronto. O `:focus-visible`
+ * leva a trava `[data-mouse]` pelo mesmo motivo do quadro nu, logo abaixo: o
+ * `.tile` é um `<div tabindex="0">`, o Chrome trata o clique do mouse como foco
+ * visível, e sem a trava o card ficava com o fundo de toque aceso DEPOIS do
+ * clique — até alguém tocar em outro lugar da tela.
+ */
 .tile--clicavel:hover,
-.tile--clicavel:focus-visible {
-  background-color: var(--tile-alto);
+.tile--clicavel:focus-visible:not([data-mouse]) {
+  background-color: var(--toque);
   outline: none;
 }
 
-/* Nu não tem fundo para clarear, então o retorno ao toque é um anel. */
+/*
+ * O QUADRO NU NÃO REAGE AO MOUSE. Nem no hover, nem no clique.
+ *
+ * Ele já reagiu: hover pintava um anel no acento. A ideia era dar retorno num
+ * quadro que não tem fundo para clarear — mas o anel é exatamente o contorno de
+ * card que este quadro existe para NÃO ter. O `chrome: "nu"` tirou o fundo, a
+ * `sangra` tirou o corte da luz na quina, e bastava aproximar o mouse para a
+ * caixa reaparecer desenhada em volta do carro.
+ *
+ * Some sem deixar o quadro mudo: o mapa e o herói já dizem que respondem pelo
+ * cursor (`.tile--clicavel` é `pointer`, e o `.carro3d__quadro` é `grab`), e
+ * quem toca com o dedo não tem hover nenhum de qualquer forma.
+ *
+ * O `background: none` no hover não é redundante: sem ele o quadro nu herdaria o
+ * `--toque` da regra de cima e ganharia o fundo cinza que ele acabou de não ter.
+ */
 .tile--nu.tile--clicavel:hover,
 .tile--nu.tile--clicavel:focus-visible {
   background: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 /*
- * O herói não acende com o mouse em cima.
+ * O anel fica só para o TECLADO.
  *
- * O anel é o contorno de card que este quadro inteiro existe para não ter: o
- * `chrome: "nu"` tirou o fundo, a `sangra` tirou o corte da luz na quina, e aí
- * bastava passar o mouse para a caixa reaparecer desenhada em volta do carro.
+ * Quem navega por teclado precisa ver onde está, e ali o anel não é ruído — é a
+ * única coisa dizendo qual quadro abre no Enter.
  *
- * Sai só o `:hover`. O `:focus-visible` fica, e não por descuido: quem navega
- * por teclado precisa ver onde está, e ali o anel não é ruído — é a única coisa
- * dizendo qual quadro abre no Enter. Mouse já tem o cursor de arrastar do
- * `.carro3d__quadro` como aviso de que o carro responde.
+ * `:focus-visible` sozinho não basta: o `.tile` é um `<div tabindex="0">`, e
+ * elemento assim recebe foco no clique do mouse também. Se o navegador resolver
+ * que aquele foco é "visível", o anel acende DEPOIS do toque e fica ligado até
+ * alguém tocar em outro lugar — que é o pior dos dois mundos, porque a essa
+ * altura o quadro já abriu. O `:not(:active)` não resolveria (o clique já
+ * terminou), então quem resolve é o JS: o `Tile` marca `data-mouse` enquanto o
+ * foco veio de ponteiro, e esta regra se recusa a acender nesse caso.
  */
-.tile--nu.tile--sangra.tile--clicavel:hover {
-  box-shadow: none;
+.tile--nu.tile--clicavel:focus-visible:not([data-mouse]) {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .tile__head {
@@ -529,9 +804,9 @@ body {
   left: 0.6rem;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  /* `--tinta` e não `--bg`: isto pousa em cima do mapa, e é véu para o texto se
+  /* `--veu` e não `--bg`: isto pousa em cima do mapa, e é véu para o texto se
      ler — precisa do tom mais escuro, não do tom do fundo da tela. */
-  background: color-mix(in srgb, var(--tinta) 82%, transparent);
+  background: rgb(var(--veu) / 0.82);
 }
 
 .tile__body {
@@ -570,7 +845,7 @@ body {
   margin: 0;
   padding: 0.25rem 0.6rem;
   border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--tinta) 82%, transparent);
+  background: rgb(var(--veu) / 0.82);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -590,7 +865,7 @@ body {
   flex: 1;
   min-height: 3rem;
   border-radius: 0.6rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--realce) / 0.05);
   animation: tile-respira 1.2s ease-in-out infinite alternate;
 }
 
@@ -1064,7 +1339,7 @@ body {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: rgba(7, 9, 13, 0.55);
+  background: rgb(var(--veu) / 0.55);
 }
 
 .tanque__escala {
@@ -1926,10 +2201,22 @@ body {
   place-items: center;
 }
 
-/* Maior que o disco e desfocado: é luz, não anel. */
+/*
+ * Maior que o disco e desfocado: é luz, não anel.
+ *
+ * `inset: 0`, e NÃO um inset negativo. Ele já foi 12% maior que o palco, e o
+ * palco encosta na borda do `.tile__body`, que recorta (`overflow: hidden`, e
+ * por um motivo real — ver lá). O resultado era o halo com o topo cortado numa
+ * linha reta atravessando o quadro: uma luz redonda guilhotinada.
+ *
+ * Não dá para ter luz MAIOR que o disco dentro de uma caixa recortada sem o
+ * disco ser MENOR que a caixa. Então quem encolheu foi o disco (ver
+ * `.vinil__disco`), e a luz ficou do tamanho do palco. A relação entre os dois —
+ * que é o que importa — não mudou; o que mudou é que agora ela cabe.
+ */
 .vinil__brilho {
   position: absolute;
-  inset: -12%;
+  inset: 0;
   border-radius: 50%;
   background: radial-gradient(
     circle at 50% 45%,
@@ -1941,26 +2228,127 @@ body {
 }
 
 /*
+ * A aura: a cor da capa irradiando EM VOLTA do disco.
+ *
+ * É a capa de verdade, ampliada e desfocada, e não uma cor média extraída dela:
+ * capa raramente é uma cor só, e a média de uma capa colorida dá cinza sujo.
+ * Também evita canvas, leitura de pixel e CORS com o CDN do Spotify.
+ *
+ * ## Halo concêntrico, e não poça embaixo
+ *
+ * Ela já foi uma elipse achatada sob a barriga do disco — sombra de chão. Estava
+ * errado: um vinil não é um objeto pousado numa mesa vista de cima, é um disco
+ * de frente, e o que ele espalha espalha para todo lado. Concêntrica, a cor
+ * envolve o disco em vez de escorrer para um lado só.
+ *
+ * ## A MÁSCARA é o que garante que nada seja cortado
+ *
+ * O `.tile__body` recorta (`overflow: hidden`, por um motivo real — ver lá), e o
+ * palco encosta na borda dele: são ZERO pixels de folga em cima. Torcer para o
+ * desfoque caber é o que já rendeu uma luz guilhotinada uma vez.
+ *
+ * A ordem é `filter` e DEPOIS `mask`. Ou seja: o desfoque pode espalhar à
+ * vontade, e a máscara corta o transbordo dentro da PRÓPRIA caixa da aura, que
+ * é do tamanho do palco. Nada nunca chega na borda do recorte — o corte deixa de
+ * ser uma questão de sorte com o raio do blur e vira impossível por construção.
+ *
+ * Ela também é a razão de a aura poder ser generosa: o desfoque de 18px mistura
+ * as cores da capa de verdade, e a máscara limpa a sujeira da borda.
+ *
+ * ## Onde ela cabe
+ *
+ * O halo mora no anel entre o disco (74% do palco) e a borda do palco. É por
+ * isso que o disco encolheu: não existe halo em volta de um disco que já ocupa
+ * a caixa inteira.
+ *
+ * Custa um `filter: blur` numa head unit sem GPU sobrando, e por isso ela é
+ * ESTÁTICA: não gira com o disco, não pulsa, não transiciona. Composta uma vez e
+ * esquecida — o que gira é o `.vinil__disco`, numa camada própria.
+ */
+.vinil__aura {
+  position: absolute;
+  z-index: 0;
+  /* Do tamanho do palco e centrada pelo `place-items` dele (por isso sem
+     `inset`): concêntrica com o disco, que mora no mesmo centro. */
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  /* `saturate` porque desfocar mistura cores e mistura sempre desbota: sem isto
+     a aura fica um borrão pastel de qualquer capa. */
+  filter: blur(18px) saturate(1.8);
+  /* Morre em 92% do raio, bem antes da borda da caixa. O `-webkit-` fica para
+     WebView de Android mais velho, onde `mask-image` sem prefixo não existe. */
+  -webkit-mask-image: radial-gradient(
+    closest-side,
+    #000 42%,
+    rgba(0, 0, 0, 0.55) 70%,
+    transparent 92%
+  );
+  mask-image: radial-gradient(
+    closest-side,
+    #000 42%,
+    rgba(0, 0, 0, 0.55) 70%,
+    transparent 92%
+  );
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* Sobre fundo escuro a mesma aura precisa de menos: ali ela é luz somando num
+   painel quase preto, e a 0,7 virava um holofote colorido embaixo do disco. */
+[data-tema="escuro"] .vinil__aura {
+  opacity: 0.55;
+}
+
+/*
  * O disco. Os sulcos são um `repeating-radial-gradient` — uma declaração em vez
  * de trezentos círculos —, e por cima vai um radial que escurece o miolo e a
  * borda, que é o que dá o vinil em vez de um alvo de tiro.
  */
+/*
+ * 74% DO PALCO, e não 100%. O anel que sobra é onde a aura e a luz existem —
+ * não há halo em volta de um disco que já ocupa a caixa inteira, e a caixa não
+ * pode crescer (o `.tile__body` recorta, e o palco encosta nele).
+ */
 .vinil__disco {
   position: relative;
-  width: 100%;
-  height: 100%;
+  width: 74%;
+  height: 74%;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background:
+    /* MATERIAL, e não sombra: é o vinil escurecendo em volta do selo. Alfa
+       cravado de propósito — passou por engano pelo `--forca-sombra` na conversão
+       dos tokens, e de dia o disco perdia o próprio miolo. Disco é preto nos dois
+       temas; o que muda de tema é o que o disco projeta, não o que ele é. */
     radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.55) 0 32%, transparent 32%),
     repeating-radial-gradient(
       circle at 50% 50%,
       rgba(255, 255, 255, 0.055) 0 1px,
-      rgba(0, 0, 0, 0) 1px 4px
+      rgb(var(--sombra) / 0) 1px 4px
     ),
     radial-gradient(circle at 50% 50%, #22262e 0 60%, #12151b 100%);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  /*
+   * Duas sombras, e não uma. É a mesma divisão do carro 3D: a LARGA dá o peso
+   * do objeto, a de CONTATO diz onde ele encosta. Com só a larga o disco paira
+   * num borrão; com só a de contato ele fica recortado com tesoura.
+   *
+   * A larga não usa `--forca-sombra`. Aquele multiplicador existe porque sombra
+   * dura em superfície clara lê como sujeira — vale para um card, que é um
+   * retângulo pousado. O vinil não é um card: é um objeto pesado e brilhante, e
+   * o que faz um objeto assim parecer pousado numa mesa é justamente a sombra
+   * ter força. Enfraquecida pelo tema, ela sumia de dia e o disco virava adesivo.
+   * Quem tinge esse chão é a `.vinil__aura`, com a cor da capa.
+   *
+   * Fica acima da aura no eixo Z para a sombra escurecer a cor derramada, e não
+   * o contrário.
+   */
+  z-index: 1;
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.42),
+    0 3px 8px rgba(0, 0, 0, 0.3);
   animation: vinil-gira 12s linear infinite;
 }
 
@@ -2001,7 +2389,16 @@ body {
  */
 .vinil__reflexo {
   position: absolute;
-  inset: 0;
+  /* A pilha do palco, de baixo para cima: aura (0) · disco (1) · reflexo (2).
+     Sem este 2 o disco passaria por cima — irmão com `z-index` ganha de irmão
+     com `auto`, venha ele antes ou depois no DOM —, e o reflexo é justamente o
+     que denuncia a rotação. */
+  z-index: 2;
+  /* 74% como o disco, e centrado pelo `place-items` do palco (por isso `inset`
+     fica em `auto`): o reflexo tem de cobrir o disco EXATAMENTE, senão ele passa
+     da beirada e vira um risco solto no ar. */
+  width: 74%;
+  height: 74%;
   border-radius: 50%;
   pointer-events: none;
   background: linear-gradient(
@@ -2060,6 +2457,53 @@ body {
 
 .player__capa--vazia {
   background: linear-gradient(135deg, var(--tile-alto), var(--tile));
+}
+
+/*
+ * SEM CAPA, O QUADRO É PAINEL — e aí ele obedece ao tema.
+ *
+ * Todo o texto e todo o controle deste bloco nasceu branco, e com razão: eles
+ * pousam sobre a capa do álbum, que é uma foto de cor imprevisível, então ali o
+ * par certo é véu escuro + tinta branca, nos dois temas. Mas quando NÃO há capa,
+ * o miolo é o degradê de `--tile-alto`/`--tile` acima — superfície do painel. No
+ * tema claro isso deu branco sobre cinza claro: o nome da faixa sumiu.
+ *
+ * O gatilho é a ausência da capa, não o tema, porque é a ausência que muda a
+ * natureza do fundo. No escuro isto não altera nada visível (branco e `--text`
+ * são quase a mesma coisa lá), e é de propósito: uma regra, um motivo.
+ */
+.player--sem-capa .player__fade {
+  display: none;
+}
+
+.player--sem-capa .player__track {
+  color: var(--text);
+}
+
+.player--sem-capa .player__artist,
+.player--sem-capa .progresso__tempo {
+  color: var(--muted);
+}
+
+.player--sem-capa .progresso__trilho::before {
+  background: var(--line);
+}
+
+/* `:not(--principal)`, e não `.controles__botao` seco: dois nomes de classe
+   ganham de um, e sem isto o play perdia o acento e virava mais um botão cinza —
+   justamente o único deste bloco que se procura sem olhar. */
+.player--sem-capa .controles__botao:not(.controles__botao--principal) {
+  background: rgb(var(--realce) / 0.08);
+  color: var(--text);
+}
+
+.player--sem-capa .controles__botao:not(.controles__botao--principal):hover,
+.player--sem-capa .controles__botao:not(.controles__botao--principal):focus-visible {
+  background: rgb(var(--realce) / 0.16);
+}
+
+.player--sem-capa .progresso__knob {
+  background: var(--text);
 }
 
 /* Esconde a base da capa e dá contraste ao texto sobreposto. */
@@ -2207,7 +2651,11 @@ body {
   min-width: 3.6rem;
   min-height: 3.6rem;
   background: var(--accent);
-  color: var(--tinta);
+  /* `--sobre-acento`, e não `--tinta`: enquanto o acento era sempre um verde
+     vivo, tinta escura em cima dele era a leitura certa em qualquer tema. Agora
+     o acento escurece no claro, e tinta escura sobre verde escuro é o play
+     ilegível — o único botão deste bloco que se aperta sem olhar. */
+  color: var(--sobre-acento);
   font-size: 1.45rem;
 }
 
@@ -2279,7 +2727,7 @@ body {
 
 .sp-tocar-tudo {
   background: var(--accent);
-  color: #07090d;
+  color: var(--sobre-acento);
   font-weight: 600;
 }
 
@@ -2355,7 +2803,7 @@ body {
 
 .sp-linha:hover,
 .sp-linha:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 
@@ -2449,9 +2897,9 @@ body {
     repeating-linear-gradient(
       45deg,
       transparent 0 12px,
-      rgba(255, 255, 255, 0.018) 12px 24px
+      rgb(var(--realce) / 0.018) 12px 24px
     ),
-    #0d1117;
+    var(--mapa-vazio);
 }
 
 .mapa__marca {
@@ -2491,7 +2939,7 @@ body {
      "tocando agora", com os controles) ficava atrás da barra do Android. */
   padding: max(0.6rem, env(safe-area-inset-top)) max(0.6rem, env(safe-area-inset-right))
     max(0.6rem, env(safe-area-inset-bottom)) max(0.6rem, env(safe-area-inset-left));
-  background: rgba(4, 6, 9, 0.82);
+  background: rgb(var(--scrim) / calc(0.82 * var(--forca-scrim)));
   backdrop-filter: blur(6px);
 }
 
@@ -2551,7 +2999,7 @@ body {
 
 .overlay__fechar:hover,
 .overlay__fechar:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 
@@ -2587,7 +3035,7 @@ body {
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgba(4, 6, 9, 0.9);
+  background: rgb(var(--scrim) / calc(0.9 * var(--forca-scrim)));
   backdrop-filter: blur(8px);
 }
 
@@ -2700,7 +3148,7 @@ body {
   padding: 0 0.9rem;
   border: 1px solid var(--line);
   border-radius: 0.6rem;
-  background: var(--tinta);
+  background: var(--poco);
   color: var(--text);
   font-size: 1rem;
 }
@@ -2715,12 +3163,20 @@ body {
   gap: 0.35rem;
 }
 
+/* As amostras mostram a cor CRUA, e não a derivada: escolhendo uma cor, é a cor
+   que se precisa ver. Elas ganham um aro no claro porque três das seis (verde,
+   âmbar, branco) foram feitas para brilhar sobre quase-preto e encostam no fundo
+   claro sem uma borda que diga onde cada uma acaba. */
 .novo__cor {
   width: 2.1rem;
   height: 2.1rem;
   border: 2px solid transparent;
   border-radius: 50%;
   cursor: pointer;
+}
+
+[data-tema="claro"] .novo__cor {
+  box-shadow: inset 0 0 0 1px rgb(var(--realce) / 0.18);
 }
 
 .novo__cor--ativa {
@@ -2794,7 +3250,7 @@ body {
   background: var(--tile-alto);
   color: var(--text);
   font-size: 1.05rem;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 30px rgb(var(--sombra) / calc(0.45 * var(--forca-sombra)));
   pointer-events: none;
   transform: translateX(-50%);
   animation: bemvindo-entra 260ms ease-out;
@@ -2859,7 +3315,7 @@ body {
 .mapa--vivo {
   padding: 0;
   overflow: hidden;
-  background: #0d1117;
+  background: var(--mapa-vazio);
 }
 
 /* Só a tela do mapa se estica. Mirar em `> div` pegava também o velocímetro e
@@ -2906,7 +3362,7 @@ body {
      desfocar, e por isso é a que mais ganha com ele. */
   background: color-mix(in srgb, var(--tile-alto) 82%, transparent);
   backdrop-filter: blur(var(--desfoque));
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 30px rgb(var(--sombra) / calc(0.45 * var(--forca-sombra)));
   animation: notif-entra 260ms ease-out;
 }
 
@@ -3000,7 +3456,7 @@ body {
   bottom: 0.7rem;
   padding: 0.3rem 0.6rem;
   border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.78);
+  background: rgb(var(--veu) / 0.78);
   font-size: 0.68rem;
   color: var(--warn);
   backdrop-filter: blur(4px);
@@ -3031,7 +3487,7 @@ body {
   padding: 0 0.7rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.78);
+  background: rgb(var(--veu) / 0.78);
   color: var(--text);
   font-size: 0.82rem;
   cursor: pointer;
@@ -3065,17 +3521,17 @@ body {
      onde você está. Deixar o clique passar mantém o toque no mapa abrindo a
      tela cheia mesmo quando o dedo cai em cima do carro. */
   pointer-events: none;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  filter: drop-shadow(0 1px 3px rgb(var(--sombra) / calc(0.55 * var(--forca-sombra))));
 }
 
 /* Pino de posto/estacionamento. */
 .mapa__pino {
   width: 0.85rem;
   height: 0.85rem;
-  border: 2px solid #07090d;
+  border: 2px solid var(--mapa-vazio);
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 1px 3px rgb(var(--sombra) / calc(0.5 * var(--forca-sombra)));
 }
 
 /* A atribuição do OpenStreetMap é a licença dos dados, não enfeite: ela fica.
@@ -3085,7 +3541,7 @@ body {
 }
 
 .mapa .maplibregl-ctrl-attrib {
-  background: rgba(7, 9, 13, 0.6);
+  background: rgb(var(--veu) / 0.6);
   border-radius: 0.35rem 0 0 0;
 }
 
@@ -3132,7 +3588,7 @@ body {
   padding: 0 0.8rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.85);
+  background: rgb(var(--veu) / 0.85);
   color: var(--text);
   font-size: 0.85rem;
   backdrop-filter: blur(4px);
@@ -3149,7 +3605,7 @@ body {
   padding: 0 0.9rem;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.85);
+  background: rgb(var(--veu) / 0.85);
   color: var(--accent);
   font-size: 0.8rem;
   cursor: pointer;
@@ -3170,7 +3626,7 @@ body {
 .rota__destino {
   padding: 0.4rem 0.8rem;
   border-radius: 0.5rem;
-  background: rgba(7, 9, 13, 0.85);
+  background: rgb(var(--veu) / 0.85);
   font-size: 0.85rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3190,7 +3646,7 @@ body {
   gap: 0 0.9rem;
   padding: 0.7rem 1rem;
   border-radius: 0.7rem;
-  background: rgba(7, 9, 13, 0.9);
+  background: rgb(var(--veu) / 0.9);
   backdrop-filter: blur(6px);
 }
 
@@ -3273,7 +3729,7 @@ body {
   padding: 0.3rem;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
-  background: rgba(7, 9, 13, 0.94);
+  background: rgb(var(--veu) / 0.94);
   list-style: none;
   backdrop-filter: blur(8px);
   max-height: 15rem;
@@ -3298,7 +3754,7 @@ body {
 
 .sugestao:hover,
 .sugestao:focus-visible {
-  background: var(--tile-alto);
+  background: var(--toque);
   outline: none;
 }
 
@@ -3452,7 +3908,7 @@ button:disabled:active {
   background: linear-gradient(
     90deg,
     var(--tile-alto) 25%,
-    rgba(255, 255, 255, 0.06) 37%,
+    rgb(var(--realce) / 0.06) 37%,
     var(--tile-alto) 63%
   );
   background-size: 400% 100%;

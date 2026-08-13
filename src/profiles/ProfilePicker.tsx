@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type CSSProperties, type FormEvent } from "react";
 
 import type { Perfis } from "../core/useProfiles";
 import type { Profile } from "../core/types";
@@ -24,7 +24,7 @@ function CartaoPerfil({
       <button className="perfil__escolher" onClick={aoEscolher}>
         <span
           className="perfil__ponto"
-          style={{ background: profile.color }}
+          style={{ "--ponto": profile.color } as CSSProperties}
           aria-hidden
         />
         <span className="perfil__nome">{profile.name}</span>
