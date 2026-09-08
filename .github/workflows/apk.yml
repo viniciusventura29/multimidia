@@ -1,19 +1,43 @@
-# APK completo: noturno e sob demanda, NÃO por PR.
+# O APK que vai para o carro.
 #
-# São ~10-14 min de gradle mais o codegen de release (`codegen-units = 1`,
-# `lto = "thin"`), e não afirma quase nada que a checagem de código morto do job
-# `android` do ci.yml já não afirme em ~1 segundo. O que ele ADICIONA é que
-# gradle/AGP/proguard continuam funcionando — e isso quebra em bump de
-# dependência, não em PR comum. Noturno é a cadência certa disso.
+# ANTES ESTE WORKFLOW ERA SÓ UMA CHECAGEM, e o comentário que estava aqui
+# defendia cadência noturna com um argumento bom: são ~10-14 min de gradle mais
+# o codegen de release, e isso não afirma quase nada que o job `android` do
+# `ci.yml` já não afirme em ~1 segundo. O que ele ADICIONA é que gradle/AGP/
+# proguard continuam funcionando — e isso quebra em bump de dependência, não em
+# PR comum.
 #
-# O artefato serve ao ritual da última milha: instalar no emulador
-# `eclipse_head_unit` (1024x600) antes de gravar na head unit do carro.
+# O QUE MUDOU: o APK deixou de ser subproduto e passou a ser o único caminho de
+# atualização da head unit. Não há mais máquina de desenvolvimento com SDK do
+# Android para gerar APK na mão; o aparelho baixa de uma URL. Então o build
+# ganhou `push` em `main`: quando algo entra na main, o carro tem como receber.
+# A cadência noturna fica, porque continua pegando quebra de dependência.
+#
+# ONDE O CARRO BAIXA. Um release rolante de tag `apk`, com o arquivo sempre no
+# mesmo nome — uma URL só, para sempre, que dá para deixar de favorito no
+# navegador da head unit:
+#
+#   https://github.com/viniciusventura29/multimidia/releases/download/apk/eclipse-os.apk
+#
+# Artefato de Actions NÃO serve para isso: exige login no GitHub e vem em .zip,
+# que o Android não instala. Asset de release em repositório público é download
+# direto.
+#
+# SEM O SECRET DA CHAVE nada aqui falha: o build roda, avisa, sai sem assinatura
+# e não publica. É o comportamento antigo, preservado de propósito para que este
+# workflow continue sendo a checagem que ele era mesmo antes de a chave existir.
 name: apk
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
+
+# Para criar e atualizar o release. O resto continua só de leitura.
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -39,11 +63,129 @@ jobs:
         with:
           key: apk
       - run: npm ci
+
+      # ------------------------------------------------------------------
+      # A chave.
+      #
+      # Quatro secrets, e o `keystore.properties` que o gradle procura (ver
+      # `gen/android/app/build.gradle.kts`) escrito aqui, em tempo de build. A
+      # keystore em si viaja em base64 porque secret do GitHub é texto.
+      #
+      # Não falha sem os secrets: só avisa e marca `assinado=nao`, e daí para
+      # baixo os passos de publicar se desligam sozinhos.
+      # ------------------------------------------------------------------
+      - name: a chave de assinatura, se houver
+        id: chave
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "assinado=nao" >> "$GITHUB_OUTPUT"
+            echo "::warning title=sem chave::ANDROID_KEYSTORE_BASE64 não está \
+          configurado. O APK vai sair SEM assinatura — o Android não instala \
+          APK sem assinatura, e nada será publicado no release."
+            exit 0
+          fi
+          for nome in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!nome}" ]; then
+              echo "::error title=chave incompleta::ANDROID_KEYSTORE_BASE64 \
+          existe mas ANDROID_$nome não. Configure os quatro secrets."
+              exit 1
+            fi
+          done
+
+          cd src-tauri/gen/android/app
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > eclipse.keystore
+          # `storeFile` é relativo a este diretório, que é o do projeto gradle.
+          {
+            echo "storeFile=eclipse.keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > keystore.properties
+          echo "assinado=sim" >> "$GITHUB_OUTPUT"
+
       # `src-tauri/gen/android` é versionado (40 arquivos), então não há
       # `tauri android init` a fazer aqui.
-      - run: npm run tauri -- android build --apk --target aarch64
+      #
+      # `ECLIPSE_VERSION_CODE` é o número do run: o Android recusa instalar por
+      # cima de um APK de `versionCode` igual ou maior, e o `tauri.properties`
+      # devolve sempre 1. Ver o comentário no `build.gradle.kts`.
+      - name: compilar
+        env:
+          ECLIPSE_VERSION_CODE: ${{ github.run_number }}
+        run: npm run tauri -- android build --apk --target aarch64
+
+      - name: achar o APK
+        id: apk
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)
+          test -n "$APK" || { echo "::error::nenhum APK foi gerado"; exit 1; }
+          echo "caminho=$APK" >> "$GITHUB_OUTPUT"
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          # Guarda-corpo: se a chave estava configurada mas o arquivo saiu
+          # `-unsigned`, alguma coisa no signingConfig não pegou. Falhar aqui é
+          # muito melhor que publicar um APK que não instala.
+          case "$APK" in
+            *unsigned*)
+              if [ "${{ steps.chave.outputs.assinado }}" = "sim" ]; then
+                echo "::error title=assinatura não pegou::a chave estava \
+          configurada, mas o APK saiu como '$APK'. Confira o signingConfig."
+                exit 1
+              fi
+              ;;
+          esac
+
       - uses: actions/upload-artifact@v4
         with:
           name: eclipse-os-arm64-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: ${{ steps.apk.outputs.caminho }}
           if-no-files-found: error
+
+      # ------------------------------------------------------------------
+      # O release rolante — só da `main`.
+      #
+      # Um branch qualquer não publica: o carro recebe o que entrou na main, não
+      # o que alguém está experimentando. Por isso o `github.ref`.
+      # ------------------------------------------------------------------
+      - name: publicar no release do carro
+        if: steps.chave.outputs.assinado == 'sim' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "${{ steps.apk.outputs.caminho }}" eclipse-os.apk
+
+          NOTAS="APK assinado, arm64, direto da \`main\`.
+
+          **Instalar na head unit:** abra esta página no navegador do aparelho e
+          baixe o \`eclipse-os.apk\`. A URL não muda nunca:
+
+          \`\`\`
+          https://github.com/${{ github.repository }}/releases/download/apk/eclipse-os.apk
+          \`\`\`
+
+          | | |
+          |---|---|
+          | commit | \`${{ github.sha }}\` |
+          | versionCode | ${{ github.run_number }} |
+          | build | [run ${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+
+          O \`versionCode\` cresce a cada build, então este instala por cima do
+          anterior sem desinstalar — e sem perder perfis, tanque nem a sessão do
+          Spotify."
+
+          if ! gh release view apk >/dev/null 2>&1; then
+            gh release create apk \
+              --target main \
+              --title "O APK do carro (mais recente)" \
+              --notes "$NOTAS"
+          else
+            gh release edit apk --notes "$NOTAS"
+          fi
+          gh release upload apk eclipse-os.apk --clobber
+
+          echo "::notice title=APK publicado::https://github.com/${{ github.repository }}/releases/download/apk/eclipse-os.apk"
