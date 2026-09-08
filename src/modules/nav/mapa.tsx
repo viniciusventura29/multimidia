@@ -53,6 +53,16 @@ const RASTRO_MAXIMO = 120;
 /** De quanto em quanto tempo chega uma posição nova. */
 const INTERVALO_GPS_MS = 1000;
 
+/**
+ * O passo do laço que interpola a câmera: ~30 fps, não os 60 do monitor.
+ *
+ * Cada passo é um `map.jumpTo`, e cada `jumpTo` é uma pintura do mapa inteiro.
+ * A 60 fps isso é a maior conta contínua da GPU da head unit — e o que ela
+ * compra é invisível: a 60 km/h no zoom de rua o carro anda meio pixel por
+ * quadro. É a mesma trava, e pelo mesmo motivo, do laço do carro 3D.
+ */
+const PERIODO_MS = 1000 / 30;
+
 /** O nível de zoom de quem está dirigindo. */
 const ZOOM_DE_RUA = 17;
 
@@ -107,22 +117,38 @@ function SeguirCarro({
   // tela: com o seguimento solto (dedo arrastando), ele fica parado na
   // geografia enquanto o mapa desliza por baixo — mexer a tela não pode
   // mexer o carro.
-  const carro = useRef<Marker | null>(null);
+  // O marcador E o mapa em que ele já está anexado. O par, e não só o
+  // marcador, porque `mostrarCarro` precisa saber se ainda falta anexar — ver
+  // lá embaixo por que anexar não pode acontecer todo quadro.
+  const carro = useRef<{ marcador: Marker; mapa: MapaGL } | null>(null);
   const pontos = useRef<[number, number][]>([]);
   // O quadro agendado, ou 0 = loop dormindo. O loop só roda enquanto há trecho
   // a percorrer: com o carro parado não chega trecho novo (zona morta) e o rAF
-  // se auto-encerra — numa head unit, 60 movimentos de câmera por segundo à toa
-  // é o maior gasto contínuo de CPU do painel.
+  // se auto-encerra — numa head unit, trinta movimentos de câmera por segundo
+  // à toa é o maior gasto contínuo de CPU do painel.
   const quadro = useRef(0);
+  // Quando o último passo saiu. Zero enquanto o laço dorme, e é isso que faz o
+  // primeiro passo depois de acordar desenhar na hora, sem esperar o período.
+  const ultimoPasso = useRef(0);
   const navegandoRef = useRef(navegando);
   const seguindoRef = useRef(seguindo);
 
-  const desenhar = () => {
+  const desenhar = (agora: number) => {
     const atual = trecho.current;
     if (!map || !atual) {
       quadro.current = 0;
+      ultimoPasso.current = 0;
       return;
     }
+
+    // Quadro cedo demais: reagenda sem tocar no mapa. Sair daqui sem reagendar
+    // deixaria o laço morto no meio do trecho, e o carro paralisado até a
+    // próxima leitura do GPS.
+    if (agora - ultimoPasso.current < PERIODO_MS) {
+      quadro.current = requestAnimationFrame(desenhar);
+      return;
+    }
+    ultimoPasso.current = agora;
 
     // Trava em 1 quando a próxima leitura atrasa. Deixar passar continuaria
     // extrapolando o carro para longe do que se sabe; parar e esperar é
@@ -150,6 +176,7 @@ function SeguirCarro({
     if (t >= 1) {
       // Chegou onde o aparelho conhece: dorme até o próximo fix acordar.
       quadro.current = 0;
+      ultimoPasso.current = 0;
       return;
     }
     quadro.current = requestAnimationFrame(desenhar);
@@ -218,7 +245,8 @@ function SeguirCarro({
 
   useEffect(
     () => () => {
-      carro.current?.remove();
+      carro.current?.marcador.remove();
+      carro.current = null;
     },
     [],
   );
@@ -235,21 +263,43 @@ function SeguirCarro({
  * passava — o marcador nascia sem lugar nenhum e ficava invisível. Aqui não
  * passa, e o resultado prático é melhor: sem posição, sem seta. Um carro
  * desenhado num centro padrão seria uma mentira do tamanho de uma cidade.
+ *
+ * ## E `addTo` acontece UMA vez, não a cada quadro
+ *
+ * `Marker.addTo` não é idempotente, e o nome engana: ele começa chamando o
+ * próprio `remove()`. Cada chamada desanexa o elemento do container do canvas
+ * e o reanexa, desassina e reassina seis eventos do mapa (`move`, `moveend`,
+ * `terrain`, `projectiontransition`, `click`) e refaz o `setDraggable`.
+ *
+ * Esta função é chamada de dentro do laço de interpolação, ou seja, enquanto o
+ * carro anda. Chamar `addTo` ali era pagar tudo isso trinta vezes por segundo
+ * para mover uma seta — trabalho de DOM e de lista de ouvintes que não aparece
+ * em perfil de GPU e é caro justamente na CPU fraca da head unit.
  */
 function mostrarCarro(
   map: MapaGL | null,
-  carro: { current: Marker | null },
+  carro: { current: { marcador: Marker; mapa: MapaGL } | null },
   onde: [number, number],
   rumo: number,
 ) {
   if (!map) return;
 
-  carro.current ??= new Marker({
+  const atual = carro.current;
+  if (atual && atual.mapa === map) {
+    // O caminho de TODO quadro. Mover o marcador é só isto.
+    atual.marcador.setLngLat(onde).setRotation(rumo);
+    return;
+  }
+
+  // Daqui para baixo só se chega duas vezes na vida do painel: no primeiro fix
+  // e quando o mapa é recriado (sair da tela cheia troca a instância).
+  atual?.marcador.remove();
+  const marcador = new Marker({
     element: setaDoCarro(),
     rotationAlignment: "map",
   });
-  carro.current.setLngLat(onde).setRotation(rumo);
-  carro.current.addTo(map);
+  marcador.setLngLat(onde).setRotation(rumo).addTo(map);
+  carro.current = { marcador, mapa: map };
 }
 
 /** Redesenha o caminho já andado. */

@@ -1847,6 +1847,27 @@ body {
      sangria passa por cima do nome do motorista e da beirada do mapa, e sem
      isto ela roubaria o toque dos dois. */
   pointer-events: none;
+
+  /*
+   * O ACENTO, RESOLVIDO — para o WebGL poder ler.
+   *
+   * `color` não pinta nada aqui (é uma tela de WebGL, e ela é surda ao dedo e
+   * muda ao texto): esta linha existe para o `lerAcento` do `carro3d` ter de
+   * onde tirar a cor do perfil já resolvida em cor.
+   *
+   * Por que não ler `--accent` direto: `getComputedStyle` devolve custom
+   * property como TOKEN CRU, não como cor. No tema escuro o token é um hex e
+   * passava; no claro (`:root[data-tema="claro"]`) ele é
+   * `color-mix(in srgb, var(--accent-perfil) 42%, #000)`, e o three.js não sabe
+   * ler color-mix — reclamava "THREE.Color: Unknown color color-mix(...)" e
+   * ficava com a cor default, BRANCA. De dia a luz de contorno do carro perdia
+   * a cor do perfil e virava um brilho branco.
+   *
+   * `color` é propriedade de verdade: o navegador resolve o color-mix antes de
+   * devolver, e volta um `rgb(...)` que o three.js entende. A conta de escurecer
+   * continua morando só no CSS, que é onde ela foi decidida.
+   */
+  color: var(--accent);
 }
 
 .carrinho__horizonte {
@@ -3449,6 +3470,26 @@ body {
 
 
 
+/*
+ * ------------------------------------------------------------------
+ * A tralha que flutua SOBRE o mapa
+ * ------------------------------------------------------------------
+ *
+ * Tudo daqui para baixo mora dentro de `.mapa`, por cima do canvas do MapLibre
+ * — e é por isso que nada aqui usa `backdrop-filter`.
+ *
+ * A regra do vidro do painel (ver `.tile`) é "nunca em algo que se mexa quadro
+ * a quadro", e ela vale pelo FUNDO, não pelo elemento: um botão parado sobre um
+ * mapa que anda tem fundo novo a cada quadro, e o desfoque é recalculado em
+ * todos eles. Dirigindo em tela cheia são onze superfícies dessas ao mesmo
+ * tempo (a manobra, o campo de busca, e a coluna de botões de POI, zoom, rota,
+ * recentrar e modo) — onze desfoques por quadro do mapa, na GPU de uma head
+ * unit, para amaciar a quina de um botão.
+ *
+ * O que paga a conta é o véu ficar um pouco mais fechado. Atrás de 90% de
+ * opacidade o desfoque de 4px já não tinha o que mostrar, e sobre mapa — que é
+ * desenho miúdo e de alto contraste — véu mais fechado se lê MELHOR, não pior.
+ */
 
 .mapa__aviso {
   position: absolute;
@@ -3456,10 +3497,9 @@ body {
   bottom: 0.7rem;
   padding: 0.3rem 0.6rem;
   border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.78);
+  background: rgb(var(--veu) / 0.9);
   font-size: 0.68rem;
   color: var(--warn);
-  backdrop-filter: blur(4px);
 }
 
 /* Uma coluna só para os botões do mapa (POIs, zoom, rota, recentrar), acima
@@ -3487,11 +3527,10 @@ body {
   padding: 0 0.7rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.78);
+  background: rgb(var(--veu) / 0.9);
   color: var(--text);
   font-size: 0.82rem;
   cursor: pointer;
-  backdrop-filter: blur(4px);
 }
 
 .mapa__botao:disabled {
@@ -3588,10 +3627,9 @@ body {
   padding: 0 0.8rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.85);
+  background: rgb(var(--veu) / 0.94);
   color: var(--text);
   font-size: 0.85rem;
-  backdrop-filter: blur(4px);
 }
 
 .rota__campo:focus {
@@ -3605,11 +3643,10 @@ body {
   padding: 0 0.9rem;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.85);
+  background: rgb(var(--veu) / 0.94);
   color: var(--accent);
   font-size: 0.8rem;
   cursor: pointer;
-  backdrop-filter: blur(4px);
 }
 
 .rota__ir:disabled {
@@ -3626,12 +3663,11 @@ body {
 .rota__destino {
   padding: 0.4rem 0.8rem;
   border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.85);
+  background: rgb(var(--veu) / 0.94);
   font-size: 0.85rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  backdrop-filter: blur(4px);
 }
 
 /* A manobra fica no topo, onde o olho do motorista já está indo. */
@@ -3646,8 +3682,7 @@ body {
   gap: 0 0.9rem;
   padding: 0.7rem 1rem;
   border-radius: 0.7rem;
-  background: rgb(var(--veu) / 0.9);
-  backdrop-filter: blur(6px);
+  background: rgb(var(--veu) / 0.96);
 }
 
 .manobra__seta {
@@ -3729,9 +3764,8 @@ body {
   padding: 0.3rem;
   border: 1px solid var(--line);
   border-radius: 0.7rem;
-  background: rgb(var(--veu) / 0.94);
+  background: rgb(var(--veu) / 0.98);
   list-style: none;
-  backdrop-filter: blur(8px);
   max-height: 15rem;
   overflow-y: auto;
 }
