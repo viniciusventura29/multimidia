@@ -1847,6 +1847,27 @@ body {
      sangria passa por cima do nome do motorista e da beirada do mapa, e sem
      isto ela roubaria o toque dos dois. */
   pointer-events: none;
+
+  /*
+   * O ACENTO, RESOLVIDO — para o WebGL poder ler.
+   *
+   * `color` não pinta nada aqui (é uma tela de WebGL, e ela é surda ao dedo e
+   * muda ao texto): esta linha existe para o `lerAcento` do `carro3d` ter de
+   * onde tirar a cor do perfil já resolvida em cor.
+   *
+   * Por que não ler `--accent` direto: `getComputedStyle` devolve custom
+   * property como TOKEN CRU, não como cor. No tema escuro o token é um hex e
+   * passava; no claro (`:root[data-tema="claro"]`) ele é
+   * `color-mix(in srgb, var(--accent-perfil) 42%, #000)`, e o three.js não sabe
+   * ler color-mix — reclamava "THREE.Color: Unknown color color-mix(...)" e
+   * ficava com a cor default, BRANCA. De dia a luz de contorno do carro perdia
+   * a cor do perfil e virava um brilho branco.
+   *
+   * `color` é propriedade de verdade: o navegador resolve o color-mix antes de
+   * devolver, e volta um `rgb(...)` que o three.js entende. A conta de escurecer
+   * continua morando só no CSS, que é onde ela foi decidida.
+   */
+  color: var(--accent);
 }
 
 .carrinho__horizonte {

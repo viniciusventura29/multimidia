@@ -432,7 +432,7 @@ function carimbarOEmblemaDaFrente(
   const mcv = document.createElement("canvas");
   mcv.width = w;
   mcv.height = h;
-  const mctx = mcv.getContext("2d")!;
+  const mctx = mcv.getContext("2d", { willReadFrequently: true })!;
   mctx.fillStyle = "#fff";
   mctx.fill(losangosDaMarca(cx - x0, cy - y0, raio, e.giro));
   const mascara = mctx.getImageData(0, 0, w, h).data;
@@ -518,7 +518,12 @@ function emblemaVermelho(mapa: Texture | null): Texture | null {
   const cv = document.createElement("canvas");
   cv.width = largura;
   cv.height = altura;
-  const ctx = cv.getContext("2d")!;
+  // `willReadFrequently` porque esta tela existe para ser LIDA: os dois
+  // emblemas fazem três `getImageData` nela. Sem a dica o Chromium a aloca na
+  // GPU e cada leitura vira um round-trip GPU→CPU do atlas inteiro — ele
+  // reclama disso no console, e numa head unit isso é tempo de boot. Com a
+  // dica a tela nasce na CPU, que é onde este trabalho todo acontece.
+  const ctx = cv.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
 
   pintarOEmblemaDeTras(ctx, largura, altura);

@@ -45,6 +45,56 @@ const PERIODO = 1000 / 30;
 const RELOGIO_DO_ACENTO = 1000;
 
 /**
+ * Qualquer cor que o CSS entenda, no `#rrggbb` que o three.js lê.
+ *
+ * O three.js aceita hex, `rgb()` e nome de cor — e mais nada. O CSS moderno
+ * devolve muito mais que isso: `color-mix(in srgb, ...)` **resolvido** pelo
+ * Chromium volta como `color(srgb 0.10 0.36 0.24)`, que o three.js recusa
+ * ("Unknown color model") ficando com a cor que já tinha.
+ *
+ * Escrever um parser de `color()` aqui seria assinar embaixo de um pedaço da
+ * especificação de cor do CSS. Em vez disso, quem converte é o navegador: pinta
+ * um pixel com a cor e lê o pixel de volta. Vale para toda sintaxe que o motor
+ * conheça, hoje e depois — e num WebView de head unit mais velho, que talvez
+ * ainda devolva `rgb()`, o caminho é o mesmo.
+ *
+ * Memorizado por texto de entrada: o acento é relido de segundo em segundo e
+ * muda quando alguém troca de perfil, ou seja, quase nunca.
+ */
+const emHex = (() => {
+  const cache = new Map<string, string>();
+  let ctx: CanvasRenderingContext2D | null | undefined;
+
+  return (cor: string): string => {
+    const pronto = cache.get(cor);
+    if (pronto) return pronto;
+
+    if (ctx === undefined) {
+      const cv = document.createElement("canvas");
+      cv.width = 1;
+      cv.height = 1;
+      // `willReadFrequently` porque o uso desta tela é justamente ler de volta:
+      // sem isto o Chromium a aloca na GPU e cada leitura vira um round-trip.
+      ctx = cv.getContext("2d", { willReadFrequently: true });
+    }
+    // Sem contexto 2D não há conversão possível; devolver a entrada deixa o
+    // three.js decidir (e avisar), que é melhor que inventar uma cor.
+    if (!ctx) return cor;
+
+    // O preto é a linha de base: `fillStyle` com valor inválido é IGNORADO em
+    // silêncio, e sem zerar antes a leitura devolveria a cor anterior.
+    ctx.fillStyle = "#000000";
+    ctx.fillStyle = cor;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+
+    const hex = `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+    cache.set(cor, hex);
+    return hex;
+  };
+})();
+
+/**
  * A cor do perfil ativo, lida do CSS.
  *
  * Vem de `getComputedStyle` e não de props porque quem manda nela é o `useTema`,
@@ -52,12 +102,17 @@ const RELOGIO_DO_ACENTO = 1000;
  * perguntar à fonte. Relida de segundo em segundo em vez de observada: trocar de
  * perfil é raro, um `getComputedStyle` por segundo não custa nada, e um
  * `MutationObserver` no `<html>` custaria mais em código do que em CPU.
+ *
+ * Lê o `color` DA TELA, e não o `--accent` da raiz. Custom property volta de
+ * `getComputedStyle` como token cru, e no tema claro esse token é um
+ * `color-mix(...)` que o three.js não sabe ler — a luz de contorno do carro
+ * ficava branca de dia. Ver o `color` do `.carro3d` no CSS, que é quem existe
+ * só para isto.
  */
-function lerAcento(): string {
-  const v = getComputedStyle(document.documentElement)
-    .getPropertyValue("--accent")
-    .trim();
-  return v || "#3ddc97";
+function lerAcento(canvas: HTMLCanvasElement | null): string {
+  if (!canvas) return "#3ddc97";
+  const resolvido = getComputedStyle(canvas).color.trim();
+  return resolvido ? emHex(resolvido) : "#3ddc97";
 }
 
 /**
@@ -111,7 +166,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
 
     let cena: Cena;
     try {
-      cena = montarCena(canvas, lerAcento(), undefined, aoFalhar);
+      cena = montarCena(canvas, lerAcento(canvas), undefined, aoFalhar);
     } catch (err) {
       // Sem WebGL, ou sem contexto sobrando. Não é erro de programa — é um
       // aparelho dizendo que não dá, e existe um plano B.
@@ -166,7 +221,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
     let quadro = 0;
     let anterior = performance.now();
     let ultimoDesenho = 0;
-    let acento = lerAcento();
+    let acento = lerAcento(canvas);
     let claro = lerClaro();
     let ultimaLeituraDoAcento = anterior;
 
@@ -183,7 +238,7 @@ export function Carro3D({ coberto = false, aoFalhar }: Props) {
       if (cobertoRef.current || document.hidden) return;
 
       if (agora - ultimaLeituraDoAcento > RELOGIO_DO_ACENTO) {
-        acento = lerAcento();
+        acento = lerAcento(canvas);
         claro = lerClaro();
         ultimaLeituraDoAcento = agora;
       }
