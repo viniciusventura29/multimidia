@@ -627,6 +627,45 @@ body {
   font-size: 1.15rem;
 }
 
+/*
+ * A versão nova.
+ *
+ * O único item desta faixa que se toca — e mesmo assim ele não desenha nada. A
+ * direção do painel é tirar superfície (a cápsula da barra saiu, o fundo dos
+ * chips saiu), e um botão de verdade aqui reintroduziria a placa que três PRs
+ * removeram. O que diz "isto se toca" é a cor de acento — a mesma que marca o
+ * resto do que é ação — e o verbo no lugar de um número.
+ *
+ * O ALVO, que é o que importa numa tela de carro. `align-self: stretch` tira
+ * este item do `align-items: center` da faixa e o faz ocupar a linha inteira do
+ * cabeçalho, a mesma altura do nome do motorista na coluna ao lado; o `padding`
+ * alarga. Os dois crescem a área do dedo sem acrescentar um pixel de desenho:
+ * padding invisível não é moldura.
+ *
+ * `font: inherit` zera o que o navegador põe em `<button>`, e o `font-size` vem
+ * depois porque `inherit` traria o tamanho do body, não o dos vizinhos.
+ */
+.barra__atualizar {
+  align-self: stretch;
+  padding: 0 0.7rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  /* Sem os 300 ms de espera do duplo-toque, e sem o flash cinza do WebView —
+     que seria justamente a placa que este chip não tem. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.barra__atualizar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Tile                                                                */
 /* ------------------------------------------------------------------ */
