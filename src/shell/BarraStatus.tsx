@@ -1,3 +1,4 @@
+import { ArrowDownToLine } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { shallowEqual, useModuleSelector } from "../core/moduleStore";
@@ -5,6 +6,7 @@ import { corBateria, corFuel, voltagemPct } from "../core/telemetria";
 import type { ObdReadings } from "../core/types";
 import type { Clima, MapaState } from "../modules/nav/tipos";
 import { ClimaIcon } from "./clima";
+import { useAtualizacao } from "./atualizacao";
 import { BateriaIcon, GasolinaIcon } from "./indicadores";
 
 /**
@@ -21,6 +23,10 @@ import { BateriaIcon, GasolinaIcon } from "./indicadores";
  *
  * A bateria e a gasolina vêm do mesmo módulo `obd` dos mostradores; quando o
  * adaptador cai, elas viram `--` junto, sem alarde.
+ *
+ * Desde o aviso de atualização, a faixa carrega uma coisa que se TOCA — a
+ * primeira. Ela continua não desenhando superfície nenhuma; ver
+ * `.barra__atualizar` no `App.css`.
  */
 export function BarraStatus() {
   // Fatia com igualdade: um tick de RPM não re-renderiza a barra — só quando
@@ -53,6 +59,7 @@ export function BarraStatus() {
   );
 
   const hora = useHora();
+  const { nova, baixar } = useAtualizacao();
 
   return (
     <div className="barra">
@@ -89,6 +96,28 @@ export function BarraStatus() {
           />
           {`${clima.tempC.toFixed(0)}°`}
         </span>
+      )}
+
+      {/* A única coisa desta faixa que se toca, e a única que não é leitura de
+          sensor. Fica por último de propósito: hora, bateria, gasolina e clima
+          são o que se olha de relance dirigindo; isto se resolve parado, e a
+          ponta da linha é o lugar de menos atenção.
+
+          Só existe quando há versão nova, como o clima — e some sozinho depois
+          de instalar, porque aí o `versionCode` local alcança o do release.
+          Não há botão de dispensar, e é decisão: um "×" seria superfície nova,
+          e quem dispensasse sem instalar nunca mais seria avisado. Ver
+          `shell/atualizacao.ts`. */}
+      {nova && (
+        <button
+          type="button"
+          className="barra__item barra__atualizar"
+          onClick={baixar}
+          aria-label={`versão ${nova.versionCode} disponível — tocar para baixar`}
+        >
+          <ArrowDownToLine className="barra__icone" aria-hidden />
+          atualizar
+        </button>
       )}
     </div>
   );

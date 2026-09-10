@@ -4,6 +4,7 @@
 //! na janela do Tauri. O Rust é dono do estado; a UI é uma projeção dele.
 
 mod assistente;
+mod atualizacao;
 mod modules;
 mod obd_bt;
 
@@ -618,6 +619,8 @@ pub fn run() {
             push_location,
             push_location_error,
             imagem_ia,
+            atualizacao::checar_atualizacao,
+            atualizacao::baixar_atualizacao,
         ])
         .setup(|app| {
             let dir = app
@@ -709,6 +712,9 @@ pub fn run() {
             app.manage(Localizacao(emissor_local));
             app.manage(Perfis(Mutex::new(store)));
             app.manage(Cofre(cofre));
+            // Nasce vazio: a primeira pergunta sai ~60 s depois do boot, quando
+            // o WebView chama `checar_atualizacao`. Ver `src/shell/atualizacao.ts`.
+            app.manage(atualizacao::UltimaVersao::default());
 
             // Login do Spotify no mobile: o `code` chega por deep link
             // (`eclipseos://callback?code=...`). O `connect_spotify` guardou o
