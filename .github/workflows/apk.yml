@@ -332,7 +332,15 @@ jobs:
         if: steps.chave.outputs.assinado == 'sim' && steps.credenciais.outputs.embutidas == 'sim' && github.ref == 'refs/heads/main' && github.event_name != 'schedule'
         run: |
           URL="https://github.com/${{ github.repository }}/releases/download/apk/versao.json?t=$(date +%s)"
-          ANTERIOR=$(curl -fsSL "$URL" 2>/dev/null | jq -r '.versionCode // 0' || echo 0)
+          ANTERIOR=$(curl -fsSL "$URL" 2>/dev/null | jq -r '.versionCode // 0' 2>/dev/null || true)
+          # No primeiro publish o release ainda não existe: o curl falha, o jq
+          # não recebe nada e sai 0 SEM imprimir — então o `|| echo 0` nunca
+          # dispara e `$ANTERIOR` fica vazio. Aí o `[ -le ]` abaixo reclama de
+          # "integer expression expected" no stderr, o `if` não é exempto do
+          # `set -e` mas devolve falso, e o guarda-corpo passa batido em
+          # silêncio. Guarda-corpo que se desliga sozinho quando a entrada é
+          # estranha é pior que não ter: a gente confia nele.
+          case "$ANTERIOR" in ''|*[!0-9]*) ANTERIOR=0 ;; esac
           NOVO=${{ github.run_number }}
           echo "publicado: $ANTERIOR → este: $NOVO"
           if [ "$NOVO" -le "$ANTERIOR" ]; then
