@@ -1,0 +1,15 @@
+{
+  "redirects": [
+    {
+      "source": "/apk",
+      "destination": "https://github.com/viniciusventura29/multimidia/releases/download/apk/eclipse-os.apk",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/versao.json",
+      "destination": "https://github.com/viniciusventura29/multimidia/releases/download/apk/versao.json"
+    }
+  ]
+}

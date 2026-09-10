@@ -26,3 +26,6 @@ dist-ssr
 # Rust — o workspace fica na raiz, então o target também
 /target
 
+
+# O que o `vercel link` cria (ver web/)
+.vercel
