@@ -16,5 +16,12 @@ local.properties
 key.properties
 keystore.properties
 
+# A KEYSTORE EM SI. Este repositório é público, e o `keystore.properties` acima
+# só esconde as senhas — o arquivo da chave escapava. Na CI ela é escrita em
+# `app/eclipse.keystore` a partir de um secret, e sem estas linhas um
+# `git add -A` ali dentro publicaria a chave de assinatura do app.
+*.keystore
+*.jks
+
 /.tauri
 /tauri.settings.gradle
