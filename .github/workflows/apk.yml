@@ -11,7 +11,12 @@
 # atualização da head unit. Não há mais máquina de desenvolvimento com SDK do
 # Android para gerar APK na mão; o aparelho baixa de uma URL. Então o build
 # ganhou `push` em `main`: quando algo entra na main, o carro tem como receber.
-# A cadência noturna fica, porque continua pegando quebra de dependência.
+#
+# A CADÊNCIA NOTURNA FICA, E DEIXOU DE PUBLICAR. Ela continua sendo o único
+# canário de quebra de gradle/AGP/proguard (e agora também de "as credenciais
+# ainda entram no binário"), mas um APK novo toda madrugada, com `versionCode`
+# novo e nada dentro mudado, faria o carro anunciar novidade todo dia por nada.
+# Publica quem faz merge na main; o cron só compila.
 #
 # ONDE O CARRO BAIXA. Um release rolante de tag `apk`, com o arquivo sempre no
 # mesmo nome — uma URL só, para sempre, que dá para deixar de favorito no
@@ -19,13 +24,28 @@
 #
 #   https://github.com/viniciusventura29/multimidia/releases/download/apk/eclipse-os.apk
 #
+# Ao lado dele vai um `versao.json`, que é o mesmo release lido por máquina: o
+# `versionCode` existia só dentro de uma tabela em markdown nas notas, legível
+# por gente e por mais ninguém, e o aviso de atualização dentro do app precisa
+# de um número.
+#
 # Artefato de Actions NÃO serve para isso: exige login no GitHub e vem em .zip,
 # que o Android não instala. Asset de release em repositório público é download
 # direto.
 #
+# O APK MUDO — a razão de metade dos passos abaixo. O `build.rs` lê as
+# credenciais de ARQUIVOS ao lado do `Cargo.toml` e as reemite para os
+# `option_env!` do `lib.rs`. Enquanto este workflow não escrevia esses
+# arquivos, o APK saía compilando, assinado, instalável — e mudo: sem busca nem
+# rota, sem Spotify, sem assistente. Nada ficava vermelho. Por isso agora a CI
+# escreve os arquivos E depois PROVA, com `strings` no `.so`, que eles
+# atravessaram até o binário.
+#
 # SEM O SECRET DA CHAVE nada aqui falha: o build roda, avisa, sai sem assinatura
-# e não publica. É o comportamento antigo, preservado de propósito para que este
-# workflow continue sendo a checagem que ele era mesmo antes de a chave existir.
+# e não publica. Mesma coisa sem nenhum secret de credencial. É o comportamento
+# antigo, preservado de propósito para que este workflow continue sendo a
+# checagem que ele era mesmo antes de as chaves existirem — e para que um fork
+# consiga compilar.
 name: apk
 
 on:
@@ -38,6 +58,12 @@ on:
 # Para criar e atualizar o release. O resto continua só de leitura.
 permissions:
   contents: write
+
+# Dois pushes seguidos na main disputariam o release rolante, e o que terminasse
+# por último venceria — sem garantia nenhuma de ser o mais novo.
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -108,6 +134,67 @@ jobs:
           } > keystore.properties
           echo "assinado=sim" >> "$GITHUB_OUTPUT"
 
+      # ------------------------------------------------------------------
+      # As credenciais que vão DENTRO do APK.
+      #
+      # O `build.rs` lê estes arquivos e os reemite como `cargo:rustc-env` para
+      # os `option_env!` do `lib.rs`. Sem eles o APK compila, instala, abre — e
+      # não faz nada. Esse era o buraco: a CI publicaria um app morto sem
+      # nenhum passo ficar vermelho.
+      #
+      # SIM, AS CHAVES FICAM NUM APK PÚBLICO, e é decisão consciente. Um `.apk`
+      # é um `.zip`: qualquer um baixa e tira a chave com `strings` sem nunca
+      # instalar nada. A defesa das que gastam dinheiro é o teto de gasto no
+      # console do provedor, não o segredo.
+      #
+      # OU OS TRÊS, OU NENHUM. Faltar UM é o caso perigoso — geraria um APK
+      # parcialmente mudo, que passa em tudo e mente sobre estar funcionando.
+      # Nenhum é o caso legítimo de quem clonou o repositório: avisa, e daí para
+      # baixo não publica.
+      # ------------------------------------------------------------------
+      - name: as credenciais que vão dentro do APK
+        id: credenciais
+        env:
+          MAPS_API_KEY: ${{ secrets.ECLIPSE_MAPS_API_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.ECLIPSE_SPOTIFY_CLIENT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ECLIPSE_ANTHROPIC_API_KEY }}
+        run: |
+          faltando=""
+          for nome in MAPS_API_KEY SPOTIFY_CLIENT_ID ANTHROPIC_API_KEY; do
+            [ -n "${!nome}" ] || faltando="$faltando ECLIPSE_$nome"
+          done
+
+          if [ "$faltando" = " ECLIPSE_MAPS_API_KEY ECLIPSE_SPOTIFY_CLIENT_ID ECLIPSE_ANTHROPIC_API_KEY" ]; then
+            echo "embutidas=nao" >> "$GITHUB_OUTPUT"
+            echo "::warning title=APK sem credenciais::nenhum secret de \
+          credencial configurado. O APK vai compilar mudo — sem navegação, sem \
+          Spotify e sem assistente — e nada será publicado no release."
+            exit 0
+          fi
+          if [ -n "$faltando" ]; then
+            echo "::error title=credenciais pela metade::falta:$faltando. Ou os \
+          três, ou nenhum: um APK com duas das três credenciais instala, abre, \
+          e mente sobre estar funcionando."
+            exit 1
+          fi
+
+          # `printf '%s'` e não `echo`: sem \n no fim. O `build.rs` faz trim de
+          # qualquer jeito, mas o guarda-corpo lá embaixo compara byte a byte e
+          # depende de saber exatamente o que está no arquivo.
+          printf '%s' "$MAPS_API_KEY"      > src-tauri/maps_api_key.txt
+          printf '%s' "$SPOTIFY_CLIENT_ID" > src-tauri/spotify_client_id.txt
+          printf '%s' "$ANTHROPIC_API_KEY" > src-tauri/anthropic_api_key.txt
+          echo "embutidas=sim" >> "$GITHUB_OUTPUT"
+          echo "três credenciais escritas em src-tauri/"
+
+      # O mesmo número por dois caminhos diferentes, e é de propósito: o gradle
+      # lê a env var (ver `versionCode` no build.gradle.kts), o rustc lê o
+      # arquivo (ver o comentário no build.rs, que explica por que o cache do
+      # cargo torna a env insegura do lado dele). Divergir é possível — e por
+      # isso existe o passo `o APK está assinado e com a versão certa`.
+      - name: o número desta versão
+        run: printf '%s' "${{ github.run_number }}" > src-tauri/versao.txt
+
       # `src-tauri/gen/android` é versionado (40 arquivos), então não há
       # `tauri android init` a fazer aqui.
       #
@@ -140,24 +227,158 @@ jobs:
               ;;
           esac
 
+      # Assinatura e versionCode afirmados PELO APK, e não pela nossa intenção.
+      #
+      # É este passo que fecha a divergência possível entre a env var (que o
+      # gradle leu) e o `versao.txt` (que o rustc leu): se o número no manifesto
+      # não for o do run, uma das duas pontas não pegou. A impressão digital do
+      # certificado vai para as notas, porque é o dado que diz se uma
+      # atualização vai exigir desinstalar.
+      - name: o APK está assinado e com a versão certa
+        id: manifesto
+        env:
+          APK: ${{ steps.apk.outputs.caminho }}
+          ESPERADO: ${{ github.run_number }}
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          test -x "$BT/aapt2" || { echo "::error::sem aapt2 em $BT"; exit 1; }
+
+          BADGING=$("$BT/aapt2" dump badging "$APK" | head -1)
+          echo "$BADGING"
+          VC=$(printf '%s' "$BADGING" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p")
+          if [ "$VC" != "$ESPERADO" ]; then
+            echo "::error title=versionCode errado::o manifesto diz '$VC' e o \
+          run é $ESPERADO. O ECLIPSE_VERSION_CODE não chegou ao gradle."
+            exit 1
+          fi
+
+          if [ "${{ steps.chave.outputs.assinado }}" = "sim" ]; then
+            "$BT/apksigner" verify --print-certs "$APK" | tee /tmp/certs.txt
+            SHA=$(sed -n 's/.*SHA-256 digest: *//p' /tmp/certs.txt | head -1)
+            echo "impressao=$SHA" >> "$GITHUB_OUTPUT"
+            echo "::notice title=assinatura::SHA-256 $SHA"
+          fi
+
+      # ------------------------------------------------------------------
+      # AS CREDENCIAIS ENTRARAM MESMO NO BINÁRIO?
+      #
+      # O passo lá em cima escreveu os arquivos; isto afirma que eles
+      # atravessaram o build.rs, o rustc e o empacotamento do gradle e chegaram
+      # ao `.so`. Sem esta afirmação, qualquer refator do build.rs ou qualquer
+      # cache do cargo restaurado torto publicaria um APK mudo, verdinho e
+      # assinado — e isso só apareceria no carro.
+      #
+      # O R8 (`isMinifyEnabled = true`) não ameaça isto: ele opera sobre DEX e
+      # não sabe ler ELF. O que toca o `.so` em release é strip de símbolo (do
+      # AGP e do `strip = "symbols"` do nosso profile), e strip apaga `.symtab`,
+      # não `.rodata`. Literal de string sobrevive.
+      #
+      # ⚠️ `$(cat chave.txt)` dá FALSO NEGATIVO: o `\n` final entra no padrão e
+      # o grep nunca acha. Daí o `tr -d '\n\r'`. E `grep -qF -e` porque chave
+      # tem hífen e outros caracteres que o grep leria como regex ou como opção.
+      #
+      # ⚠️ NUNCA ponha `set -x` aqui. Este log é público. O GitHub mascara valor
+      # de secret, mas isso é segunda camada: não ecoe o valor, ponto.
+      #
+      # ⚠️ `maps_map_id` NÃO entra na lista, e dá zero de propósito: nenhum
+      # `option_env!` o lê desde que o mapa saiu do Google Maps JS para o
+      # MapLibre. Incluí-lo faria este passo falhar para sempre por um motivo
+      # que está certo.
+      # ------------------------------------------------------------------
+      - name: as credenciais entraram mesmo no binário
+        if: steps.credenciais.outputs.embutidas == 'sim'
+        env:
+          APK: ${{ steps.apk.outputs.caminho }}
+        run: |
+          command -v unzip   >/dev/null || { echo "::error::sem unzip";              exit 1; }
+          command -v strings >/dev/null || { echo "::error::sem strings (binutils)"; exit 1; }
+
+          TMP=$(mktemp -d)
+          unzip -q -o "$APK" 'lib/arm64-v8a/*' -d "$TMP"
+          SO="$TMP/lib/arm64-v8a/libeclipse_os_lib.so"
+          test -f "$SO" || { echo "::error::$SO não está no APK"; exit 1; }
+          strings -a "$SO" > "$TMP/textos"
+
+          falhou=0
+          for arquivo in maps_api_key spotify_client_id anthropic_api_key; do
+            valor=$(tr -d '\n\r' < "src-tauri/$arquivo.txt")
+            if grep -qF -e "$valor" "$TMP/textos"; then
+              echo "  $arquivo: entrou"
+            else
+              echo "::error title=APK mudo::'$arquivo' NÃO está no \
+          libeclipse_os_lib.so. O APK compila, instala e abre sem nada: o \
+          option_env! correspondente virou None. Olhe o src-tauri/build.rs e o \
+          cache do cargo antes de publicar isto no carro."
+              falhou=1
+            fi
+          done
+          exit $falhou
+
       - uses: actions/upload-artifact@v4
         with:
           name: eclipse-os-arm64-apk
           path: ${{ steps.apk.outputs.caminho }}
           if-no-files-found: error
 
-      # ------------------------------------------------------------------
-      # O release rolante — só da `main`.
+      # O `github.run_number` só cresce — desde que o arquivo do workflow não
+      # seja RENOMEADO, porque renomear zera o contador. Se isso acontecer, o
+      # Android recusa toda atualização futura ("versão mais velha") e o único
+      # conserto no carro é desinstalar, perdendo perfis, tanque e a sessão do
+      # Spotify. Falhar aqui é incomparavelmente mais barato.
       #
-      # Um branch qualquer não publica: o carro recebe o que entrou na main, não
-      # o que alguém está experimentando. Por isso o `github.ref`.
+      # O `?t=` é cache-busting: asset de release passa por CDN e o nome do
+      # arquivo nunca muda, que é justamente o que dá a URL eterna.
+      - name: esta versão é mais nova que a publicada
+        if: steps.chave.outputs.assinado == 'sim' && steps.credenciais.outputs.embutidas == 'sim' && github.ref == 'refs/heads/main' && github.event_name != 'schedule'
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/apk/versao.json?t=$(date +%s)"
+          ANTERIOR=$(curl -fsSL "$URL" 2>/dev/null | jq -r '.versionCode // 0' || echo 0)
+          NOVO=${{ github.run_number }}
+          echo "publicado: $ANTERIOR → este: $NOVO"
+          if [ "$NOVO" -le "$ANTERIOR" ]; then
+            echo "::error title=versão regrediu::o release já tem versionCode \
+          $ANTERIOR e este build é $NOVO. O Android recusaria a atualização. \
+          O apk.yml foi renomeado (isso zera o run_number)?"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------
+      # O release rolante — só da `main`, e só de merge.
+      #
+      # Quatro condições, cada uma com dono:
+      #   assinado    — sem chave o Android não instala.
+      #   embutidas   — sem credencial o app instala e não faz nada, o que é tão
+      #                 inútil quanto não instalar. Mesmo portão.
+      #   ref == main — o carro recebe o que entrou na main, não o que alguém
+      #                 está experimentando.
+      #   != schedule — o cron é canário, não canal de entrega.
+      #
+      # Efeito colateral desejado: `workflow_dispatch` num branch compila e roda
+      # todos os guarda-corpos SEM publicar. É o ensaio geral antes do merge.
       # ------------------------------------------------------------------
       - name: publicar no release do carro
-        if: steps.chave.outputs.assinado == 'sim' && github.ref == 'refs/heads/main'
+        if: steps.chave.outputs.assinado == 'sim' && steps.credenciais.outputs.embutidas == 'sim' && github.ref == 'refs/heads/main' && github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp "${{ steps.apk.outputs.caminho }}" eclipse-os.apk
+
+          # O segundo asset: o release lido por máquina. O versionCode existia
+          # só dentro de uma tabela em markdown nas notas — legível por gente e
+          # por mais ninguém — e o aviso de atualização dentro do app precisa de
+          # um número, não de uma tabela.
+          jq -n \
+            --argjson versionCode ${{ github.run_number }} \
+            --arg versionName "$(jq -r .version src-tauri/tauri.conf.json)" \
+            --arg commit "${{ github.sha }}" \
+            --arg data "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg url "https://github.com/${{ github.repository }}/releases/download/apk/eclipse-os.apk" \
+            --arg notas "https://github.com/${{ github.repository }}/releases/tag/apk" \
+            --arg assinatura "${{ steps.manifesto.outputs.impressao }}" \
+            '{versionCode: $versionCode, versionName: $versionName,
+              commit: $commit, data: $data, url: $url, notas: $notas,
+              assinatura: $assinatura}' > versao.json
+          cat versao.json
 
           NOTAS="APK assinado, arm64, direto da \`main\`.
 
@@ -168,15 +389,21 @@ jobs:
           https://github.com/${{ github.repository }}/releases/download/apk/eclipse-os.apk
           \`\`\`
 
+          Na primeira vez o Android pede para permitir \"instalar apps
+          desconhecidos\" para o navegador. É uma vez só, por aparelho.
+
           | | |
           |---|---|
           | commit | \`${{ github.sha }}\` |
           | versionCode | ${{ github.run_number }} |
+          | assinatura | \`${{ steps.manifesto.outputs.impressao }}\` |
+          | manifesto | [versao.json](https://github.com/${{ github.repository }}/releases/download/apk/versao.json) |
           | build | [run ${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
 
           O \`versionCode\` cresce a cada build, então este instala por cima do
           anterior sem desinstalar — e sem perder perfis, tanque nem a sessão do
-          Spotify."
+          Spotify. Isso só vale enquanto a **assinatura** for a mesma: se a
+          impressão digital acima mudar, o Android vai exigir desinstalar."
 
           if ! gh release view apk >/dev/null 2>&1; then
             gh release create apk \
@@ -186,6 +413,13 @@ jobs:
           else
             gh release edit apk --notes "$NOTAS"
           fi
+
+          # ORDEM IMPORTA. O APK primeiro: entre um upload e outro o release
+          # fica alguns segundos inconsistente, e a inconsistência tolerável é
+          # "APK novo, manifesto velho" — o carro só não vê a atualização por um
+          # minuto. A inversa manda o carro baixar o binário anterior achando
+          # que é o novo.
           gh release upload apk eclipse-os.apk --clobber
+          gh release upload apk versao.json --clobber
 
           echo "::notice title=APK publicado::https://github.com/${{ github.repository }}/releases/download/apk/eclipse-os.apk"
