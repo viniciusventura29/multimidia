@@ -14,6 +14,66 @@ npm run tauri dev
 Sem nenhuma credencial configurada o painel abre normalmente: navegação e Spotify
 aparecem degradados dizendo o que falta, e o resto funciona.
 
+## Instalar no carro
+
+Um endereço só, para sempre. Digite no navegador da head unit:
+
+```
+eclipsegt.vercel.app
+```
+
+Ele leva ao `eclipse-os.apk` mais recente. Na primeira vez o Android pede para
+permitir "instalar apps desconhecidos" para o navegador — é uma vez só, por
+aparelho. Cada merge na `main` republica no mesmo endereço com um `versionCode`
+maior, então dali em diante é instalar por cima.
+
+A URL longa, para quem quiser o link direto ou não quiser depender da página:
+
+```
+https://github.com/viniciusventura29/multimidia/releases/download/apk/eclipse-os.apk
+```
+
+E o que está publicado, sem baixar 60 MB — `versionCode`, commit, data e a
+impressão digital da assinatura:
+
+```sh
+curl -sL https://github.com/viniciusventura29/multimidia/releases/download/apk/versao.json | jq
+```
+
+O `apk.yml` só publica em merge na `main`. A checagem noturna continua
+compilando (é ela que pega quebra de gradle/AGP), mas não publica: um APK novo
+toda madrugada faria o carro anunciar novidade sem nada ter mudado.
+
+### ⚠️ A primeira instalação apaga o que já estava lá
+
+O Android recusa atualizar um app se a **assinatura** for outra — e o que está
+na head unit hoje é um APK de debug, assinado com a chave de debug do SDK. O da
+CI é assinado com a chave de release. Não há como fazer uma virar a outra: a
+única saída é **desinstalar antes**.
+
+Desinstalar apaga `/data/data/com.eclipseos.app/files/`, onde moram:
+
+| | |
+|---|---|
+| `profiles.json` | os perfis de motorista |
+| `veiculo.json` | tamanho do tanque, cilindrada, fator de calibração |
+| `tanque.json` | o nível atual e o histórico de consumo |
+| `spotify_tokens.json` | a sessão do Spotify — vai precisar logar de novo |
+
+Perfil se refaz em um minuto. O fator de calibração custou um tanque inteiro
+contra a bomba. Enquanto o app instalado ainda for o de debug, dá para levar
+tudo embora antes:
+
+```sh
+adb exec-out run-as com.eclipseos.app tar c files > eclipse-backup.tar
+```
+
+(`run-as` só funciona em app debugável — depois que o assinado entrar, essa
+porta fecha.)
+
+Isso acontece **uma vez**. Da segunda instalação em diante é sempre a mesma
+chave, e a atualização passa por cima sem perder nada.
+
 ## Credenciais
 
 Cada uma pode vir de variável de ambiente (para desenvolver) ou de um arquivo no
@@ -28,6 +88,15 @@ diretório de dados do app (para a head unit, onde não há shell antes do launc
 | Chave do OpenRouter (só imagem) | `ECLIPSE_OPENROUTER_API_KEY` | `openrouter_api_key.txt` |
 
 No macOS o diretório é `~/Library/Application Support/com.eclipseos.app`.
+
+As três primeiras também viajam **dentro do APK público**, embutidas pela CI a
+partir dos secrets `ECLIPSE_MAPS_API_KEY`, `ECLIPSE_SPOTIFY_CLIENT_ID` e
+`ECLIPSE_ANTHROPIC_API_KEY` (o `build.rs` as lê de arquivos que o `apk.yml`
+escreve em `src-tauri/`). A head unit não tem root para criar arquivo nem shell
+para exportar variável antes do launcher, então não há alternativa. Um `.apk` é
+um `.zip`: quem baixar tira as chaves com `strings` sem instalar nada — a defesa
+das que gastam dinheiro é o **teto de gasto no console do provedor**, não o
+segredo. Configure-o.
 
 O Spotify exige um app registrado em [developer.spotify.com](https://developer.spotify.com),
 com `http://127.0.0.1:8888/callback` cadastrado como Redirect URI, e conta Premium.
@@ -173,4 +242,6 @@ Não são pendências — são o que a plataforma permite:
 - Aferir a telemetria no carro: qual fonte de consumo o Eclipse permite, e o fator de
   calibração de um tanque inteiro contra a bomba.
 - Câmera lateral via USB/UVC.
-- APK, launcher, viagens, rádio.
+- Launcher, viagens, rádio.
+- Aviso de atualização dentro do app: o binário já sabe o próprio `versionCode`
+  e o release já publica um `versao.json` — falta a tela que compara os dois.

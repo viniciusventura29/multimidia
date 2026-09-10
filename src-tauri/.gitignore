@@ -17,3 +17,7 @@
 # um `git add -A` chegou a commitar a da Anthropic (pega antes do push).
 /anthropic_api_key.txt
 /openrouter_api_key.txt
+
+# O versionCode que a CI escreve antes de compilar; build local não tem,
+# e sem ele o app entende zero: "não sei em que versão estou".
+/versao.txt
