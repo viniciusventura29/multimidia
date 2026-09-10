@@ -1,0 +1,94 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<title>Eclipse OS</title>
+
+<!--
+  A página que existe só para a PRIMEIRA instalação.
+
+  A URL do release tem 76 caracteres, e digitar isso no teclado virtual de uma
+  head unit, com o carro parado na garagem, é onde a atualização morre. Daqui
+  em diante quem avisa e quem abre o download é o próprio painel — esta página
+  só precisa sobreviver ao primeiro dia.
+
+  Por isso é um arquivo só, sem framework e sem build: não há nada aqui que
+  mereça uma dependência, e uma página de instalação que quebra num `npm ci` é
+  pior do que não ter página.
+
+  O `/apk` e o `/versao.json` são o `vercel.json` ao lado: um redirect e um
+  proxy. O proxy existe para o `fetch` abaixo ler o manifesto na mesma origem,
+  sem CORS.
+-->
+
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-content: center;
+    gap: 2.5rem;
+    padding: 2rem;
+    background: #0b0d10;
+    color: #e8eaed;
+    font: 400 1rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    text-align: center;
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #9aa0a6;
+  }
+  /*
+    O único alvo da página, e o vão em volta é o que o separa — não há placa,
+    cápsula nem moldura, mesma direção do painel. O que diz "toque aqui" é a
+    cor e o tamanho.
+  */
+  a {
+    /* `grid` + `place-content` e não `block`: com `min-height` sozinho o texto
+       encosta no topo e o alvo vira um quadrado com um rótulo em cima. */
+    display: grid;
+    place-content: center;
+    min-height: 5rem;
+    min-width: 16rem;
+    padding: 1rem 3rem;
+    border-radius: 0.75rem;
+    background: #3ddc97;
+    color: #0b0d10;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  a:active { background: #34c186; }
+  p {
+    margin: 0;
+    min-height: 1.5rem;
+    font-size: 0.9rem;
+    color: #6b7075;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+
+<h1>Eclipse OS</h1>
+<a href="/apk">Baixar</a>
+<p id="versao"></p>
+
+<script>
+  // Se o manifesto não vier, o parágrafo fica vazio e nada mais acontece: a
+  // página continua servindo para baixar, que é a única coisa que importa
+  // aqui. Um erro na tela seria pior que a ausência do número.
+  fetch("/versao.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((v) => {
+      if (!v) return;
+      const data = new Date(v.data).toLocaleDateString("pt-BR");
+      document.getElementById("versao").textContent = `versão ${v.versionCode} · ${data}`;
+    })
+    .catch(() => {});
+</script>
