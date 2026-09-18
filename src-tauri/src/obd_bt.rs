@@ -8,15 +8,48 @@
 //! As chamadas ao plugin (`run_mobile_plugin`) são **bloqueantes** — cada leitura
 //! de PID espera o barramento do carro responder (centenas de ms). Por isso vão
 //! em `spawn_blocking`, para não travar o executor async onde o poller vive.
+//!
+//! Aqui mora também o [`Radio`]: a mesma ponte vista de cima, como um trait. O
+//! módulo `adaptador` fala com ele em vez de falar com o `AppHandle`, e é isso que
+//! permite testar buscar/parear/gravar no Mac, sem carro e sem Android.
 
 // Só é *usado* no Android (o desktop não chama `conectar`), mas segue sendo
 // compilado no macOS para type-check. Sem isto, o desktop reclamaria de código
 // morto em tudo aqui.
 #![cfg_attr(not(mobile), allow(dead_code))]
 
+use std::path::Path;
+
 use async_trait::async_trait;
-use eclipse_obd::{Elm327Source, Elm327Transport, ObdError};
-use tauri_plugin_obd_bt::{BtDevice, ObdBtExt};
+use eclipse_obd::{Arquivo, Elm327Source, Elm327Transport, ObdError};
+use serde::{Deserialize, Serialize};
+use tauri_plugin_obd_bt::{BtDevice, BtInfo, BtKind, ObdBtExt};
+
+/// O adaptador escolhido pelo dono, no diretório de dados do app.
+pub const ADAPTADOR_JSON: &str = "adaptador.json";
+
+/// O adaptador que este carro usa.
+///
+/// Arquivo próprio, e não um campo no `Veiculo`: aquele é `Copy` e um `String`
+/// dentro dele quebraria a conta de consumo inteira por nada. Some com ele e o
+/// painel volta a adivinhar pelo nome — que é o que fazia antes desta tela existir.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdaptadorSalvo {
+    /// O MAC. É por ele que se conecta, e é o único campo que precisa estar certo.
+    pub mac: String,
+    /// Como ele se anuncia, só para a tela ter o que mostrar.
+    #[serde(default)]
+    pub nome: String,
+    /// Clássico ou BLE — sem isto a reconexão teria que adivinhar o transporte.
+    #[serde(default)]
+    pub tipo: BtKind,
+}
+
+/// Lê o adaptador salvo, se houver.
+pub fn adaptador_salvo(dir: &Path) -> Option<AdaptadorSalvo> {
+    Arquivo::<Option<AdaptadorSalvo>>::load(dir.join(ADAPTADOR_JSON)).dados
+}
 
 /// Nomes comuns de adaptadores ELM327/OBD, para achar o certo entre os pareados
 /// quando o usuário não fixa um por `ECLIPSE_OBD_DEVICE`. Comparados contra o
@@ -59,6 +92,16 @@ impl Elm327Transport for AndroidBtTransport {
     }
 }
 
+/// O nome parece de um adaptador ELM327?
+///
+/// Serve para a tela destacar o candidato óbvio no meio dos fones de ouvido — e
+/// para o palpite de quando não há nada escolhido. Nunca para esconder ninguém da
+/// lista: clone não é obrigado a se chamar de nada.
+pub fn parece_adaptador(nome: &str) -> bool {
+    let nome = normalizar(nome);
+    PADROES_NOME.iter().any(|p| nome.contains(p))
+}
+
 /// Escolhe qual adaptador pareado usar.
 ///
 /// Com `ECLIPSE_OBD_DEVICE` (nome ou MAC), casa por ele; senão pega o primeiro
@@ -71,24 +114,39 @@ fn escolher<'a>(pareados: &'a [BtDevice], alvo: Option<&str>) -> Option<&'a BtDe
                 || (!alvo_norm.is_empty() && normalizar(&d.name).contains(&alvo_norm))
         });
     }
-    pareados.iter().find(|d| {
-        let nome = normalizar(&d.name);
-        PADROES_NOME.iter().any(|p| nome.contains(p))
-    })
+    pareados.iter().find(|d| parece_adaptador(&d.name))
 }
 
 /// Garante permissão, escolhe e abre o adaptador; devolve um rótulo para o log.
 ///
+/// A ordem é **salvo → `ECLIPSE_OBD_DEVICE` → palpite pelo nome**. O salvo vem
+/// primeiro porque é o único que o dono escolheu de verdade — e é o único caminho
+/// que alcança um adaptador BLE, que nunca aparece na lista de pareados.
+///
 /// Tudo bloqueante num `spawn_blocking` só: pedir permissão espera o usuário
 /// responder o diálogo, e listar/conectar falam com o rádio.
-async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
+async fn preparar(app: &tauri::AppHandle, dir: &Path) -> Result<String, ObdError> {
     let app = app.clone();
     let alvo = std::env::var("ECLIPSE_OBD_DEVICE").ok();
+    let salvo = adaptador_salvo(dir);
 
     tokio::task::spawn_blocking(move || -> Result<String, ObdError> {
         let bt = app.obd_bt();
 
         bt.ensure_permissions().map_err(erro)?;
+
+        if let Some(a) = &salvo {
+            match bt.connect(&a.mac, a.tipo) {
+                Ok(()) => return Ok(format!("{} ({}, {})", a.nome, a.mac, a.tipo.como_texto())),
+                // Não desiste: o dono pode ter trocado de adaptador sem mexer na
+                // tela, e adivinhar pelo nome ainda acerta nesse caso.
+                Err(err) => tracing::warn!(
+                    mac = %a.mac,
+                    %err,
+                    "o adaptador salvo não atendeu; tentando os pareados"
+                ),
+            }
+        }
 
         let pareados = bt.list_bonded().map_err(erro)?;
         for d in &pareados {
@@ -97,8 +155,7 @@ async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
 
         let escolhido = escolher(&pareados, alvo.as_deref()).ok_or_else(|| {
             ObdError::Bus(
-                "nenhum adaptador OBD pareado; pareie o ELM327 nas configurações do Android \
-                 (ou defina ECLIPSE_OBD_DEVICE com o nome/MAC)"
+                "nenhum adaptador escolhido; abra a tela do carro e toque em Adaptador OBD"
                     .to_string(),
             )
         })?;
@@ -119,10 +176,75 @@ async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
 /// Conecta ao adaptador e faz o handshake ELM327, devolvendo a fonte pronta.
 pub async fn conectar(
     app: &tauri::AppHandle,
+    dir: &Path,
 ) -> Result<Elm327Source<AndroidBtTransport>, ObdError> {
-    let rotulo = preparar(app).await?;
+    let rotulo = preparar(app, dir).await?;
     tracing::info!(adaptador = %rotulo, "conectado; iniciando handshake do ELM327");
     Elm327Source::conectar(AndroidBtTransport { app: app.clone() }).await
+}
+
+/// O rádio Bluetooth visto de cima: buscar, parear, listar.
+///
+/// Existe como trait por um motivo só, e é bom: a tela de escolha do adaptador
+/// precisa de um estado com busca, pareamento que falha e arquivo que grava — e
+/// nada disso se testa contra um `AppHandle`. Contra um rádio de mentira, se testa.
+///
+/// Só o que a **escolha** precisa está aqui. Falar com o ELM327 continua sendo
+/// [`AndroidBtTransport`], que é outra conversa e tem outra dona (o módulo OBD).
+pub trait Radio: Send + Sync {
+    fn info(&self) -> Result<BtInfo, String>;
+    fn permissoes(&self) -> Result<(), String>;
+    fn pareados(&self) -> Result<Vec<BtDevice>, String>;
+    fn buscar(&self) -> Result<(), String>;
+    /// O que a busca achou até agora, e se ela ainda está correndo.
+    fn achados(&self) -> Result<(Vec<BtDevice>, bool), String>;
+    fn parar_busca(&self) -> Result<(), String>;
+    fn parear(&self, mac: &str) -> Result<(), String>;
+}
+
+/// O rádio de verdade, o do aparelho.
+pub struct RadioDoAparelho {
+    app: tauri::AppHandle,
+}
+
+impl RadioDoAparelho {
+    pub fn novo(app: tauri::AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl Radio for RadioDoAparelho {
+    fn info(&self) -> Result<BtInfo, String> {
+        self.app.obd_bt().info().map_err(|e| e.to_string())
+    }
+    fn permissoes(&self) -> Result<(), String> {
+        self.app
+            .obd_bt()
+            .ensure_permissions()
+            .map_err(|e| e.to_string())
+    }
+    fn pareados(&self) -> Result<Vec<BtDevice>, String> {
+        self.app.obd_bt().list_bonded().map_err(|e| e.to_string())
+    }
+    fn buscar(&self) -> Result<(), String> {
+        self.app.obd_bt().start_scan().map_err(|e| e.to_string())
+    }
+    fn achados(&self) -> Result<(Vec<BtDevice>, bool), String> {
+        self.app.obd_bt().scan_results().map_err(|e| e.to_string())
+    }
+    fn parar_busca(&self) -> Result<(), String> {
+        self.app.obd_bt().stop_scan().map_err(|e| e.to_string())
+    }
+    fn parear(&self, mac: &str) -> Result<(), String> {
+        self.app.obd_bt().bond(mac).map_err(|e| e.to_string())
+    }
+}
+
+/// Grava a escolha do dono (ou a apaga).
+pub fn gravar_adaptador(dir: &Path, escolha: Option<AdaptadorSalvo>) -> std::io::Result<()> {
+    let mut arquivo: Arquivo<Option<AdaptadorSalvo>> = Arquivo::load(dir.join(ADAPTADOR_JSON));
+    arquivo.dados = escolha;
+    arquivo.salvar()
 }
 
 #[cfg(test)]

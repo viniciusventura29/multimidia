@@ -4,6 +4,7 @@
 //! vizinhos — com uma exceção declarada: o `assistente` lê o painel inteiro,
 //! porque a graça dele é justamente cruzar carro, mapa e música numa frase só.
 
+pub mod adaptador;
 pub mod assistente;
 pub mod messaging;
 pub mod music;

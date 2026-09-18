@@ -66,7 +66,7 @@ impl Module for ObdModule {
         // adaptador solta do conector no meio da estrada.
         #[cfg(mobile)]
         let (poller, protocolo) = {
-            let source = crate::obd_bt::conectar(&self.app).await?;
+            let source = crate::obd_bt::conectar(&self.app, &self.dir).await?;
 
             // O relatório que só o carro pode dar. É por ele que se descobre se o
             // consumo vai ser medido ou estimado, e é a primeira coisa a olhar com
