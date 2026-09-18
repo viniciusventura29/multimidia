@@ -1,12 +1,12 @@
-//! Bluetooth clássico (SPP/RFCOMM) para o ELM327 no Android.
+//! O Bluetooth do adaptador OBD no Android — clássico (SPP) e BLE.
 //!
-//! O WebView do Tauri não expõe Bluetooth clássico (só o GPS vem de graça, via
-//! `navigator.geolocation`). Então quem abre o socket SPP é código Kotlin nativo,
-//! e este plugin é a ponte: o módulo OBD (em Rust, no `src-tauri`) chama estes
+//! O WebView do Tauri não expõe Bluetooth (só o GPS vem de graça, via
+//! `navigator.geolocation`). Então quem busca, pareia e abre o canal é código
+//! Kotlin nativo, e este plugin é a ponte: o Rust (o `src-tauri`) chama estes
 //! métodos por `run_mobile_plugin`, e o lado Kotlin fala com o adaptador.
 //!
-//! Nada aqui é exposto ao JS de propósito — a UI nunca fala com o adaptador
-//! direto; ela só vê as leituras que o módulo OBD publica no barramento.
+//! Nada aqui é exposto ao JS de propósito — a UI nunca fala com o rádio direto;
+//! ela toca em ações de módulo, e os módulos é que chamam isto.
 
 use tauri::{
     plugin::{Builder, PluginApi, TauriPlugin},
@@ -17,7 +17,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::BtDevice;
+pub use models::{BtDevice, BtInfo, BtKind};
 
 #[cfg(target_os = "android")]
 const PLUGIN_IDENTIFIER: &str = "com.eclipseos.obdbt";
@@ -35,7 +35,7 @@ fn init_plugin<R: Runtime>(app: &AppHandle<R>, api: PluginApi<R, ()>) -> crate::
     #[cfg(not(target_os = "android"))]
     {
         let _ = api;
-        Ok(ObdBt { _app: app.clone() })
+        Ok(ObdBt::novo(app.clone()))
     }
 }
 
@@ -44,9 +44,9 @@ mod imp {
     use serde::{Deserialize, Serialize};
     use tauri::{plugin::PluginHandle, Runtime};
 
-    use crate::models::BtDevice;
+    use crate::models::{BtDevice, BtInfo, BtKind};
 
-    /// Acesso ao Bluetooth do adaptador OBD.
+    /// Acesso ao rádio Bluetooth.
     pub struct ObdBt<R: Runtime> {
         pub(crate) plugin_handle: PluginHandle<R>,
     }
@@ -60,11 +60,20 @@ mod imp {
     struct PermStatus {
         #[serde(default)]
         bluetooth: Option<String>,
+        #[serde(default)]
+        location: Option<String>,
     }
 
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct ConnectArgs<'a> {
+        address: &'a str,
+        kind: &'a str,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct BondArgs<'a> {
         address: &'a str,
     }
 
@@ -76,9 +85,11 @@ mod imp {
     }
 
     #[derive(Deserialize)]
-    struct BondedResponse {
+    struct DevicesResponse {
         #[serde(default)]
         devices: Vec<BtDevice>,
+        #[serde(default)]
+        scanning: bool,
     }
 
     #[derive(Deserialize)]
@@ -88,25 +99,47 @@ mod imp {
     }
 
     impl<R: Runtime> ObdBt<R> {
-        /// Garante a permissão `BLUETOOTH_CONNECT` (runtime no Android 12+).
+        /// O que o rádio deste aparelho é: versão do Android, existe, ligado.
+        pub fn info(&self) -> crate::Result<BtInfo> {
+            Ok(self.plugin_handle.run_mobile_plugin("info", ())?)
+        }
+
+        /// Garante as permissões de Bluetooth (runtime no Android 12+).
         ///
-        /// Bloqueia até o usuário responder o diálogo. Sem a permissão não dá nem
-        /// para listar os pareados, então isto vem antes de tudo.
+        /// Bloqueia até o usuário responder o diálogo. Sem elas não dá nem para
+        /// listar os pareados, então isto vem antes de tudo.
+        ///
+        /// A de localização entra **só** no Android 11 e abaixo, onde buscar
+        /// Bluetooth exige localização. Pedi-la no Android 12+ seria um diálogo
+        /// assustador ("o painel do carro quer sua localização") por nada.
         pub fn ensure_permissions(&self) -> crate::Result<()> {
+            let precisa_local = self.info().map(|i| i.sdk_int <= 30).unwrap_or(false);
+
             let atual: PermStatus = self
                 .plugin_handle
                 .run_mobile_plugin("checkPermissions", ())?;
-            if atual.bluetooth.as_deref() == Some("granted") {
+
+            let mut faltando = Vec::new();
+            if atual.bluetooth.as_deref() != Some("granted") {
+                faltando.push("bluetooth".to_string());
+            }
+            if precisa_local && atual.location.as_deref() != Some("granted") {
+                faltando.push("location".to_string());
+            }
+            if faltando.is_empty() {
                 return Ok(());
             }
 
             let depois: PermStatus = self.plugin_handle.run_mobile_plugin(
                 "requestPermissions",
                 RequestPermissions {
-                    permissions: vec!["bluetooth".to_string()],
+                    permissions: faltando,
                 },
             )?;
 
+            // A de localização é desejável, não obrigatória: sem ela a busca volta
+            // vazia num Android antigo, mas conectar num adaptador já conhecido
+            // continua funcionando — e é isso que acontece em toda ignição.
             if depois.bluetooth.as_deref() == Some("granted") {
                 Ok(())
             } else {
@@ -114,16 +147,46 @@ mod imp {
             }
         }
 
-        /// Os adaptadores já pareados nas configurações do Android.
+        /// Os adaptadores já pareados com o Android.
         pub fn list_bonded(&self) -> crate::Result<Vec<BtDevice>> {
-            let r: BondedResponse = self.plugin_handle.run_mobile_plugin("listBonded", ())?;
+            let r: DevicesResponse = self.plugin_handle.run_mobile_plugin("listBonded", ())?;
             Ok(r.devices)
         }
 
-        /// Abre o socket RFCOMM/SPP com o adaptador do endereço dado.
-        pub fn connect(&self, address: &str) -> crate::Result<()> {
+        /// Começa a procurar (clássico e BLE ao mesmo tempo).
+        pub fn start_scan(&self) -> crate::Result<()> {
             self.plugin_handle
-                .run_mobile_plugin::<()>("connect", ConnectArgs { address })?;
+                .run_mobile_plugin::<()>("startScan", ())?;
+            Ok(())
+        }
+
+        /// O que a busca achou até agora, e se ela ainda está correndo.
+        pub fn scan_results(&self) -> crate::Result<(Vec<BtDevice>, bool)> {
+            let r: DevicesResponse = self.plugin_handle.run_mobile_plugin("scanResults", ())?;
+            Ok((r.devices, r.scanning))
+        }
+
+        pub fn stop_scan(&self) -> crate::Result<()> {
+            self.plugin_handle.run_mobile_plugin::<()>("stopScan", ())?;
+            Ok(())
+        }
+
+        /// Cria o vínculo com o adaptador, respondendo o PIN de fábrica.
+        pub fn bond(&self, address: &str) -> crate::Result<()> {
+            self.plugin_handle
+                .run_mobile_plugin::<()>("bond", BondArgs { address })?;
+            Ok(())
+        }
+
+        /// Abre o canal com o adaptador — socket SPP ou GATT, conforme o tipo.
+        pub fn connect(&self, address: &str, kind: BtKind) -> crate::Result<()> {
+            self.plugin_handle.run_mobile_plugin::<()>(
+                "connect",
+                ConnectArgs {
+                    address,
+                    kind: kind.como_texto(),
+                },
+            )?;
             Ok(())
         }
 
@@ -135,7 +198,7 @@ mod imp {
             Ok(r.response)
         }
 
-        /// Fecha o socket.
+        /// Fecha o canal.
         pub fn disconnect(&self) -> crate::Result<()> {
             self.plugin_handle
                 .run_mobile_plugin::<()>("disconnect", ())?;
@@ -146,32 +209,150 @@ mod imp {
 
 #[cfg(not(target_os = "android"))]
 mod imp {
+    use std::sync::Mutex;
+    use std::time::Instant;
+
     use tauri::{AppHandle, Runtime};
 
-    use crate::models::BtDevice;
+    use crate::models::{BtDevice, BtInfo, BtKind};
 
-    /// No desktop não há Bluetooth clássico: todo método falha com
-    /// [`crate::Error::UnsupportedPlatform`]. O módulo OBD trata isso parando
-    /// quieto (mostradores escuros) em vez de ficar reiniciando à toa.
+    /// No desktop não há rádio: todo método falha com
+    /// [`crate::Error::UnsupportedPlatform`]. O módulo OBD trata isso rodando o
+    /// carro simulado, e a tela de adaptador mostra o porquê.
+    ///
+    /// **Menos com `ECLIPSE_BT_FAKE=1`**, que acende um rádio de mentira: uma
+    /// busca que vai revelando aparelhos, um pareamento que às vezes falha, e um
+    /// MAC que se lembra. É o que permite construir a tela de escolha no Mac em
+    /// vez de gerando APK e subindo no carro a cada ajuste de pixel.
     pub struct ObdBt<R: Runtime> {
         pub(crate) _app: AppHandle<R>,
+        fake: Option<Mutex<Fake>>,
     }
 
+    struct Fake {
+        busca: Option<Instant>,
+        pareados: Vec<String>,
+    }
+
+    /// O elenco do rádio de mentira: o adaptador certo, um que não é, e um BLE.
+    /// Vêm com atraso para a tela ter que lidar com a lista crescendo.
+    const ELENCO: [(&str, &str, BtKind, u64); 4] = [
+        ("Galaxy Buds", "11:22:33:44:55:66", BtKind::Spp, 0),
+        ("V-LINK", "AA:BB:CC:DD:EE:FF", BtKind::Spp, 1),
+        ("iCar Pro BLE", "A0:E6:F8:11:22:33", BtKind::Ble, 3),
+        ("OBDII", "00:1D:A5:68:98:8B", BtKind::Spp, 6),
+    ];
+
     impl<R: Runtime> ObdBt<R> {
+        pub(crate) fn novo(app: AppHandle<R>) -> Self {
+            let fake = std::env::var("ECLIPSE_BT_FAKE")
+                .is_ok_and(|v| v == "1")
+                .then(|| {
+                    Mutex::new(Fake {
+                        busca: None,
+                        pareados: Vec::new(),
+                    })
+                });
+            Self { _app: app, fake }
+        }
+
+        fn fake(&self) -> crate::Result<std::sync::MutexGuard<'_, Fake>> {
+            self.fake
+                .as_ref()
+                .ok_or(crate::Error::UnsupportedPlatform)
+                .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()))
+        }
+
+        pub fn info(&self) -> crate::Result<BtInfo> {
+            drop(self.fake()?);
+            Ok(BtInfo {
+                sdk_int: 30,
+                existe: true,
+                ligado: true,
+            })
+        }
+
         pub fn ensure_permissions(&self) -> crate::Result<()> {
-            Err(crate::Error::UnsupportedPlatform)
+            self.fake().map(drop)
         }
+
         pub fn list_bonded(&self) -> crate::Result<Vec<BtDevice>> {
+            let fake = self.fake()?;
+            Ok(ELENCO
+                .iter()
+                .filter(|(_, mac, _, _)| fake.pareados.iter().any(|p| p == mac))
+                .map(|(nome, mac, kind, _)| dispositivo(nome, mac, *kind, true, None))
+                .collect())
+        }
+
+        pub fn start_scan(&self) -> crate::Result<()> {
+            self.fake()?.busca = Some(Instant::now());
+            Ok(())
+        }
+
+        pub fn scan_results(&self) -> crate::Result<(Vec<BtDevice>, bool)> {
+            let fake = self.fake()?;
+            let Some(desde) = fake.busca else {
+                return Ok((Vec::new(), false));
+            };
+            let s = desde.elapsed().as_secs();
+            let achados = ELENCO
+                .iter()
+                .filter(|(_, _, _, atraso)| s >= *atraso)
+                .map(|(nome, mac, kind, atraso)| {
+                    let pareado = fake.pareados.iter().any(|p| p == mac);
+                    dispositivo(nome, mac, *kind, pareado, Some(-40 - (*atraso as i32) * 7))
+                })
+                .collect();
+            Ok((achados, true))
+        }
+
+        pub fn stop_scan(&self) -> crate::Result<()> {
+            self.fake()?.busca = None;
+            Ok(())
+        }
+
+        pub fn bond(&self, address: &str) -> crate::Result<()> {
+            let mut fake = self.fake()?;
+            // O fone nunca pareia: é o caso de erro que a tela precisa saber pintar.
+            if address.starts_with("11:22") {
+                return Err(crate::Error::PermissionDenied);
+            }
+            if !fake.pareados.iter().any(|p| p == address) {
+                fake.pareados.push(address.to_string());
+            }
+            Ok(())
+        }
+
+        pub fn connect(&self, _address: &str, _kind: BtKind) -> crate::Result<()> {
+            // Mesmo com o rádio de mentira não há ELM327 do outro lado: no desktop
+            // a telemetria vem do carro simulado, que é melhor que um falso.
+            drop(self.fake()?);
             Err(crate::Error::UnsupportedPlatform)
         }
-        pub fn connect(&self, _address: &str) -> crate::Result<()> {
-            Err(crate::Error::UnsupportedPlatform)
-        }
+
         pub fn command(&self, _cmd: &str, _timeout_ms: u32) -> crate::Result<String> {
             Err(crate::Error::UnsupportedPlatform)
         }
+
         pub fn disconnect(&self) -> crate::Result<()> {
-            Err(crate::Error::UnsupportedPlatform)
+            Ok(())
+        }
+    }
+
+    fn dispositivo(
+        nome: &str,
+        mac: &str,
+        kind: BtKind,
+        bonded: bool,
+        rssi: Option<i32>,
+    ) -> BtDevice {
+        BtDevice {
+            name: nome.to_string(),
+            address: mac.to_string(),
+            kind,
+            bonded,
+            rssi,
         }
     }
 }

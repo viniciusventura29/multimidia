@@ -103,8 +103,14 @@ async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
             )
         })?;
 
-        bt.connect(&escolhido.address).map_err(erro)?;
-        Ok(format!("{} ({})", escolhido.name, escolhido.address))
+        bt.connect(&escolhido.address, escolhido.kind)
+            .map_err(erro)?;
+        Ok(format!(
+            "{} ({}, {})",
+            escolhido.name,
+            escolhido.address,
+            escolhido.kind.como_texto()
+        ))
     })
     .await
     .map_err(|e| ObdError::Bus(format!("task de conexão falhou: {e}")))?
@@ -127,6 +133,9 @@ mod tests {
         BtDevice {
             name: name.to_string(),
             address: "AA:BB:CC:DD:EE:FF".to_string(),
+            kind: tauri_plugin_obd_bt::BtKind::Spp,
+            bonded: true,
+            rssi: None,
         }
     }
 
