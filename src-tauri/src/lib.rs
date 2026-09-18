@@ -636,6 +636,11 @@ pub fn run() {
             // e o supervisor o reconstrói a cada reconexão — daí um clone à parte.
             let handle_obd = app.handle().clone();
             let dir_obd = dir.clone();
+            // O rádio Bluetooth é um só; o módulo que escolhe o adaptador e o que
+            // lê o carro compartilham o mesmo, por trás do trait.
+            let radio: std::sync::Arc<dyn obd_bt::Radio> =
+                std::sync::Arc::new(obd_bt::RadioDoAparelho::novo(app.handle().clone()));
+            let dir_adaptador = dir.clone();
             // O assistente lê o painel inteiro e grava imagens no diretório de
             // dados, então precisa do handle pelos mesmos motivos.
             let handle_ia = app.handle().clone();
@@ -681,6 +686,12 @@ pub fn run() {
                     // moram em disco: o supervisor reconstrói este módulo a cada
                     // reconexão do adaptador, e cada tentativa relê o que já se sabia.
                     modules::obd::ObdModule::new(handle_obd.clone(), dir_obd.clone())
+                }));
+                supervisor.spawn(factory(modules::adaptador::ADAPTADOR, move || {
+                    modules::adaptador::AdaptadorModule::new(
+                        std::sync::Arc::clone(&radio),
+                        dir_adaptador.clone(),
+                    )
                 }));
                 supervisor.spawn(factory(modules::music::MUSIC, move || {
                     modules::music::MusicModule::new(Arc::clone(&conector))
