@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Gauge as GaugeIcon, Thermometer, Zap } from "lucide-react";
 
 import {
@@ -13,6 +14,7 @@ import type { ObdReadings, TileView } from "../../core/types";
 import { Dado } from "../../shell/Dado";
 import { Gauge } from "../../shell/Gauge";
 import { BateriaIcon } from "../../shell/indicadores";
+import { Adaptador } from "./adaptador";
 import { Ajustes } from "./ajustes";
 import { CIANO } from "./cores";
 import { NivelTanque } from "./tanque";
@@ -40,10 +42,16 @@ const fmtDuracao = (s: number) => {
  * de consumo, para a convenção ser aprendível sem manual.
  */
 export function Carro({ data }: TileView<ObdReadings>) {
+  // Escolher o adaptador é uma tela, e não um quadro no painel: faz-se uma vez na
+  // vida, e o grid já está cheio. Ela toma o lugar desta aqui enquanto está aberta.
+  const [noAdaptador, setNoAdaptador] = useState(false);
+
   const consumo = data?.consumo ?? null;
   const tanque = data?.tanque ?? null;
   const viagem = data?.viagem ?? null;
   const estimado = !(consumo?.medido ?? false);
+
+  if (noAdaptador) return <Adaptador aoVoltar={() => setNoAdaptador(false)} />;
 
   return (
     <div className="carro">
@@ -144,7 +152,7 @@ export function Carro({ data }: TileView<ObdReadings>) {
         </section>
       </div>
 
-      <Ajustes data={data} />
+      <Ajustes data={data} aoAbrirAdaptador={() => setNoAdaptador(true)} />
     </div>
   );
 }

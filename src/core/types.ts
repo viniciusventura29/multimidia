@@ -103,6 +103,56 @@ export type AcaoObd =
   | { acao: "calibrar"; fator: number }
   | { acao: "zerarViagem" };
 
+/* --- Adaptador OBD: espelho do módulo `adaptador` do Rust --- */
+
+/** Por onde se fala com o adaptador. Um BLE nunca pareia — conecta direto. */
+export type TipoAdaptador = "spp" | "ble";
+
+/** O adaptador que este carro usa, gravado em disco. */
+export interface AdaptadorSalvo {
+  mac: string;
+  nome: string;
+  tipo: TipoAdaptador;
+}
+
+/** Um aparelho visto na busca. */
+export interface AchadoBt {
+  nome: string;
+  mac: string;
+  tipo: TipoAdaptador;
+  pareado: boolean;
+  rssi: number | null;
+  /** O nome parece de um ELM327? Destaca, nunca filtra. */
+  pareceObd: boolean;
+}
+
+export type FaseAdaptador =
+  | { fase: "ocioso" }
+  | { fase: "buscando" }
+  | { fase: "pareando"; mac: string }
+  | { fase: "falhou"; motivo: string };
+
+export interface EstadoAdaptador {
+  salvo: AdaptadorSalvo | null;
+  buscando: boolean;
+  encontrados: AchadoBt[];
+  fase: FaseAdaptador;
+  radio: { existe: boolean; ligado: boolean; motivo: string | null };
+}
+
+/**
+ * O que o toque manda o módulo `adaptador` fazer.
+ *
+ * Tipado pelo mesmo motivo do `AcaoObd`: o Rust descarta payload que não entende,
+ * e errar o nome de uma chave falharia calado — aqui, deixando o carro sem
+ * telemetria sem dizer por quê.
+ */
+export type AcaoAdaptador =
+  | { acao: "buscar" }
+  | { acao: "parar" }
+  | { acao: "escolher"; mac: string }
+  | { acao: "esquecer" };
+
 export interface NowPlaying {
   track: string;
   artist: string;

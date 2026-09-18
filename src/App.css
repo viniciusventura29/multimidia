@@ -1421,6 +1421,210 @@ body {
   color: var(--warn);
 }
 
+.carro__link {
+  margin-top: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------ */
+/* Escolher o adaptador OBD                                            */
+/*                                                                      */
+/* Uma lista, e só. Sem placa por linha, sem cápsula em volta do nome:  */
+/* o vão entre as linhas já divide, e o que destaca o candidato é o     */
+/* peso do nome — não uma moldura.                                     */
+/* ------------------------------------------------------------------ */
+
+.bt {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.bt__topo {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.bt__titulo {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.bt__voltar,
+.bt__buscar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.75rem;
+  padding: 0 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--tile-alto);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bt__voltar {
+  padding-left: 0.5rem;
+  border-color: transparent;
+  background: none;
+  color: var(--muted);
+}
+
+.bt__buscar:disabled {
+  opacity: 0.45;
+}
+
+.bt__girando {
+  animation: bt-girar 1s linear infinite;
+}
+
+@keyframes bt-girar {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Movimento é informação aqui (está procurando), mas quem pediu menos
+   movimento continua tendo o rótulo "buscando" para ler. */
+@media (prefers-reduced-motion: reduce) {
+  .bt__girando {
+    animation: none;
+  }
+}
+
+.bt__aviso {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--warn);
+}
+
+.bt__salvo {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.bt__salvo strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.bt__salvo--vazio {
+  display: block;
+}
+
+.bt__esquecer {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+  cursor: pointer;
+}
+
+.bt__lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.bt__linha {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0 0.75rem;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: 0.5rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bt__linha:disabled {
+  cursor: default;
+}
+
+/* O último fio não separa nada — separa da borda. Fora. */
+.bt__linha:last-child {
+  border-bottom: 0;
+}
+
+.bt__nome {
+  grid-column: 1;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+/* O que um ELM327 parece ter de diferente: o nome pesa mais. Nada some da
+   lista por não parecer — clone não é obrigado a se chamar de nada. */
+.bt__linha--candidato .bt__nome {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.bt__meta {
+  grid-column: 1;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.bt__marca,
+.bt__girando {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--accent);
+}
+
+.bt__vazio,
+.bt__nota {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.bt__vazio {
+  padding: 1.5rem 0;
+}
+
+.bt__nota {
+  flex: 0 0 auto;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
 /* --- Stepper --- */
 
 .passo {
