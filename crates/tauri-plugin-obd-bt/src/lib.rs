@@ -155,7 +155,8 @@ mod imp {
 
         /// Começa a procurar (clássico e BLE ao mesmo tempo).
         pub fn start_scan(&self) -> crate::Result<()> {
-            self.plugin_handle.run_mobile_plugin::<()>("startScan", ())?;
+            self.plugin_handle
+                .run_mobile_plugin::<()>("startScan", ())?;
             Ok(())
         }
 

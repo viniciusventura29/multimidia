@@ -77,7 +77,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # `packages` explícito porque o padrão da action é "tools platform-tools",
+      # e o pacote `tools` foi RETIRADO do repositório da Google. Desde 15/09 o
+      # sdkmanager falha com "Failed to find package 'tools'" e o workflow morre
+      # em 25s — quatro noites seguidas, o canário noturno pegando exatamente o
+      # que ele existe para pegar. Sem isto o carro não tem como receber APK novo.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc

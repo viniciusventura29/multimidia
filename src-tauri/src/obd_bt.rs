@@ -103,7 +103,8 @@ async fn preparar(app: &tauri::AppHandle) -> Result<String, ObdError> {
             )
         })?;
 
-        bt.connect(&escolhido.address, escolhido.kind).map_err(erro)?;
+        bt.connect(&escolhido.address, escolhido.kind)
+            .map_err(erro)?;
         Ok(format!(
             "{} ({}, {})",
             escolhido.name,
