@@ -1,0 +1,11 @@
+{
+  "name": "eclipse-web",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vercel/blob": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1"
+  }
+}

@@ -29,6 +29,7 @@ fn main() {
         ("anthropic_api_key.txt", "ECLIPSE_ANTHROPIC_API_KEY"),
         ("openrouter_api_key.txt", "ECLIPSE_OPENROUTER_API_KEY"),
         ("versao.txt", "ECLIPSE_VERSION_CODE"),
+        ("logs_chave.txt", "ECLIPSE_LOGS_CHAVE"),
     ] {
         println!("cargo:rerun-if-changed={arquivo}");
         if let Ok(valor) = std::fs::read_to_string(arquivo) {
