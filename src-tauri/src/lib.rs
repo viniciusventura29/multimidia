@@ -5,6 +5,7 @@
 
 mod assistente;
 mod atualizacao;
+mod diario;
 mod modules;
 mod obd_bt;
 
@@ -216,6 +217,25 @@ fn openrouter_api_key(dir_dados: &std::path::Path) -> Option<String> {
         "openrouter_api_key.txt",
     )
     .or_else(|| embutida(option_env!("ECLIPSE_OPENROUTER_API_KEY")))
+}
+
+/// Para onde o diário de bordo sobe, e com que chave.
+///
+/// Sem chave configurada, o diário continua gravando em disco e **não** envia
+/// nada. É o padrão certo: um build local não deve mandar log para lugar nenhum,
+/// e o arquivo sozinho já vale quando dá para plugar o cabo.
+///
+/// A URL tem padrão porque ela não é segredo — é o mesmo domínio de onde o carro
+/// baixa o APK. A chave segue o caminho das outras credenciais (ver
+/// `anthropic_api_key`), com a mesma ressalva: ela fica gravada no APK.
+fn central_de_logs(dir_dados: &std::path::Path) -> Option<(String, String)> {
+    let chave = credencial(dir_dados, "ECLIPSE_LOGS_CHAVE", "logs_chave.txt")
+        .or_else(|| embutida(option_env!("ECLIPSE_LOGS_CHAVE")))?;
+
+    let destino = credencial(dir_dados, "ECLIPSE_LOGS_URL", "logs_url.txt")
+        .unwrap_or_else(|| "https://eclipsegt.vercel.app/api/logs".to_string());
+
+    Some((destino, chave))
 }
 
 /// Um access token fresco do Spotify, para o Web Playback SDK.
@@ -584,14 +604,22 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
 /// dependências. `RUST_LOG` sobrepõe quando se quer investigar algo:
 /// `RUST_LOG=debug npm run tauri dev`.
 fn ligar_log() {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     let filtro = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("warn,eclipse_os_lib=info,eclipse_ia=info,eclipse_core=info,eclipse_music=info,eclipse_obd=info,eclipse_gps=info"));
 
+    // Duas camadas do MESMO evento, não dois logs: o console é para quem está
+    // olhando o `tauri dev`, e o caderno é para o carro, onde não há ninguém
+    // olhando. A do diário fica calada até o `setup()` dizer onde gravar.
+    //
     // `try_init` e não `init`: entrar em pânico por causa do log seria pior que
     // ficar sem log — e num teste que chame `run()` duas vezes o segundo falha.
-    let _ = fmt().with_env_filter(filtro).with_target(true).try_init();
+    let _ = tracing_subscriber::registry()
+        .with(filtro)
+        .with(fmt::layer().with_target(true))
+        .with(diario::CamadaDiario)
+        .try_init();
 }
 
 // ⚠️ O atributo tem que ficar COLADO no `run()`: é ele que faz o Android chamar
@@ -621,12 +649,27 @@ pub fn run() {
             imagem_ia,
             atualizacao::checar_atualizacao,
             atualizacao::baixar_atualizacao,
+            diario::anotar_do_painel,
         ])
         .setup(|app| {
             let dir = app
                 .path()
                 .app_data_dir()
                 .expect("sem diretório de dados do app");
+
+            // O diário antes de qualquer módulo: a partir daqui, todo `warn!` e
+            // `error!` do app — inclusive os do supervisor derrubando um módulo —
+            // fica gravado em disco mesmo sem ninguém olhando.
+            let diario = std::sync::Arc::new(diario::Diario::novo(&dir));
+            diario::instalar(std::sync::Arc::clone(&diario));
+            diario::capturar_panicos();
+            if let Some((destino, chave)) = central_de_logs(&dir) {
+                let sessao = Uuid::new_v4().to_string();
+                tracing::info!(%sessao, "diário de bordo ligado");
+                tauri::async_runtime::spawn(diario::enviar_periodicamente(
+                    diario, destino, chave, sessao,
+                ));
+            }
 
             let store = ProfileStore::load(dir.join("profiles.json"));
             let ativo = store.active().cloned();

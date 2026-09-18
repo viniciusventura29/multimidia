@@ -194,6 +194,24 @@ jobs:
           echo "embutidas=sim" >> "$GITHUB_OUTPUT"
           echo "três credenciais escritas em src-tauri/"
 
+      # A chave da central de logs entra SOZINHA, e não no grupo acima, porque
+      # ela é opcional de verdade: sem ela o diário de bordo continua gravando no
+      # disco da central e só não sobe nada. Um APK sem esta chave não é um APK
+      # mudo — é um APK que não conta o que aconteceu, e isso não justifica
+      # quebrar o build de quem clonou o repositório.
+      - name: a chave da central de logs (opcional)
+        env:
+          LOGS_CHAVE: ${{ secrets.ECLIPSE_LOGS_CHAVE }}
+        run: |
+          if [ -z "$LOGS_CHAVE" ]; then
+            echo "::warning title=APK sem central de logs::sem \
+          ECLIPSE_LOGS_CHAVE. O diário grava no carro e não sobe nada — os erros \
+          do carro seguem invisíveis daqui."
+            exit 0
+          fi
+          printf '%s' "$LOGS_CHAVE" > src-tauri/logs_chave.txt
+          echo "chave da central de logs escrita em src-tauri/"
+
       # O mesmo número por dois caminhos diferentes, e é de propósito: o gradle
       # lê a env var (ver `versionCode` no build.gradle.kts), o rustc lê o
       # arquivo (ver o comentário no build.rs, que explica por que o cache do

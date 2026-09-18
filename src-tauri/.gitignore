@@ -16,6 +16,8 @@
 # Chaves que GASTAM DINHEIRO (assistente) — jamais no git. O buraco já mordeu:
 # um `git add -A` chegou a commitar a da Anthropic (pega antes do push).
 /anthropic_api_key.txt
+/logs_chave.txt
+/logs_url.txt
 /openrouter_api_key.txt
 
 # O versionCode que a CI escreve antes de compilar; build local não tem,
