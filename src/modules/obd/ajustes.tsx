@@ -20,7 +20,13 @@ const HOLD_ANDANDO_MS = 1500;
  * ajustes mais importam — e o tanque se enche com o motor desligado, quando o ELM327
  * está dormindo. O que muda em movimento é o tempo de segurar, e um aviso.
  */
-export function Ajustes({ data }: { data: ObdReadings | null }) {
+export function Ajustes({
+  data,
+  aoAbrirAdaptador,
+}: {
+  data: ObdReadings | null;
+  aoAbrirAdaptador: () => void;
+}) {
   const t = data?.tanque ?? null;
   const andando = (data?.speedKmh ?? 0) > ANDANDO_KMH;
   const hold = andando ? HOLD_ANDANDO_MS : HOLD_PARADO_MS;
@@ -98,6 +104,11 @@ export function Ajustes({ data }: { data: ObdReadings | null }) {
           ms={hold}
           aoConfirmar={() => acaoObd({ acao: "zerarViagem" })}
         />
+        {/* Sem `Segurar`: abrir uma tela não apaga número nenhum, e exigir dedo
+            parado para ler uma lista seria cerimônia por cerimônia. */}
+        <button type="button" className="carro__link" onClick={aoAbrirAdaptador}>
+          adaptador OBD
+        </button>
       </div>
     </footer>
   );
