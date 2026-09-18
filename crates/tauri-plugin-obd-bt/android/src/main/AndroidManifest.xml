@@ -11,6 +11,14 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
 
+    <!-- Android 11 e abaixo exigem localização para QUALQUER busca de Bluetooth,
+         clássica ou BLE: sem ela a varredura volta VAZIA e sem erro nenhum, e o
+         dono conclui que o adaptador está quebrado. O app já a declara para o
+         `navigator.geolocation`; repetir aqui deixa o plugin inteiro por si. Só é
+         pedida em runtime quando `info.sdkInt <= 30` — no Android 12+ o
+         neverForLocation da BLUETOOTH_SCAN dispensa. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
     <!-- Android 11 e abaixo: instaladas junto, sem diálogo. -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
