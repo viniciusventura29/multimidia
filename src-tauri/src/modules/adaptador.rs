@@ -142,11 +142,23 @@ impl AdaptadorModule {
 
     async fn info(&self) -> InfoRadio {
         match self.no_radio(|r| r.info()).await {
-            Ok(i) => InfoRadio {
-                existe: i.existe,
-                ligado: i.ligado,
-                motivo: None,
-            },
+            Ok(i) => {
+                // Em `info` e não `debug` porque é a primeira pergunta de toda
+                // depuração de Bluetooth — em que Android este carro está? — e
+                // como o diário sobe o `info` em volta de cada erro, a resposta
+                // chega junto com o problema em vez de faltar justo nele.
+                tracing::info!(
+                    sdk = i.sdk_int,
+                    existe = i.existe,
+                    ligado = i.ligado,
+                    "rádio do aparelho"
+                );
+                InfoRadio {
+                    existe: i.existe,
+                    ligado: i.ligado,
+                    motivo: None,
+                }
+            }
             Err(motivo) => InfoRadio {
                 existe: false,
                 ligado: false,

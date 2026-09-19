@@ -55,9 +55,11 @@ class CommandArgs {
             alias = "bluetooth",
         ),
         // Android 11 e abaixo exigem localização para QUALQUER busca de Bluetooth,
-        // clássica ou BLE — sem ela a lista volta vazia e sem erro. O Rust só pede
-        // esta quando `info.sdkInt <= 30`; no Android 12+ o `neverForLocation` da
-        // BLUETOOTH_SCAN dispensa.
+        // clássica ou BLE — sem ela a lista volta vazia e sem erro. É a ÚNICA de
+        // runtime que existe lá, e o Rust pede só ela quando `sdkInt <= 30`: as
+        // duas de cima nasceram na API 31 e pedi-las num Android antigo devolve
+        // "denied" para sempre. No Android 12+ é o contrário — pede-se as de cima,
+        // e o `neverForLocation` da BLUETOOTH_SCAN dispensa esta aqui.
         Permission(
             strings = [Manifest.permission.ACCESS_FINE_LOCATION],
             alias = "location",
@@ -97,7 +99,19 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
         val ret = JSObject()
         ret.put("sdkInt", Build.VERSION.SDK_INT)
         ret.put("existe", adapter != null)
-        ret.put("ligado", adapter?.isEnabled ?: false)
+        // `isEnabled` exige BLUETOOTH_CONNECT no Android 12+ e joga
+        // SecurityException sem ela. Isto aqui é a PRIMEIRA coisa que o lado
+        // Rust chama — justamente para decidir QUAIS permissões pedir — então
+        // estourar aqui deixaria o app sem saber nem em que Android está.
+        ret.put(
+            "ligado",
+            try {
+                adapter?.isEnabled ?: false
+            } catch (e: SecurityException) {
+                Log.i(TAG, "ainda sem permissão para ler o estado do rádio: ${e.message}")
+                false
+            },
+        )
         invoke.resolve(ret)
     }
 
