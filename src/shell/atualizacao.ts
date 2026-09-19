@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { anotar } from "../core/diario";
+
 /**
  * Quanto esperar depois do boot antes da primeira pergunta.
  *
@@ -39,11 +41,17 @@ export interface Atualizacao {
 /**
  * "Tem versão nova?", e o toque que leva ao download.
  *
- * SILÊNCIO ABSOLUTO QUANDO FALHA. O `catch` não mexe no estado — nem para
- * limpar. Carro sem rede não vê nada: nem pílula, nem chip apagando, nem
+ * SILÊNCIO ABSOLUTO NA TELA QUANDO FALHA. O `catch` não mexe no estado — nem
+ * para limpar. Carro sem rede não vê nada: nem pílula, nem chip apagando, nem
  * `console.error` (que num aparelho sem SIM pareceria defeito onde não há).
  * Não limpar também evita o chip piscar: quem já sabe que existe a 43 continua
  * sabendo depois de entrar num túnel.
+ *
+ * Silêncio na tela, não no diário. Uma checagem que falha PARA SEMPRE — o
+ * manifesto mudou de formato, o release sumiu, a URL quebrou — é indistinguível
+ * de "não há versão nova": o carro simplesmente nunca avisa, e o dono fica para
+ * trás sem nada aparecer errado. O motorista não precisa saber disso; eu
+ * preciso. Por isso o erro vai para o diário de bordo, que é lido daqui.
  *
  * O `StrictMode` monta duas vezes em desenvolvimento, mas o primeiro cleanup
  * derruba o timer bem antes dos 60 s — nenhuma pergunta duplicada sai daqui.
@@ -69,6 +77,13 @@ export function useAtualizacao(): {
         proximo = DESCANSO_MS;
       } catch (err) {
         console.debug("[eclipse] não deu para checar atualização", err);
+        // `aviso` e não `erro`: sem rede é o caso NORMAL do carro, e um erro a
+        // cada ignição transformaria o diário em ruído. Como aviso ele sobe do
+        // mesmo jeito, e o que interessa é o padrão — falhar uma vez é a
+        // garagem sem Wi-Fi; falhar sempre é a checagem quebrada.
+        anotar("aviso", "atualizacao", "não deu para checar se há versão nova", {
+          motivo: String(err).slice(0, 300),
+        });
       }
       if (vivo) timer = setTimeout(() => void perguntar(), proximo);
     };
@@ -84,9 +99,15 @@ export function useAtualizacao(): {
   // pede o efeito de um toque, não o inventa (mesmo princípio do
   // `dispatch_action`).
   const baixar = useCallback(() => {
-    void invoke("baixar_atualizacao").catch((err) =>
-      console.debug("[eclipse] não deu para abrir o navegador", err),
-    );
+    void invoke("baixar_atualizacao").catch((err) => {
+      console.debug("[eclipse] não deu para abrir o navegador", err);
+      // Este é pior que o de cima: o dono TOCOU no aviso, quis atualizar, e
+      // nada aconteceu. Na tela continua não havendo o que dizer, mas isto não
+      // pode passar despercebido por aqui.
+      anotar("erro", "atualizacao", "o toque em atualizar não abriu o navegador", {
+        motivo: String(err).slice(0, 300),
+      });
+    });
   }, []);
 
   return { nova, baixar };
