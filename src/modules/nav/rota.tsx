@@ -104,6 +104,7 @@ export function BuscarRota({
   fix,
   buscando,
   erro,
+  motivoSemGps,
 }: {
   rota: Rota | null;
   apiKey: string;
@@ -112,6 +113,9 @@ export function BuscarRota({
   fix: Fix | null;
   buscando: boolean;
   erro: string | null;
+  /** Por que não há posição, quando não há. `null` quando o GPS fixou. É o que
+   *  o campo mostra para o botão "ir" apagado não ficar mudo. */
+  motivoSemGps: string | null;
 }) {
   const [destino, setDestino] = useState("");
   const { sugestoes, limpar } = useSugestoes(destino, apiKey, fix);
@@ -200,7 +204,10 @@ export function BuscarRota({
           className="rota__campo"
           value={destino}
           onChange={(e) => setDestino(e.target.value)}
-          placeholder={erro ?? "para onde?"}
+          // Sem GPS não há origem, e o "ir" está apagado; dizer o motivo aqui é
+          // melhor que um botão morto sem explicação. Com posição, volta a valer
+          // o erro da última busca de rota, ou o convite de sempre.
+          placeholder={motivoSemGps ?? erro ?? "para onde?"}
           aria-label="Destino"
         />
         <button
