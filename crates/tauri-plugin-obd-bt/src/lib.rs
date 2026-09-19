@@ -104,26 +104,36 @@ mod imp {
             Ok(self.plugin_handle.run_mobile_plugin("info", ())?)
         }
 
-        /// Garante as permissões de Bluetooth (runtime no Android 12+).
+        /// Garante as permissões de Bluetooth.
         ///
-        /// Bloqueia até o usuário responder o diálogo. Sem elas não dá nem para
-        /// listar os pareados, então isto vem antes de tudo.
+        /// ⚠️ **`BLUETOOTH_CONNECT` e `BLUETOOTH_SCAN` nasceram na API 31.** No
+        /// Android 11 e abaixo elas não existem: `checkSelfPermission` devolve
+        /// `denied` para sempre, `requestPermissions` não mostra diálogo nenhum
+        /// (o sistema ignora permissão que não conhece), e exigir `granted`
+        /// trava o módulo OBD num laço de reinício por uma permissão que aquele
+        /// aparelho não tem como conceder. Foi assim que a primeira ignição de
+        /// verdade terminou — o diário do carro gravou oito reinícios em 60s
+        /// com "permissão de Bluetooth negada", e a permissão não existia.
         ///
-        /// A de localização entra **só** no Android 11 e abaixo, onde buscar
-        /// Bluetooth exige localização. Pedi-la no Android 12+ seria um diálogo
-        /// assustador ("o painel do carro quer sua localização") por nada.
+        /// Lá quem vale é `BLUETOOTH`/`BLUETOOTH_ADMIN`, declaradas no manifesto
+        /// com `maxSdkVersion=30`: são normais, entram na instalação e não têm
+        /// diálogo. A única de runtime que importa no Android antigo é a de
+        /// localização, e ela é **desejável, não obrigatória** — sem ela a busca
+        /// volta vazia, mas conectar num adaptador já escolhido continua
+        /// funcionando, que é o que acontece em toda ignição.
         pub fn ensure_permissions(&self) -> crate::Result<()> {
-            let precisa_local = self.info().map(|i| i.sdk_int <= 30).unwrap_or(false);
+            let info = self.info()?;
+            let moderno = info.sdk_int >= 31;
 
             let atual: PermStatus = self
                 .plugin_handle
                 .run_mobile_plugin("checkPermissions", ())?;
 
             let mut faltando = Vec::new();
-            if atual.bluetooth.as_deref() != Some("granted") {
+            if moderno && atual.bluetooth.as_deref() != Some("granted") {
                 faltando.push("bluetooth".to_string());
             }
-            if precisa_local && atual.location.as_deref() != Some("granted") {
+            if !moderno && atual.location.as_deref() != Some("granted") {
                 faltando.push("location".to_string());
             }
             if faltando.is_empty() {
@@ -137,13 +147,27 @@ mod imp {
                 },
             )?;
 
-            // A de localização é desejável, não obrigatória: sem ela a busca volta
-            // vazia num Android antigo, mas conectar num adaptador já conhecido
-            // continua funcionando — e é isso que acontece em toda ignição.
+            if !moderno {
+                if depois.location.as_deref() != Some("granted") {
+                    // Não é erro: é o aviso que explica uma lista vazia mais
+                    // tarde, e agora ele sobe no diário em vez de sumir.
+                    tracing::warn!(
+                        sdk = info.sdk_int,
+                        "sem permissão de localização: neste Android a BUSCA volta vazia, \
+                         mas conectar no adaptador já escolhido segue funcionando"
+                    );
+                }
+                return Ok(());
+            }
+
             if depois.bluetooth.as_deref() == Some("granted") {
                 Ok(())
             } else {
-                Err(crate::Error::PermissionDenied)
+                Err(crate::Error::PermissionDenied {
+                    sdk: info.sdk_int,
+                    bluetooth: depois.bluetooth.unwrap_or_else(|| "?".into()),
+                    localizacao: depois.location.unwrap_or_else(|| "?".into()),
+                })
             }
         }
 
@@ -316,7 +340,11 @@ mod imp {
             let mut fake = self.fake()?;
             // O fone nunca pareia: é o caso de erro que a tela precisa saber pintar.
             if address.starts_with("11:22") {
-                return Err(crate::Error::PermissionDenied);
+                return Err(crate::Error::PermissionDenied {
+                    sdk: 30,
+                    bluetooth: "denied".into(),
+                    localizacao: "granted".into(),
+                });
             }
             if !fake.pareados.iter().any(|p| p == address) {
                 fake.pareados.push(address.to_string());
