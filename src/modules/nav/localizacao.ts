@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { anotar } from "../../core/diario";
 import { metros, rumoEntre } from "./geo";
 
 /** Abaixo disto o GPS é considerado parado — o mesmo 1,4 m/s (~5 km/h) que o
@@ -32,6 +33,10 @@ export function useLocalizacaoReal(): void {
   // A última posição usada para deduzir rumo. Não é a última leitura: é a
   // última que ficou longe o bastante da anterior para a dedução valer.
   const ultimoPonto = useRef<{ lat: number; lon: number } | null>(null);
+  // Só para o console dizer, uma vez, que o GPS chegou a fixar. Numa head unit
+  // onde o WebView pode nunca entregar posição, "fixou?" é a primeira pergunta
+  // da depuração, e a resposta tem que caber num logcat sem inundá-lo.
+  const jaLogouFix = useRef(false);
 
   useEffect(() => {
     if (!("geolocation" in navigator)) {
@@ -42,6 +47,15 @@ export function useLocalizacaoReal(): void {
     const id = navigator.geolocation.watchPosition(
       (posicao) => {
         const { latitude, longitude, heading, speed, accuracy } = posicao.coords;
+
+        if (!jaLogouFix.current) {
+          jaLogouFix.current = true;
+          console.info("[eclipse] GPS fixou", { latitude, longitude, accuracy });
+          // Também no diário: "fixou?" é a primeira pergunta da depuração, e o
+          // console da head unit não é lido por ninguém. A coordenada é
+          // arredondada na saída pelo próprio diário.
+          anotar("info", "nav", "GPS fixou", { latitude, longitude, accuracy });
+        }
 
         const aqui = { lat: latitude, lon: longitude };
 
@@ -85,6 +99,26 @@ export function useLocalizacaoReal(): void {
         }).catch((err) => console.error("[eclipse] falha ao repassar posição", err));
       },
       (erro) => {
+        // Antes este erro era engolido em silêncio, e a falha ficava invisível:
+        // na central o mapa parava em São Paulo sem uma linha no console. O
+        // código diz de que falha se trata — 1 = permissão negada, 2 = posição
+        // indisponível (o caso provável quando a ROM não expõe o GPS ao Android),
+        // 3 = timeout — e é ele que separa "sem permissão" de "o Android nem vê
+        // o GPS" na hora de depurar na head unit.
+        console.warn("[eclipse] geolocalização falhou", erro.code, erro.message);
+        // `aviso` e não `erro`: perder o sinal num túnel é normal. O que denuncia
+        // o problema de verdade é o código repetido para sempre — 1 é permissão
+        // negada, 2 é a ROM não expondo o GPS ao Android, 3 é nunca fixar.
+        anotar("aviso", "nav", "geolocalização falhou", {
+          codigo: erro.code,
+          motivo: erro.message,
+          significado:
+            erro.code === 1
+              ? "permissão negada"
+              : erro.code === 2
+                ? "posição indisponível (a ROM pode não expor o GPS)"
+                : "timeout: nenhum fix dentro do teto",
+        });
         // Código 1 = PERMISSION_DENIED na spec do Geolocation API — comparar
         // pelo número em vez de uma constante evita depender de qual versão
         // do lib.dom.d.ts está instalada.
@@ -92,7 +126,17 @@ export function useLocalizacaoReal(): void {
           permissaoNegada: erro.code === 1,
         }).catch(() => {});
       },
-      { enableHighAccuracy: true, maximumAge: 5_000 },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5_000,
+        // Sem `timeout`, `watchPosition` pode esperar para sempre por uma
+        // posição que não vem — nem sucesso, nem erro — e era isso que deixava a
+        // central parada no ponto inicial sem nenhum sinal de que algo falhou.
+        // Com teto, a ausência de fix vira um erro código 3 (TIMEOUT) visível.
+        // Vinte segundos é folga para um GPS frio de verdade, curto o bastante
+        // para a depuração não ter que esperar um minuto por resposta.
+        timeout: 20_000,
+      },
     );
 
     return () => navigator.geolocation.clearWatch(id);

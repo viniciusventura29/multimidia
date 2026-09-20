@@ -533,6 +533,7 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
 function Painel({
   data,
   status,
+  reason,
   coberto,
   expandido,
 }: TileView<MapaState> & { expandido: boolean }) {
@@ -552,6 +553,12 @@ function Painel({
   useEffect(() => {
     falar(data?.fala ?? null);
   }, [data?.fala]);
+
+  // Sem posição não há de onde partir uma rota, e o botão "ir" fica apagado.
+  // Antes ele emudecia; agora o campo de busca diz por quê — o motivo é o que o
+  // `nav` degradado publicou (permissão negada, sem sinal), com um texto padrão
+  // para o instante inicial antes de o GPS reportar qualquer coisa.
+  const motivoSemGps = data && !data.fix ? (reason ?? "sem sinal de GPS") : null;
 
   return (
     <div className={`mapa mapa--vivo${status === "degraded" ? " mapa--sem-sinal" : ""}`}>
@@ -601,6 +608,7 @@ function Painel({
             apiKey={data.apiKey}
             buscando={data.buscando}
             erro={data.erro}
+            motivoSemGps={motivoSemGps}
           />
         ) : (
           // O mapa não precisa de chave nenhuma; a busca de endereço precisa.
