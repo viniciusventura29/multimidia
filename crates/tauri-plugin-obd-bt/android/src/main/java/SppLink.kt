@@ -92,7 +92,6 @@ internal class SppLink private constructor(private val socket: BluetoothSocket) 
                 Log.w(TAG, "não consegui fechar o socket que falhou: ${e.message}")
             }
         }
-        }
     }
 
     override fun send(cmd: String, timeoutMs: Int): String {

@@ -51,6 +51,19 @@ name: apk
 on:
   push:
     branches: [main]
+  # Também em PR, e isto não é zelo: o Kotlin do plugin de Bluetooth — busca,
+  # pareamento, o socket SPP, o GATT — só era compilado AQUI, depois do merge.
+  # Nenhuma das três checagens do `ci.yml` olha uma linha de Kotlin: elas
+  # compilam o Rust para o Android e param aí.
+  #
+  # O preço apareceu: um erro de chave no `SppLink.kt` passou por `rust`,
+  # `android` e `frontend` todos verdes, entrou na main e quebrou o APK do
+  # carro — que é o único caminho de atualização da head unit. O canário
+  # noturno pegaria na manhã seguinte; o dono, na hora de instalar.
+  #
+  # Rodar em PR não publica nada: assinar e publicar já são condicionados a
+  # `refs/heads/main` desde o #51.
+  pull_request:
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
