@@ -115,6 +115,26 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(ret)
     }
 
+    /**
+     * Sonda temporária: o Spotify deixa o Eclipse navegar na biblioteca dele?
+     *
+     * Não tem nada a ver com Bluetooth e está aqui por economia — ver
+     * `SondaMedia.kt`. Sai quando a resposta chegar.
+     */
+    @Command
+    fun sondarMedia(invoke: Invoke) {
+        io.execute {
+            try {
+                val json = SondaMedia.sondar(activity)
+                val ret = JSObject()
+                ret.put("json", json.toString())
+                invoke.resolve(ret)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
     @Command
     fun listBonded(invoke: Invoke) {
         ctrl.execute {
