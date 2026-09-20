@@ -1,4 +1,4 @@
-import { ArrowDownToLine } from "lucide-react";
+import { ArrowDownToLine, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { shallowEqual, useModuleSelector } from "../core/moduleStore";
@@ -30,16 +30,24 @@ import { BateriaIcon, GasolinaIcon } from "./indicadores";
  */
 export function BarraStatus() {
   // Fatia com igualdade: um tick de RPM não re-renderiza a barra — só quando
-  // voltagem, nível ou autonomia mudam de verdade.
-  const { voltage, fuel, autonomia } = useModuleSelector<
+  // voltagem, nível, autonomia ou a luz de injeção mudam de verdade.
+  const { voltage, fuel, autonomia, luzInjecao, falhas } = useModuleSelector<
     ObdReadings,
-    { voltage: number | null; fuel: number | null; autonomia: number | null }
+    {
+      voltage: number | null;
+      fuel: number | null;
+      autonomia: number | null;
+      luzInjecao: boolean | null;
+      falhas: number | null;
+    }
   >(
     "obd",
     (obd) => ({
       voltage: obd?.voltage ?? null,
       fuel: obd?.fuelPct ?? null,
       autonomia: obd?.tanque?.autonomiaKm ?? null,
+      luzInjecao: obd?.luzInjecao ?? null,
+      falhas: obd?.falhasGuardadas ?? null,
     }),
     shallowEqual,
   );
@@ -95,6 +103,27 @@ export function BarraStatus() {
             className="barra__icone"
           />
           {`${clima.tempC.toFixed(0)}°`}
+        </span>
+      )}
+
+      {/* A luz de injeção do painel do carro, repetida aqui — e isso não é
+          redundância: o painel de 2000 acende uma lâmpada e não diz mais nada,
+          enquanto a ECU sabe QUANTAS falhas guardou. O número é o que separa
+          "deu um perdido de ignição" de "tem coisa acontecendo".
+
+          Só aparece acesa. Um ícone apagado ocupando a barra o tempo todo seria
+          ruído — e pior, acostumaria o olho a ignorar aquele canto. */}
+      {luzInjecao && (
+        <span
+          className="barra__item barra__item--alerta"
+          title={
+            falhas
+              ? `${falhas} ${falhas === 1 ? "falha guardada" : "falhas guardadas"} na injeção`
+              : "luz de injeção acesa"
+          }
+        >
+          <TriangleAlert className="barra__icone" aria-hidden />
+          {falhas ? falhas : "!"}
         </span>
       )}
 

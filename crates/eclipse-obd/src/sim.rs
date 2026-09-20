@@ -173,6 +173,16 @@ impl ObdSource for SimulatedSource {
             Pid::Map => 25.0 + self.carga_pct() * 0.65,
             Pid::Iat => AR_ADMITIDO_C,
             Pid::VazaoComb => vazao_lh(self.speed),
+            // Carro de mentira é carro saudável: sem luz, sem falha guardada.
+            Pid::Falhas => 0.0,
+            // Trims pequenos e opostos, como num motor em ordem: a ECU corrige
+            // um pouco para um lado no curto e compensou para o outro no longo.
+            Pid::TrimCurto => 2.3,
+            Pid::TrimLongo => -1.6,
+            // A sonda oscila — é justamente isso que a diferencia de uma morta.
+            // A de trás é lenta de propósito: ela fica depois do catalisador.
+            Pid::Lambda1 => 0.45 + 0.4 * (self.speed * 3.0).sin(),
+            Pid::Lambda2 => 0.62,
         })
     }
 }

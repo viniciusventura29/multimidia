@@ -37,6 +37,17 @@ export interface ObdReadings {
   iatC: number | null;
   /** Vazão que o próprio carro calcula. Raro antes de 2010. */
   vazaoLh: number | null;
+  /** A luz de injeção está acesa? Vem do PID `01`. */
+  luzInjecao: boolean | null;
+  /** Quantas falhas a ECU tem guardadas. */
+  falhasGuardadas: number | null;
+  /** Ajuste de combustível de curto prazo, em % de desvio. */
+  trimCurtoPct: number | null;
+  /** Ajuste de longo prazo, em % — é aqui que problema crônico aparece. */
+  trimLongoPct: number | null;
+  /** Tensão da sonda lambda, em volts. Sonda viva oscila; morta trava no meio. */
+  lambda1V: number | null;
+  lambda2V: number | null;
   consumo: Consumo;
   tanque: Tanque;
   viagem: Viagem;

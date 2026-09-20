@@ -19,6 +19,33 @@ const FALTAS_PARA_DESISTIR: u8 = 3;
 const RAPIDOS_BASE: [Pid; 2] = [Pid::Rpm, Pid::Speed];
 const LENTOS_BASE: [Pid; 3] = [Pid::Coolant, Pid::Fuel, Pid::Voltage];
 
+/// Diagnóstico: importa que exista, não que seja recente.
+///
+/// Estes NÃO entram na roda dos lentos, e o motivo é aritmético. A varredura lê
+/// um lento por ciclo, então cada lento volta a cada `lentos.len()` ciclos —
+/// somar cinco PIDs aos três de hoje faria a temperatura da água demorar 12 s
+/// em vez de 4,5. Trocar a resposta dos mostradores que o motorista olha
+/// dirigindo por um trim que muda de minuto em minuto seria um péssimo negócio.
+///
+/// Então eles têm um slot próprio, e raro: a cada [`CICLOS_POR_RARO`] ciclos, o
+/// slot do lento é emprestado para um deles. Falha guardada, trim e sonda
+/// respondem perguntas de oficina ("esse motor está saudável?"), e meio minuto
+/// de atraso não muda nenhuma delas.
+const RAROS_BASE: [Pid; 5] = [
+    Pid::Falhas,
+    Pid::TrimCurto,
+    Pid::TrimLongo,
+    Pid::Lambda1,
+    Pid::Lambda2,
+];
+
+/// De quantos em quantos ciclos um PID raro rouba o slot do lento.
+///
+/// Oito ciclos é cerca de 12 s. Com cinco raros na roda, cada um volta a cada
+/// minuto — e nenhum mostrador do painel perde mais que um oitavo da sua
+/// cadência para isso.
+const CICLOS_POR_RARO: usize = 8;
+
 /// A ordem em que os PIDs são varridos.
 ///
 /// Um ciclo é: todos os rápidos, e **um** lento. Assim RPM, velocidade e a fonte de ar
@@ -32,6 +59,7 @@ const LENTOS_BASE: [Pid; 3] = [Pid::Coolant, Pid::Fuel, Pid::Voltage];
 pub struct Plano {
     rapidos: Vec<Pid>,
     lentos: Vec<Pid>,
+    raros: Vec<Pid>,
 }
 
 impl Plano {
@@ -61,6 +89,8 @@ impl Plano {
         let mut lentos: Vec<Pid> = LENTOS_BASE.into_iter().filter(|p| vale(*p)).collect();
         lentos.extend(metodo.pids_lentos().iter().copied().filter(|p| vale(*p)));
 
+        let raros: Vec<Pid> = RAROS_BASE.into_iter().filter(|p| vale(*p)).collect();
+
         // Um plano vazio faria o poller girar em falso sem nunca ler nada, e o
         // supervisor não teria erro nenhum para reagir. Se sobrou só o adaptador,
         // insiste no RPM: sem ele não há painel.
@@ -68,7 +98,11 @@ impl Plano {
             rapidos.push(Pid::Rpm);
         }
 
-        Self { rapidos, lentos }
+        Self {
+            rapidos,
+            lentos,
+            raros,
+        }
     }
 
     /// Quantas leituras tem um ciclo completo.
@@ -80,11 +114,17 @@ impl Plano {
     fn em(&self, tick: usize) -> Pid {
         let tamanho = self.tamanho();
         let passo = tick % tamanho;
-        match self.rapidos.get(passo) {
-            Some(pid) => *pid,
-            // Passou dos rápidos: é o slot do lento, que gira a cada ciclo.
-            None => self.lentos[(tick / tamanho) % self.lentos.len()],
-        }
+        let Some(pid) = self.rapidos.get(passo) else {
+            // Passou dos rápidos: é o slot do lento, que gira a cada ciclo — e
+            // que de vez em quando é emprestado para um raro.
+            let ciclo = tick / tamanho;
+            if !self.raros.is_empty() && ciclo % CICLOS_POR_RARO == CICLOS_POR_RARO - 1 {
+                let volta = ciclo / CICLOS_POR_RARO;
+                return self.raros[volta % self.raros.len()];
+            }
+            return self.lentos[ciclo % self.lentos.len()];
+        };
+        *pid
     }
 
     pub fn rapidos(&self) -> &[Pid] {
@@ -93,6 +133,10 @@ impl Plano {
 
     pub fn lentos(&self) -> &[Pid] {
         &self.lentos
+    }
+
+    pub fn raros(&self) -> &[Pid] {
+        &self.raros
     }
 }
 
@@ -483,6 +527,85 @@ mod tests {
         assert!(!poller.plano().lentos().contains(&Pid::Voltage));
         // E os outros lentos continuam girando normalmente.
         assert!(poller.plano().lentos().contains(&Pid::Coolant));
+    }
+
+    /// Quantos ticks separam duas leituras do mesmo PID.
+    fn cadencia(plano: &Plano, alvo: Pid, ticks: usize) -> Option<usize> {
+        let mut vistos: Vec<usize> = (0..ticks).filter(|t| plano.em(*t) == alvo).collect();
+        if vistos.len() < 2 {
+            return None;
+        }
+        vistos.dedup();
+        Some(vistos[1] - vistos[0])
+    }
+
+    /// Um carro como o do Eclipse: os 16 PIDs que ele respondeu de verdade.
+    fn carro_do_eclipse() -> Capacidades {
+        cap_com(&[
+            0x01, 0x03, 0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x13, 0x14,
+            0x15, 0x1C,
+        ])
+    }
+
+    #[test]
+    fn o_diagnostico_nao_rouba_a_cadencia_dos_mostradores() {
+        let sem = HashSet::new();
+        let cap = carro_do_eclipse();
+        let plano = Plano::montar(cap, MetodoFluxo::escolher(cap), &sem);
+
+        assert!(
+            !plano.raros().is_empty(),
+            "esse carro responde falha, trim e sonda"
+        );
+
+        // A pergunta que importa: a temperatura da água continua voltando na
+        // mesma cadência de antes dos raros existirem? Se os cinco tivessem
+        // entrado na roda dos lentos, ela cairia de 3 para 8 voltas.
+        let tamanho = plano.rapidos().len() + 1;
+        let agua = cadencia(&plano, Pid::Coolant, tamanho * CICLOS_POR_RARO * 4)
+            .expect("a água tem que ser lida");
+        assert_eq!(
+            agua,
+            tamanho * plano.lentos().len(),
+            "a água volta a cada {} ciclos, como antes",
+            plano.lentos().len()
+        );
+    }
+
+    #[test]
+    fn os_raros_entram_na_roda_mesmo_que_devagar() {
+        let sem = HashSet::new();
+        let cap = carro_do_eclipse();
+        let plano = Plano::montar(cap, MetodoFluxo::escolher(cap), &sem);
+
+        let tamanho = plano.rapidos().len() + 1;
+        // Uma volta inteira dos raros: cada um precisa aparecer ao menos uma vez.
+        let ticks = tamanho * CICLOS_POR_RARO * plano.raros().len();
+        for raro in plano.raros() {
+            assert!(
+                (0..ticks).any(|t| plano.em(t) == *raro),
+                "{raro:?} nunca foi lido em uma volta inteira"
+            );
+        }
+    }
+
+    #[test]
+    fn carro_sem_diagnostico_nao_ganha_slot_vazio() {
+        // Carro que não responde nenhum dos raros: o slot do lento não pode ser
+        // emprestado para ninguém, senão vira uma leitura perdida por volta.
+        let sem = HashSet::new();
+        let cap = cap_com(&[0x04, 0x05, 0x0C, 0x0D, 0x10]);
+        let plano = Plano::montar(cap, MetodoFluxo::escolher(cap), &sem);
+
+        assert!(plano.raros().is_empty());
+        let tamanho = plano.rapidos().len() + 1;
+        for t in 0..tamanho * 20 {
+            let pid = plano.em(t);
+            assert!(
+                plano.rapidos().contains(&pid) || plano.lentos().contains(&pid),
+                "{pid:?} não devia estar na varredura"
+            );
+        }
     }
 
     /// Uma fonte que falha as `n` primeiras leituras e depois responde.
