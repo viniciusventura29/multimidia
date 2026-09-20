@@ -44,7 +44,12 @@ export function useLocalizacaoReal(): void {
       return;
     }
 
-    const id = navigator.geolocation.watchPosition(
+    // O watch é recriado quando a precisão alta desiste — ver `ALTA` abaixo.
+    let id = 0;
+    let altaPrecisao = true;
+
+    const abrirWatch = () =>
+      navigator.geolocation.watchPosition(
       (posicao) => {
         const { latitude, longitude, heading, speed, accuracy } = posicao.coords;
 
@@ -106,6 +111,24 @@ export function useLocalizacaoReal(): void {
         // 3 = timeout — e é ele que separa "sem permissão" de "o Android nem vê
         // o GPS" na hora de depurar na head unit.
         console.warn("[eclipse] geolocalização falhou", erro.code, erro.message);
+
+        // Código 3 com precisão alta é o caso desta central: ela TEM o provedor
+        // (senão seria 2) e mesmo assim não entrega posição em 20 s. Com
+        // `enableHighAccuracy` o Android encosta no GPS por satélite, que numa
+        // head unit depende da antena estar plugada e com vista para o céu.
+        //
+        // Antes de concluir que é hardware, vale a pena descer um degrau: sem
+        // precisão alta o Android pode responder com a posição de rede, que é
+        // grosseira (centenas de metros) mas CHEGA — e o mapa centrado na cidade
+        // certa já é infinitamente melhor que parado em São Paulo. Quem dirige
+        // quer saber onde está, não com quantos metros de erro.
+        if (erro.code === 3 && altaPrecisao) {
+          altaPrecisao = false;
+          anotar("aviso", "nav", "sem fix por satélite; tentando pela rede", {});
+          navigator.geolocation.clearWatch(id);
+          id = abrirWatch();
+          return;
+        }
         // `aviso` e não `erro`: perder o sinal num túnel é normal. O que denuncia
         // o problema de verdade é o código repetido para sempre — 1 é permissão
         // negada, 2 é a ROM não expondo o GPS ao Android, 3 é nunca fixar.
@@ -127,7 +150,8 @@ export function useLocalizacaoReal(): void {
         }).catch(() => {});
       },
       {
-        enableHighAccuracy: true,
+        // Cai para `false` depois de um timeout — ver o tratamento do código 3.
+        enableHighAccuracy: altaPrecisao,
         maximumAge: 5_000,
         // Sem `timeout`, `watchPosition` pode esperar para sempre por uma
         // posição que não vem — nem sucesso, nem erro — e era isso que deixava a
@@ -138,6 +162,8 @@ export function useLocalizacaoReal(): void {
         timeout: 20_000,
       },
     );
+
+    id = abrirWatch();
 
     return () => navigator.geolocation.clearWatch(id);
   }, []);
