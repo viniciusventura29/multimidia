@@ -290,12 +290,26 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
         return obj
     }
 
+    /**
+     * Fecha a conexão anterior antes de abrir outra.
+     *
+     * A espera depois do `close` não é frescura: a pilha de Bluetooth do Android
+     * não solta o canal RFCOMM na mesma instância em que o socket é fechado, e
+     * reconectar no mesmo adaptador imediatamente falha com "read failed, socket
+     * might closed or timeout". Como quem chama isto é o `connect` depois de uma
+     * queda, é exatamente o caminho do reinício do módulo OBD.
+     */
     private fun fecharCalado() {
-        link?.close()
+        val anterior = link ?: return
+        anterior.close()
         link = null
+        Thread.sleep(ESPERA_APOS_FECHAR_MS)
     }
 
     private companion object {
+        /** Ver `fecharCalado`. */
+        const val ESPERA_APOS_FECHAR_MS = 500L
+
         /** Conectar por GATT é rápido quando dá certo; 15s já é desistência. */
         const val ESPERA_BLE_MS = 15_000L
     }

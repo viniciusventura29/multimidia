@@ -20,6 +20,15 @@ internal class SppLink private constructor(private val socket: BluetoothSocket) 
         /** UUID padrão do Serial Port Profile — é o que o ELM327 fala. */
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
+        /**
+         * Entre fechar um socket que falhou e tentar o próximo.
+         *
+         * Meio segundo é o que a pilha de Bluetooth do Android costuma levar para
+         * soltar o canal de verdade. Não é folga de estilo: sem ela a segunda
+         * tentativa falha pela sujeira da primeira, e não por si.
+         */
+        private const val ESPERA_ENTRE_TENTATIVAS_MS = 500L
+
         fun abrir(adapter: BluetoothAdapter, device: BluetoothDevice): SppLink {
             // Descoberta ativa deixa o handshake do RFCOMM lento e instável — mas
             // cancelar é só otimização, e exige BLUETOOTH_SCAN. Se o usuário negou
@@ -30,21 +39,59 @@ internal class SppLink private constructor(private val socket: BluetoothSocket) 
                 Log.w(TAG, "sem BLUETOOTH_SCAN para cancelDiscovery; seguindo sem cancelar")
             }
 
-            val socket = try {
-                val spp = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                spp.connect() // bloqueia até conectar ou estourar
-                spp
+            return SppLink(conectar(device))
+        }
+
+        /**
+         * Abre o socket, com as duas tentativas e — o que faltava — fechando o
+         * que não deu certo.
+         *
+         * Um socket RFCOMM que falhou no `connect` e não foi fechado continua
+         * segurando recurso na pilha de Bluetooth do Android, e a tentativa
+         * seguinte contra o MESMO aparelho falha com "read failed, socket might
+         * closed or timeout, read ret: -1" — que foi exatamente o que o diário
+         * de bordo trouxe do carro, duas vezes seguidas antes de conectar na
+         * terceira. Cada tentativa perdida custava um reinício do módulo.
+         */
+        private fun conectar(device: BluetoothDevice): BluetoothSocket {
+            val porServiceRecord = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            try {
+                porServiceRecord.connect() // bloqueia até conectar ou estourar
+                return porServiceRecord
             } catch (e: Exception) {
                 // Clones de ELM327 às vezes não anunciam o service record direito;
                 // o caminho clássico é cair para o canal RFCOMM 1 por reflexão (o
                 // mesmo que os apps de scanner fazem).
                 Log.w(TAG, "SPP por service record falhou (${e.message}); tentando canal 1")
-                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                val canal1 = m.invoke(device, 1) as BluetoothSocket
-                canal1.connect()
-                canal1
+                fecharCalado(porServiceRecord)
             }
-            return SppLink(socket)
+
+            // Respirar entre as duas: a pilha do Android não libera o canal na
+            // mesma instância em que o socket é fechado, e emendar o segundo
+            // `connect` no primeiro faz a queda para o canal 1 falhar por um
+            // motivo que não é o dela.
+            Thread.sleep(ESPERA_ENTRE_TENTATIVAS_MS)
+
+            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+            val canal1 = m.invoke(device, 1) as BluetoothSocket
+            try {
+                canal1.connect()
+                return canal1
+            } catch (e: Exception) {
+                // Também aqui: sem fechar, o próximo `connect` herda a sujeira
+                // desta tentativa e falha por ela, não por si.
+                fecharCalado(canal1)
+                throw e
+            }
+        }
+
+        private fun fecharCalado(socket: BluetoothSocket) {
+            try {
+                socket.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "não consegui fechar o socket que falhou: ${e.message}")
+            }
+        }
         }
     }
 
