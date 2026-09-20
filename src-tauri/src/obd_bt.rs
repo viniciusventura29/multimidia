@@ -183,6 +183,116 @@ pub async fn conectar(
     Elm327Source::conectar(AndroidBtTransport { app: app.clone() }).await
 }
 
+/// Puxa a posição do Android e empurra para o módulo `nav`.
+///
+/// O `navigator.geolocation` nunca entregou nada nesta central: satélite e rede
+/// falharam com o MESMO timeout, e esse empate é a assinatura de um pedido que
+/// não chega ao sistema — a WebView do Android só libera geolocalização para a
+/// página se o app responder o `onGeolocationPermissionsShowPrompt`, e o Tauri
+/// não responde. Então a posição passa a vir por fora da WebView.
+///
+/// Sondagem em vez de callback: o plugin Android é pergunta-e-resposta, e 1 Hz
+/// é de sobra para um mapa de carro. O ouvinte do lado Kotlin é quem acumula as
+/// posições; aqui só se lê o que ele tem de mais fresco.
+#[cfg(mobile)]
+pub fn bombear_localizacao(app: tauri::AppHandle, emissor: eclipse_gps::Emissor) {
+    use serde::Deserialize;
+
+    /// O que o Kotlin devolve. Ver `Localizacao.ultima`.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Posicao {
+        tem: bool,
+        #[serde(default)]
+        motivo: String,
+        #[serde(default)]
+        lat: f64,
+        #[serde(default)]
+        lon: f64,
+        #[serde(default)]
+        velocidade_ms: f32,
+        #[serde(default)]
+        rumo: f32,
+        #[serde(default)]
+        precisao_m: f32,
+        #[serde(default)]
+        provedor: String,
+        #[serde(default)]
+        idade_ms: i64,
+    }
+
+    tauri::async_runtime::spawn(async move {
+        let mut relatou_fix = false;
+        let mut relatou_falta = false;
+        // Rumo da leitura anterior: parado, o Android devolve `-1` (não sei), e
+        // sem guardar o último a seta do mapa voltaria ao norte a cada parada.
+        let mut ultimo_rumo = 0.0_f32;
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+            let app2 = app.clone();
+            let bruto = tokio::task::spawn_blocking(move || app2.obd_bt().ultima_posicao()).await;
+            let Ok(Ok(bruto)) = bruto else { continue };
+            let Ok(p) = serde_json::from_str::<Posicao>(&bruto) else {
+                continue;
+            };
+
+            if !p.tem {
+                // Uma vez só: o diário é para contar o que mudou, não para
+                // repetir a cada segundo que ainda não fixou.
+                if !relatou_falta {
+                    relatou_falta = true;
+                    tracing::warn!(
+                        target: "nav",
+                        motivo = %p.motivo,
+                        "o Android ainda não tem posição"
+                    );
+                }
+                let _ = emissor.send(Err(eclipse_gps::GpsError::SemSinal));
+                continue;
+            }
+
+            if p.rumo >= 0.0 {
+                ultimo_rumo = p.rumo;
+            }
+
+            if !relatou_fix {
+                relatou_fix = true;
+                // Marco, e não aviso: numa ignição em que o GPS PASSA a
+                // funcionar nada mais subiria, e é justamente essa a notícia.
+                if let Some(diario) = crate::diario::atual() {
+                    let mut linha = crate::diario::Linha::nova(
+                        crate::diario::Nivel::Info,
+                        "nav",
+                        "o Android entregou posição",
+                    );
+                    linha
+                        .dados
+                        .insert("provedor".into(), p.provedor.clone().into());
+                    linha
+                        .dados
+                        .insert("precisao_m".into(), format!("{:.0}", p.precisao_m).into());
+                    linha.dados.insert("idade_ms".into(), p.idade_ms.into());
+                    diario.marco(linha);
+                }
+            }
+
+            let _ = emissor.send(Ok(eclipse_gps::Fix {
+                lat: p.lat,
+                lon: p.lon,
+                heading: ultimo_rumo,
+                speed_kmh: p.velocidade_ms * 3.6,
+                accuracy_m: if p.precisao_m < 0.0 {
+                    0.0
+                } else {
+                    p.precisao_m
+                },
+            }));
+        }
+    });
+}
+
 /// Pergunta ao Android se o Spotify deixa o Eclipse navegar na biblioteca dele.
 ///
 /// Temporária: existe para decidir se vale trocar o Web Playback SDK (que hoje

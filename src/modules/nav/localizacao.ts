@@ -4,6 +4,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { anotar } from "../../core/diario";
 import { metros, rumoEntre } from "./geo";
 
+/**
+ * O painel está rodando no Android?
+ *
+ * Pelo user agent, e não por um comando ao Rust: isto roda no primeiro render,
+ * antes de qualquer `invoke` responder, e errar para o lado do Android só
+ * custaria a posição no desktop — onde o `navigator.geolocation` funciona e o
+ * usuário perceberia na hora.
+ */
+function ehAndroid(): boolean {
+  return /android/i.test(navigator.userAgent);
+}
+
 /** Abaixo disto o GPS é considerado parado — o mesmo 1,4 m/s (~5 km/h) que o
  *  `FiltroDeParada` usa no Rust, para os dois lados discordarem o mínimo. */
 const VELOCIDADE_MINIMA_MS = 1.4;
@@ -39,6 +51,20 @@ export function useLocalizacaoReal(): void {
   const jaLogouFix = useRef(false);
 
   useEffect(() => {
+    // No Android quem entrega posição é o Kotlin (`Localizacao.kt`), por fora
+    // da WebView — porque aqui dentro o pedido nunca chegava ao sistema: a
+    // WebView do Android só libera geolocalização para a página se o app
+    // hospedeiro responder o `onGeolocationPermissionsShowPrompt`, e o Tauri
+    // não responde. Satélite e rede falhavam com o MESMO timeout, que é a
+    // assinatura disso.
+    //
+    // Sair cedo não é só economia: os dois caminhos empurram para o MESMO
+    // canal, e o `watchPosition` daqui continuaria mandando erro de timeout a
+    // cada 20 s por cima das posições boas que o Kotlin manda.
+    if (ehAndroid()) {
+      return;
+    }
+
     if (!("geolocation" in navigator)) {
       void invoke("push_location_error", { permissaoNegada: false }).catch(() => {});
       return;
