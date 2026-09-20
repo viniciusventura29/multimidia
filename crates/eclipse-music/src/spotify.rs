@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use rspotify::clients::{BaseClient, OAuthClient};
-use rspotify::model::{AdditionalType, PlayableItem};
+use rspotify::model::{AdditionalType, Market, PlayableItem};
 use rspotify::{
     scopes, AuthCodePkceSpotify, ClientError, Config, Credentials, OAuth, Token, TokenCallback,
 };
@@ -54,6 +54,20 @@ pub const REDIRECT_URI: &str = "http://127.0.0.1:8888/callback";
 /// SDK). Compartilhado entre o JS que cria o player e o Rust que escolhe onde
 /// tocar — se divergirem, o Rust não acha o player e o som sai em outro aparelho.
 pub const NOME_DEVICE: &str = "Eclipse OS";
+
+/// O país em que este Spotify vive, tirado do próprio token.
+///
+/// Sem ele, a API devolve o conteúdo "como está guardado" — incluindo faixas que
+/// NÃO tocam no país do dono. A tela então lista uma coisa e o Spotify toca
+/// outra: ao mandar tocar com `offset` na URI de uma faixa que não existe no
+/// contexto de verdade (o Spotify monta o contexto já filtrado pelo mercado, e
+/// ainda religa faixas para as versões locais — é o "track relinking" deles), a
+/// reprodução não acha aquela URI e começa em outro lugar. Era isso que fazia
+/// tocar cinco faixas à frente da que se clicou.
+///
+/// `FromToken` e não um país fixo: o mercado sai do usuário dono do token, que
+/// num carro é sempre a mesma pessoa.
+const MERCADO: Market = Market::FromToken;
 
 pub fn escopos() -> HashSet<String> {
     scopes!(
@@ -234,7 +248,7 @@ impl SpotifySource {
     async fn tocando_agora(&self) -> Result<Option<NowPlaying>, MusicError> {
         let contexto = self
             .client
-            .current_playing(None, None::<&[AdditionalType]>)
+            .current_playing(Some(MERCADO), None::<&[AdditionalType]>)
             .await
             .map_err(traduzir)?;
 
@@ -299,10 +313,22 @@ impl MusicSource for SpotifySource {
         // Duas buscas em paralelo: faixa para tocar direto, álbum para abrir e
         // escolher a faixa dentro.
         let (faixas, albuns) = tokio::join!(
-            self.client
-                .search(termo, SearchType::Track, None, None, Some(20), None),
-            self.client
-                .search(termo, SearchType::Album, None, None, Some(12), None),
+            self.client.search(
+                termo,
+                SearchType::Track,
+                Some(MERCADO),
+                None,
+                Some(20),
+                None
+            ),
+            self.client.search(
+                termo,
+                SearchType::Album,
+                Some(MERCADO),
+                None,
+                Some(12),
+                None
+            ),
         );
 
         let faixas = match faixas.map_err(traduzir)? {
@@ -357,7 +383,7 @@ impl MusicSource for SpotifySource {
             // mediu 6,5 s para abrir uma playlist por causa disso.
             let album = self
                 .client
-                .album(id.clone(), None)
+                .album(id.clone(), Some(MERCADO))
                 .await
                 .map_err(traduzir)?;
             let capa = album.images.into_iter().next().map(|i| i.url);
@@ -392,7 +418,7 @@ impl MusicSource for SpotifySource {
         // os mesmos cem itens de novo.
         let playlist = self
             .client
-            .playlist(id, None, None)
+            .playlist(id, None, Some(MERCADO))
             .await
             .map_err(traduzir)?;
         let faixas = playlist
