@@ -349,17 +349,20 @@ impl MusicSource for SpotifySource {
                 .into_static();
             // O álbum inteiro numa chamada: nome/capa vêm do álbum, e as faixas
             // dele não repetem a capa (é a mesma), então herdam a do álbum.
+            //
+            // UMA chamada, e isso importa. A resposta de `album` JÁ TRAZ a
+            // primeira página de faixas — pedi-las de novo com
+            // `album_track_manual` baixava o mesmo JSON duas vezes, em sequência,
+            // num carro que está quase sempre no hotspot do celular. O diário
+            // mediu 6,5 s para abrir uma playlist por causa disso.
             let album = self
                 .client
                 .album(id.clone(), None)
                 .await
                 .map_err(traduzir)?;
             let capa = album.images.into_iter().next().map(|i| i.url);
-            let faixas = self
-                .client
-                .album_track_manual(id, None, Some(50), Some(0))
-                .await
-                .map_err(traduzir)?
+            let faixas = album
+                .tracks
                 .items
                 .into_iter()
                 .filter_map(|f| {
@@ -384,16 +387,16 @@ impl MusicSource for SpotifySource {
         let id = PlaylistId::from_uri(uri)
             .map_err(|e| MusicError::Network(format!("URI de playlist inválida: {e}")))?
             .into_static();
+        // Também uma chamada só: `playlist` traz a primeira página de itens
+        // junto, e o `playlist_items_manual` que vinha depois baixava exatamente
+        // os mesmos cem itens de novo.
         let playlist = self
             .client
-            .playlist(id.clone(), None, None)
+            .playlist(id, None, None)
             .await
             .map_err(traduzir)?;
-        let faixas = self
-            .client
-            .playlist_items_manual(id, None, None, Some(100), Some(0))
-            .await
-            .map_err(traduzir)?
+        let faixas = playlist
+            .items
             .items
             .into_iter()
             // `item`, não `track`: o Spotify renomeou o campo (rspotify #550).
