@@ -5,7 +5,7 @@
 //! que é justamente a parte que eu consigo verificar.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
@@ -30,6 +30,15 @@ const AGORA: Duration = Duration::from_millis(1);
 /// "tocando" e o toque parecia não ter funcionado — o usuário tocava de novo e
 /// a música voltava. Meio segundo é o suficiente para ler a verdade.
 const PROPAGACAO: Duration = Duration::from_millis(600);
+
+/// A partir de quanto uma ida ao Spotify conta como lenta.
+///
+/// Todo toque no transporte é uma ida e volta à API do Spotify, e a central
+/// costuma estar no hotspot do celular. Um segundo e meio é o ponto em que o
+/// dedo já desistiu e a pessoa toca de novo — que é como "travado" começa. Não
+/// dá para consertar o que não está medido, e até aqui o módulo só logava erro
+/// de cofre de token: sobre a lentidão, nada.
+const LENTO: Duration = Duration::from_millis(1_500);
 
 /// Espera antes de tentar reconectar, crescendo a cada falha seguida.
 ///
@@ -99,6 +108,10 @@ impl Module for MusicModule {
         let mut falhas: u32 = 0;
         let agenda = |d: Duration| tokio::time::Instant::now() + d;
 
+        // A primeira vez é notícia, o resto é ruído: uma rede ruim faria a mesma
+        // linha subir a cada 3 s por toda a viagem.
+        let mut avisou_da_lentidao = false;
+
         ctx.degraded("aguardando o perfil");
 
         loop {
@@ -148,6 +161,7 @@ impl Module for MusicModule {
                         // Duas famílias de ação: as de transporte (tocar algo,
                         // pular) mandam reler o now_playing; busca/playlists
                         // devolvem listas que entram no estado publicado.
+                        let comecou = Instant::now();
                         let resultado: Result<(), MusicError> = match acao {
                             Some("toggle") => atual.toggle().await.map(|_| proximo = agenda(PROPAGACAO)),
                             Some("next") => atual.next().await.map(|_| proximo = agenda(PROPAGACAO)),
@@ -224,7 +238,28 @@ impl Module for MusicModule {
                         // Terminou — deu certo ou não, a espera acabou.
                         estado.carregando = None;
 
+                        let levou = comecou.elapsed();
+                        if levou >= LENTO {
+                            tracing::warn!(
+                                acao = acao.unwrap_or("?"),
+                                ms = levou.as_millis() as u64,
+                                "o Spotify demorou a responder o toque"
+                            );
+                        } else {
+                            tracing::debug!(
+                                acao = acao.unwrap_or("?"),
+                                ms = levou.as_millis() as u64,
+                                "toque atendido"
+                            );
+                        }
+
                         if let Err(err) = resultado {
+                            tracing::warn!(
+                                acao = acao.unwrap_or("?"),
+                                ms = levou.as_millis() as u64,
+                                %err,
+                                "o toque no Spotify falhou"
+                            );
                             // Publica `ready` com o problema em vez de `degraded`:
                             // degradar apagava a tela inteira (e o App desmontava
                             // o player justo quando o erro era "sem dispositivo",
@@ -261,12 +296,28 @@ impl Module for MusicModule {
                         }
                     }
 
+                    let leitura = Instant::now();
                     match fonte.as_mut().expect("acabou de conectar").now_playing().await {
                         // Conectado é sempre `ready`, mesmo sem nada tocando: o
                         // painel continua útil (busca e playlists funcionam), e
                         // "nada tocando" é estado normal, não erro. Antes isto
                         // era `degraded`, o que apagava a tela de busca.
                         Ok(tocando) => {
+                            // A leitura periódica é o que alimenta a capa, o
+                            // título e a barra de progresso. Se ela mesma demora
+                            // mais que o intervalo, o painel não anda a cada 3 s:
+                            // anda quando o Spotify deixa, e é assim que uma tela
+                            // de música parece engasgada sem nada estar quebrado.
+                            let levou = leitura.elapsed();
+                            if levou >= LENTO && !avisou_da_lentidao {
+                                avisou_da_lentidao = true;
+                                tracing::warn!(
+                                    ms = levou.as_millis() as u64,
+                                    intervalo_ms = INTERVALO.as_millis() as u64,
+                                    "ler o que está tocando demora mais que o esperado"
+                                );
+                            }
+
                             estado.now_playing = tocando;
                             estado.problema = None;
                             falhas = 0;
@@ -274,6 +325,7 @@ impl Module for MusicModule {
                             proximo = agenda(INTERVALO);
                         }
                         Err(err) => {
+                            tracing::warn!(%err, "perdi o Spotify; vou reconectar");
                             estado.problema = Some(err.problema());
                             ctx.ready(&estado);
                             fonte = None;
