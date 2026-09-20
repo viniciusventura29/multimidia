@@ -111,7 +111,30 @@ pub struct Poller<S> {
     sem_codigo_recusados: HashSet<Pid>,
     /// A varredura mudou desde a última vez que alguém perguntou.
     replanejou: bool,
+    /// Quantas leituras seguidas falharam por barramento ou timeout.
+    ///
+    /// Zera a cada resposta — inclusive um `NO DATA`, que é uma resposta: o carro
+    /// disse "não tenho esse sensor", e para isso ele precisou estar vivo.
+    falhas_seguidas: u32,
+    /// Já avisei nesta conexão que o barramento anda ruim?
+    ///
+    /// A primeira vez é notícia, o resto é ruído. Sem isto, um K-line barulhento
+    /// encheria o diário com a mesma linha centenas de vezes por viagem.
+    avisou_do_barramento: bool,
 }
+
+/// Quantas leituras seguidas podem falhar antes de desistir da conexão.
+///
+/// No ISO 9141-2 do Eclipse — 10.400 baud, meio-duplex, fiação de 26 anos —
+/// `BUS ERROR` é TRANSITÓRIO: um quadro corrompido, um ruído, a ECU ocupada.
+/// Tratar o primeiro como fatal custava a conexão inteira, e reconectar leva de
+/// 10 a 30 segundos com o handshake do ELM327. Um quadro ruim passava a custar
+/// meio minuto de telemetria.
+///
+/// Seis é um ciclo de varredura inteiro (~2 s): errar um quadro é o barramento
+/// sendo o que ele é; errar seis seguidos, sem UMA resposta no meio, é o
+/// adaptador ter soltado do conector — e aí reconectar é mesmo o certo.
+const FALHAS_PARA_DESISTIR_DA_CONEXAO: u32 = 6;
 
 impl<S: ObdSource> Poller<S> {
     /// Um poller que ainda não sabe o que o carro responde: pergunta tudo.
@@ -135,6 +158,8 @@ impl<S: ObdSource> Poller<S> {
             faltas: HashMap::new(),
             sem_codigo_recusados,
             replanejou: true,
+            falhas_seguidas: 0,
+            avisou_do_barramento: false,
         }
     }
 
@@ -158,6 +183,7 @@ impl<S: ObdSource> Poller<S> {
 
         match self.source.read(pid).await {
             Ok(valor) => {
+                self.falhas_seguidas = 0;
                 self.readings.apply(pid, valor);
                 self.faltas.remove(&pid);
                 // Respondeu: tem. Vale mais que a máscara, que às vezes mente por
@@ -170,6 +196,9 @@ impl<S: ObdSource> Poller<S> {
                 }
             }
             Err(ObdError::Unsupported) => {
+                // `NO DATA` é uma RESPOSTA: para dizer "não tenho esse sensor" o
+                // carro precisou estar vivo. Não conta como falha de conexão.
+                self.falhas_seguidas = 0;
                 let faltas = self.faltas.entry(pid).or_default();
                 *faltas += 1;
                 if *faltas >= FALTAS_PARA_DESISTIR {
@@ -186,7 +215,34 @@ impl<S: ObdSource> Poller<S> {
                     self.replanejar();
                 }
             }
-            Err(err) => return Err(err),
+            // Barramento e timeout: transitórios até prova em contrário.
+            Err(err) => {
+                self.falhas_seguidas += 1;
+
+                if self.falhas_seguidas >= FALHAS_PARA_DESISTIR_DA_CONEXAO {
+                    tracing::warn!(
+                        ?pid,
+                        seguidas = self.falhas_seguidas,
+                        %err,
+                        "o barramento não responde há um ciclo inteiro; desistindo da conexão"
+                    );
+                    return Err(err);
+                }
+
+                // A primeira é notícia — quero saber que o K-line anda ruim. As
+                // seguintes viram ruído, e um barramento barulhento encheria o
+                // diário com a mesma linha centenas de vezes por viagem.
+                if !self.avisou_do_barramento {
+                    self.avisou_do_barramento = true;
+                    tracing::warn!(
+                        ?pid,
+                        %err,
+                        "quadro perdido no barramento; seguindo com a leitura anterior"
+                    );
+                } else {
+                    tracing::debug!(?pid, %err, "mais um quadro perdido");
+                }
+            }
         }
 
         Ok(&self.readings)
@@ -429,8 +485,25 @@ mod tests {
         assert!(poller.plano().lentos().contains(&Pid::Coolant));
     }
 
+    /// Uma fonte que falha as `n` primeiras leituras e depois responde.
+    struct Instavel {
+        falhas: u32,
+        erro: fn() -> ObdError,
+    }
+
+    #[async_trait]
+    impl ObdSource for Instavel {
+        async fn read(&mut self, _pid: Pid) -> Result<f32, ObdError> {
+            if self.falhas > 0 {
+                self.falhas -= 1;
+                return Err((self.erro)());
+            }
+            Ok(1.0)
+        }
+    }
+
     #[tokio::test]
-    async fn falha_de_barramento_propaga() {
+    async fn barramento_morto_derruba_a_conexao() {
         struct Morta;
 
         #[async_trait]
@@ -441,6 +514,75 @@ mod tests {
         }
 
         let mut poller = Poller::new(Morta);
-        assert!(poller.step().await.is_err());
+        // As primeiras são absorvidas; o que derruba é o ciclo inteiro sem uma
+        // resposta — aí o adaptador soltou mesmo e reconectar é o certo.
+        for i in 1..FALHAS_PARA_DESISTIR_DA_CONEXAO {
+            assert!(
+                poller.step().await.is_ok(),
+                "a falha {i} ainda não devia derrubar"
+            );
+        }
+        assert!(
+            poller.step().await.is_err(),
+            "um ciclo inteiro morto derruba"
+        );
+    }
+
+    #[tokio::test]
+    async fn quadro_perdido_custa_uma_leitura_e_nao_a_conexao() {
+        // O caso que tirava o carro do ar: UM `BUS ERROR` no meio de uma viagem
+        // boa derrubava a conexão inteira, e reconectar leva de 10 a 30 s.
+        let mut poller = Poller::new(Instavel {
+            falhas: 1,
+            erro: || ObdError::Bus("BUS ERROR".into()),
+        });
+
+        assert!(
+            poller.step().await.is_ok(),
+            "um quadro ruim não derruba nada"
+        );
+        assert!(poller.step().await.is_ok(), "e a leitura seguinte funciona");
+    }
+
+    #[tokio::test]
+    async fn uma_resposta_no_meio_zera_a_contagem() {
+        // Barramento barulhento que erra quase um ciclo, acerta, e erra de novo:
+        // isso é um K-line de 26 anos em dia ruim, não um adaptador solto. Sem
+        // zerar, duas rajadas separadas somariam e derrubariam uma conexão viva.
+        let mut poller = Poller::new(Instavel {
+            falhas: FALHAS_PARA_DESISTIR_DA_CONEXAO - 1,
+            erro: || ObdError::Bus("BUS ERROR".into()),
+        });
+
+        for _ in 0..FALHAS_PARA_DESISTIR_DA_CONEXAO - 1 {
+            assert!(poller.step().await.is_ok());
+        }
+        assert!(poller.step().await.is_ok(), "a boa que zera");
+
+        poller.source.falhas = FALHAS_PARA_DESISTIR_DA_CONEXAO - 1;
+        for _ in 0..FALHAS_PARA_DESISTIR_DA_CONEXAO - 1 {
+            assert!(
+                poller.step().await.is_ok(),
+                "a segunda rajada recomeça do zero"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn no_data_nao_conta_como_falha_de_conexao() {
+        // "Não tenho esse sensor" é uma RESPOSTA: para dizê-la o carro precisou
+        // estar vivo. Um carro com vários PIDs ausentes não pode ser confundido
+        // com um adaptador que soltou.
+        let mut poller = Poller::new(Contadora {
+            vistos: HashMap::new(),
+            nao_suportado: Some(poller_pid_qualquer()),
+        });
+        for _ in 0..FALHAS_PARA_DESISTIR_DA_CONEXAO * 3 {
+            assert!(poller.step().await.is_ok());
+        }
+    }
+
+    fn poller_pid_qualquer() -> Pid {
+        Pid::Rpm
     }
 }
