@@ -162,6 +162,11 @@ fn comando_de(pid: Pid) -> &'static str {
         Pid::Map => "010B",
         Pid::Iat => "010F",
         Pid::VazaoComb => "015E",
+        Pid::Falhas => "0101",
+        Pid::TrimCurto => "0106",
+        Pid::TrimLongo => "0107",
+        Pid::Lambda1 => "0114",
+        Pid::Lambda2 => "0115",
     }
 }
 
@@ -179,6 +184,11 @@ fn prefixo_resposta(pid: Pid) -> &'static str {
         Pid::Map => "410B",
         Pid::Iat => "410F",
         Pid::VazaoComb => "415E",
+        Pid::Falhas => "4101",
+        Pid::TrimCurto => "4106",
+        Pid::TrimLongo => "4107",
+        Pid::Lambda1 => "4114",
+        Pid::Lambda2 => "4115",
     }
 }
 
@@ -189,8 +199,23 @@ fn prefixo_resposta(pid: Pid) -> &'static str {
 /// o quadro da segunda ECU como bytes extras do primeiro.
 fn bytes_do_pid(pid: Pid) -> usize {
     match pid {
-        Pid::Speed | Pid::Coolant | Pid::Fuel | Pid::Carga | Pid::Map | Pid::Iat => 1,
+        Pid::Speed
+        | Pid::Coolant
+        | Pid::Fuel
+        | Pid::Carga
+        | Pid::Map
+        | Pid::Iat
+        | Pid::TrimCurto
+        | Pid::TrimLongo => 1,
         Pid::Rpm | Pid::Maf | Pid::VazaoComb => 2,
+        // O `0101` responde quatro bytes, mas só o primeiro interessa: os outros
+        // três descrevem quais monitores de emissão rodaram, que é assunto de
+        // oficina e não de painel.
+        Pid::Falhas => 1,
+        // A sonda vem em dois bytes: A é a tensão, B é o trim daquele sensor. O
+        // trim de sensor não é o mesmo que o do banco (`06`/`07`), e para o que o
+        // painel quer dizer — "a sonda está oscilando?" — a tensão basta.
+        Pid::Lambda1 | Pid::Lambda2 => 2,
         Pid::Voltage => 0,
     }
 }
@@ -238,6 +263,12 @@ fn interpretar(pid: Pid, bruto: &str) -> Result<f32, ObdError> {
         Pid::Iat => a - 40.0,
         Pid::Maf => (a * 256.0 + b()) / 100.0,
         Pid::VazaoComb => (a * 256.0 + b()) / 20.0,
+        // Cru de propósito: o byte carrega a luz E a contagem. Ver `Pid::Falhas`.
+        Pid::Falhas => a,
+        // 128 é "sem correção"; a escala vai de −100% a +99,2%.
+        Pid::TrimCurto | Pid::TrimLongo => (a - 128.0) * 100.0 / 128.0,
+        // A tensão é o byte A sobre 200 — 0 a 1,275 V.
+        Pid::Lambda1 | Pid::Lambda2 => a / 200.0,
         Pid::Voltage => unreachable!("voltagem tratada acima"),
     })
 }

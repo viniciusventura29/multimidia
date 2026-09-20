@@ -25,6 +25,32 @@ pub enum Pid {
     /// Vazão de combustível que o próprio carro calcula, em L/h (`015E`). Raro em
     /// carro de 2000, mas quando existe dispensa toda a estimativa.
     VazaoComb,
+    /// Estado dos monitores (`0101`). O byte A traz DUAS coisas: o bit 7 é a luz
+    /// de injeção acesa, e os bits 0–6 são quantas falhas estão guardadas.
+    ///
+    /// É o único PID que carrega dois fatos num número, e por isso o valor que
+    /// sai daqui é o byte cru — quem separa é [`Readings::apply`]. Inventar dois
+    /// `Pid` para o mesmo `0101` faria o barramento ser perguntado duas vezes
+    /// pela mesma resposta, num carro onde cada pergunta custa 300 ms.
+    Falhas,
+    /// Ajuste de combustível de curto prazo, banco 1 (`0106`), em %.
+    ///
+    /// Positivo = a ECU está injetando MAIS que o mapa base (o motor está pobre);
+    /// negativo = está cortando (rico). É a correção que a sonda pede agora.
+    TrimCurto,
+    /// Ajuste de combustível de longo prazo, banco 1 (`0107`), em %.
+    ///
+    /// O que a ECU aprendeu e guardou. É aqui que vela velha, bico sujo e entrada
+    /// de ar falsa aparecem — semanas antes de virarem sintoma que se sente.
+    TrimLongo,
+    /// Tensão da sonda lambda 1 (`0114`), em volts.
+    ///
+    /// Numa sonda saudável e em malha fechada ela oscila entre ~0,1 e ~0,9 V
+    /// várias vezes por segundo. Sonda preguiçosa trava no meio — e é ela que
+    /// come gasolina em silêncio num motor dessa idade.
+    Lambda1,
+    /// Tensão da sonda lambda 2 (`0115`), em volts.
+    Lambda2,
 }
 
 impl Pid {
@@ -52,6 +78,11 @@ impl Pid {
             Pid::Map => 0x0B,
             Pid::Iat => 0x0F,
             Pid::VazaoComb => 0x5E,
+            Pid::Falhas => 0x01,
+            Pid::TrimCurto => 0x06,
+            Pid::TrimLongo => 0x07,
+            Pid::Lambda1 => 0x14,
+            Pid::Lambda2 => 0x15,
             Pid::Voltage => return None,
         })
     }
@@ -75,6 +106,14 @@ pub struct Readings {
     pub map_kpa: Option<u16>,
     pub iat_c: Option<i32>,
     pub vazao_lh: Option<f32>,
+    /// A luz de injeção está acesa?
+    pub luz_injecao: Option<bool>,
+    /// Quantas falhas a ECU tem guardadas.
+    pub falhas_guardadas: Option<u8>,
+    pub trim_curto_pct: Option<f32>,
+    pub trim_longo_pct: Option<f32>,
+    pub lambda1_v: Option<f32>,
+    pub lambda2_v: Option<f32>,
 }
 
 impl Readings {
@@ -92,10 +131,28 @@ impl Readings {
             Pid::Map => self.map_kpa = Some(valor.max(0.0).round() as u16),
             Pid::Iat => self.iat_c = Some(valor.round() as i32),
             Pid::VazaoComb => self.vazao_lh = Some(uma_casa(valor.max(0.0))),
+            // O byte cru do `0101` vira os dois fatos que ele carrega.
+            Pid::Falhas => {
+                let a = valor.max(0.0).round() as u16;
+                self.luz_injecao = Some(a & 0x80 != 0);
+                self.falhas_guardadas = Some((a & 0x7F) as u8);
+            }
+            // Os trims são a mesma escala: 100% = sem correção, e o painel fala em
+            // desvio. −100% (a ECU cortando tudo) e +99,2% são os extremos do byte.
+            Pid::TrimCurto => self.trim_curto_pct = Some(uma_casa(valor)),
+            Pid::TrimLongo => self.trim_longo_pct = Some(uma_casa(valor)),
+            // Três casas: a sonda inteira vive entre 0 e 1 V, e duas casas já
+            // engoliriam a diferença entre "oscilando" e "travada".
+            Pid::Lambda1 => self.lambda1_v = Some(tres_casas(valor)),
+            Pid::Lambda2 => self.lambda2_v = Some(tres_casas(valor)),
         }
     }
 }
 
 fn uma_casa(valor: f32) -> f32 {
     (valor * 10.0).round() / 10.0
+}
+
+fn tres_casas(valor: f32) -> f32 {
+    (valor * 1000.0).round() / 1000.0
 }
