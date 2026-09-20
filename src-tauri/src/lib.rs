@@ -679,6 +679,10 @@ pub fn run() {
                 ));
             }
 
+            // Sonda temporária do MediaBrowser — ver `obd_bt::sondar_media`.
+            #[cfg(mobile)]
+            obd_bt::sondar_media(app.handle().clone());
+
             let store = ProfileStore::load(dir.join("profiles.json"));
             let ativo = store.active().cloned();
 

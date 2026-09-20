@@ -183,6 +183,45 @@ pub async fn conectar(
     Elm327Source::conectar(AndroidBtTransport { app: app.clone() }).await
 }
 
+/// Pergunta ao Android se o Spotify deixa o Eclipse navegar na biblioteca dele.
+///
+/// Temporária: existe para decidir se vale trocar o Web Playback SDK (que hoje
+/// fica mudo, reinicia sozinho e erra a duração, porque decodifica áudio dentro
+/// da WebView) por MediaController. Sai quando a resposta chegar.
+///
+/// Roda uma vez na subida, num `spawn_blocking` — conectar num serviço do
+/// Android é bloqueante — e o que ela descobre vai para o diário de bordo como
+/// marco, porque numa ignição em que nada dá errado nada subiria.
+#[cfg(mobile)]
+pub fn sondar_media(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let achado = tokio::task::spawn_blocking(move || {
+            app.obd_bt().sondar_media().map_err(|e| e.to_string())
+        })
+        .await;
+
+        let Some(diario) = crate::diario::atual() else {
+            return;
+        };
+        let mut linha = crate::diario::Linha::nova(
+            crate::diario::Nivel::Info,
+            "sonda",
+            "o que o MediaBrowser do aparelho respondeu",
+        );
+        let texto = match achado {
+            Ok(Ok(json)) => json,
+            Ok(Err(err)) => format!("{{\"erro\":\"{err}\"}}"),
+            Err(err) => format!("{{\"erro\":\"a task falhou: {err}\"}}"),
+        };
+        // Cru, e não desserializado: a graça é ver exatamente o que veio,
+        // inclusive campo que eu não previ.
+        linha
+            .dados
+            .insert("resposta".into(), serde_json::Value::String(texto));
+        diario.marco(linha);
+    });
+}
+
 /// O rádio Bluetooth visto de cima: buscar, parear, listar.
 ///
 /// Existe como trait por um motivo só, e é bom: a tela de escolha do adaptador

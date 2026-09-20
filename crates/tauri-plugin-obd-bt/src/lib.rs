@@ -228,6 +228,16 @@ mod imp {
                 .run_mobile_plugin::<()>("disconnect", ())?;
             Ok(())
         }
+
+        /// Sonda temporária do MediaBrowser — ver `SondaMedia.kt`.
+        pub fn sondar_media(&self) -> crate::Result<String> {
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin("sondarMedia", ())?;
+            Ok(r.json)
+        }
     }
 }
 
@@ -365,6 +375,11 @@ mod imp {
 
         pub fn disconnect(&self) -> crate::Result<()> {
             Ok(())
+        }
+
+        /// No desktop não há tocador do Android para sondar.
+        pub fn sondar_media(&self) -> crate::Result<String> {
+            Err(crate::Error::UnsupportedPlatform)
         }
     }
 
