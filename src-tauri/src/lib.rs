@@ -666,6 +666,14 @@ pub fn run() {
             if let Some((destino, chave)) = central_de_logs(&dir) {
                 let sessao = Uuid::new_v4().to_string();
                 tracing::info!(%sessao, "diário de bordo ligado");
+                // Marco, e não `info`: uma ignição em que nada deu errado
+                // precisa chegar do mesmo jeito. Sem esta linha, "rodou e estava
+                // tudo bem" é indistinguível de "não rodou" para quem lê de fora.
+                diario.marco(diario::Linha::nova(
+                    diario::Nivel::Info,
+                    "sessao",
+                    "o carro ligou",
+                ));
                 tauri::async_runtime::spawn(diario::enviar_periodicamente(
                     diario, destino, chave, sessao,
                 ));

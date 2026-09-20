@@ -127,6 +127,19 @@ impl Diario {
         &self.caderno
     }
 
+    /// Uma linha que sobe MESMO sem erro nenhum.
+    ///
+    /// Existe porque o diário tinha um ponto cego grande: sessão limpa não
+    /// mandava nada, e "o carro rodou e estava tudo bem" ficava idêntico a "o
+    /// carro não rodou". Para quem lê de fora, silêncio não é resposta.
+    ///
+    /// Use com parcimônia — é o único caminho que ignora o nível, e todo marco
+    /// custa uma requisição de um carro que às vezes está em hotspot.
+    pub fn marco(&self, linha: Linha) {
+        self.gravar(&[linha]);
+        self.podar();
+    }
+
     /// Anota uma linha. `info` e `debug` só viram rastro; `aviso` e `erro` vão
     /// para o disco levando o rastro junto.
     pub fn anotar(&self, linha: Linha) {
@@ -146,9 +159,17 @@ impl Diario {
             rastro.drain(..).collect()
         };
 
+        let mut linhas = contexto;
+        linhas.push(linha);
+        self.gravar(&linhas);
+        self.podar();
+    }
+
+    /// Escreve no fim do caderno. Falha em silêncio de propósito.
+    fn gravar(&self, linhas: &[Linha]) {
         let _guarda = self.escrita.lock().unwrap();
         let mut texto = String::new();
-        for l in contexto.iter().chain(std::iter::once(&linha)) {
+        for l in linhas {
             if let Ok(json) = serde_json::to_string(&redigir(l.clone())) {
                 texto.push_str(&json);
                 texto.push('\n');
@@ -167,8 +188,6 @@ impl Diario {
         {
             let _ = arquivo.write_all(texto.as_bytes());
         }
-
-        self.podar();
     }
 
     /// Corta a metade mais velha quando o arquivo passa do teto.
@@ -470,6 +489,25 @@ mod tests {
             !d.caderno().exists(),
             "sem nenhum erro, nada precisa subir — o poller sozinho falaria 3x por segundo"
         );
+    }
+
+    #[test]
+    fn um_marco_sobe_mesmo_sem_erro_nenhum() {
+        let d = Diario::novo(&temp("marco"));
+        for i in 0..20 {
+            d.anotar(Linha::nova(Nivel::Info, "obd", format!("leitura {i}")));
+        }
+        d.marco(Linha::nova(Nivel::Info, "sessao", "o carro ligou"));
+
+        let (linhas, _) = d
+            .recolher()
+            .expect("sessão limpa também precisa chegar: silêncio não é resposta");
+        assert_eq!(
+            linhas.len(),
+            1,
+            "o marco sobe sozinho, sem arrastar o rastro"
+        );
+        assert_eq!(linhas[0].msg, "o carro ligou");
     }
 
     #[test]
