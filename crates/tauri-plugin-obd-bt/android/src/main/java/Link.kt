@@ -70,6 +70,26 @@ internal fun resposta(coletor: Coletor, cmd: String, timeoutMs: Int, achouPrompt
 /** Falha esperada do adaptador — vira `reject` na ponte, não pânico. */
 internal class ObdBtFalha(mensagem: String) : Exception(mensagem)
 
+/**
+ * O canal morreu. Diferente de `ObdBtFalha`, que é o adaptador calado.
+ *
+ * A distinção não é preciosismo — ela decide o que o Rust faz. Adaptador calado
+ * é transitório: o barramento do Eclipse é ISO 9141-2 e perde quadro, então o
+ * poller repete e segue. Canal morto NÃO é transitório: não existe resposta
+ * possível, e cada repetição é um timeout inteiro esperado contra um cadáver.
+ *
+ * Era isso que fazia o módulo cair de 32 em 32 segundos: o socket morria, o
+ * `available()` de um socket morto devolve zero em vez de dar erro, e cada PID
+ * do ciclo esperava o prazo cheio antes de o poller desistir da conexão.
+ *
+ * O MARCADOR viaja no texto porque a ponte do Tauri só carrega string. Ver
+ * `traduzir` em `src-tauri/src/obd_bt.rs`.
+ */
+internal class ObdBtLinkMorto(motivo: String) : Exception("$MARCADOR_LINK_MORTO $motivo")
+
+/** Prefixo que o Rust procura para saber que o canal caiu. */
+internal const val MARCADOR_LINK_MORTO = "[link-morto]"
+
 
 /**
  * Registra um receptor de broadcast do sistema.

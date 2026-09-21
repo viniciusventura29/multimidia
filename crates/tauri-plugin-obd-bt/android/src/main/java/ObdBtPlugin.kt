@@ -265,6 +265,19 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                 val ret = JSObject()
                 ret.put("response", resposta)
                 invoke.resolve(ret)
+            } catch (e: ObdBtLinkMorto) {
+                // O canal morreu: fechar AQUI, e não esperar o próximo
+                // `connect`. Um socket RFCOMM que continua aberto segue
+                // segurando o canal na pilha do Android, e a reconexão contra o
+                // mesmo aparelho falha com "read failed, socket might closed or
+                // timeout" — por causa do cadáver, não por si.
+                //
+                // Zerar o `link` também faz os comandos que já estavam na fila
+                // falharem na hora com "adaptador não conectado", em vez de
+                // cada um esperar o prazo cheio conversando com um morto.
+                Log.w(TAG, "canal caiu em ${args.cmd}: ${e.message}")
+                fecharCalado()
+                invoke.reject(e.message ?: "o canal com o adaptador caiu")
             } catch (e: ObdBtFalha) {
                 Log.w(TAG, "${args.cmd}: ${e.message}")
                 invoke.reject(e.message ?: "o adaptador não respondeu")
