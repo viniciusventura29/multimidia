@@ -229,6 +229,16 @@ mod imp {
             Ok(())
         }
 
+        /// A última posição que o Android conhece — ver `Localizacao.kt`.
+        pub fn ultima_posicao(&self) -> crate::Result<String> {
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin("ultimaPosicao", ())?;
+            Ok(r.json)
+        }
+
         /// Sonda temporária do MediaBrowser — ver `SondaMedia.kt`.
         pub fn sondar_media(&self) -> crate::Result<String> {
             #[derive(serde::Deserialize)]
@@ -375,6 +385,12 @@ mod imp {
 
         pub fn disconnect(&self) -> crate::Result<()> {
             Ok(())
+        }
+
+        /// No desktop quem dá a posição é o `navigator.geolocation`, que ali
+        /// funciona — o problema é só da WebView do Android.
+        pub fn ultima_posicao(&self) -> crate::Result<String> {
+            Err(crate::Error::UnsupportedPlatform)
         }
 
         /// No desktop não há tocador do Android para sondar.

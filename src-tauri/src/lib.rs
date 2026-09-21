@@ -775,6 +775,11 @@ pub fn run() {
             }
 
             app.manage(supervisor);
+            // No Android a posição vem do `LocationManager`, não da WebView —
+            // ver `obd_bt::bombear_localizacao`. O `push_location` do JS
+            // continua existindo para o desktop, onde a WebView funciona.
+            #[cfg(mobile)]
+            obd_bt::bombear_localizacao(app.handle().clone(), emissor_local.clone());
             app.manage(Localizacao(emissor_local));
             app.manage(Perfis(Mutex::new(store)));
             app.manage(Cofre(cofre));

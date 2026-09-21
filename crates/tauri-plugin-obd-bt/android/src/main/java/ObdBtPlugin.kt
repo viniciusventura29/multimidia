@@ -116,6 +116,27 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
+     * A posição vinda do `LocationManager`, sem passar pela WebView.
+     *
+     * Ver `Localizacao.kt`: o `navigator.geolocation` nunca entregou nada nesta
+     * central porque o pedido não chega ao Android. Aqui o Rust puxa, de tempos
+     * em tempos, a última posição que o sistema conhece.
+     *
+     * Não usa `io.execute`: só lê um campo já preenchido pelo ouvinte, e o
+     * registro dos provedores acontece na primeira chamada.
+     */
+    @Command
+    fun ultimaPosicao(invoke: Invoke) {
+        try {
+            val ret = JSObject()
+            ret.put("json", Localizacao.ultima(activity).toString())
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
      * Sonda temporária: o Spotify deixa o Eclipse navegar na biblioteca dele?
      *
      * Não tem nada a ver com Bluetooth e está aqui por economia — ver
