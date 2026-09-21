@@ -259,6 +259,18 @@ impl<S: ObdSource> Poller<S> {
                     self.replanejar();
                 }
             }
+            // O canal caiu: não há repetição que resolva, e cada tentativa
+            // seguinte custa um prazo cheio esperando um cadáver responder.
+            // Desistir da conexão AGORA faz o supervisor reconectar em ~1 s, em
+            // vez de o módulo agonizar um ciclo inteiro antes de cair.
+            Err(err @ ObdError::LinkCaiu(_)) => {
+                tracing::warn!(
+                    ?pid,
+                    %err,
+                    "o canal com o adaptador caiu; desistindo da conexão sem repetir"
+                );
+                return Err(err);
+            }
             // Barramento e timeout: transitórios até prova em contrário.
             Err(err) => {
                 self.falhas_seguidas += 1;
@@ -648,6 +660,26 @@ mod tests {
         assert!(
             poller.step().await.is_err(),
             "um ciclo inteiro morto derruba"
+        );
+    }
+
+    #[tokio::test]
+    async fn canal_caido_derruba_na_primeira_e_nao_gasta_o_ciclo() {
+        // O laço que o carro mostrou: o módulo caía de 32 em 32 segundos porque
+        // um socket morto virava `Timeout`, e timeout é transitório — então o
+        // poller repetia PID por PID, prazo cheio cada, e só desistia depois do
+        // ciclo inteiro. Trinta segundos de agonia a cada queda.
+        //
+        // `LinkCaiu` não se repete: não existe resposta possível de um canal
+        // fechado. Desistir na primeira devolve o carro ao ar em ~1 s.
+        let mut poller = Poller::new(Instavel {
+            falhas: FALHAS_PARA_DESISTIR_DA_CONEXAO * 3,
+            erro: || ObdError::LinkCaiu("o socket RFCOMM caiu".into()),
+        });
+
+        assert!(
+            poller.step().await.is_err(),
+            "canal caído desiste da conexão já na PRIMEIRA falha"
         );
     }
 

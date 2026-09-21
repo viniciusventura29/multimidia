@@ -10,6 +10,15 @@ pub enum ObdError {
     Unsupported,
     #[error("falha no barramento: {0}")]
     Bus(String),
+    /// O canal com o adaptador caiu — não há resposta possível.
+    ///
+    /// Separado de [`ObdError::Timeout`] porque o tratamento é o oposto.
+    /// Timeout é transitório: o ISO 9141-2 do Eclipse perde quadro, e repetir é
+    /// o certo. Canal caído não tem repetição que resolva, e insistir custa um
+    /// prazo cheio por PID antes de o poller desistir — era isso que derrubava
+    /// o módulo de 32 em 32 segundos.
+    #[error("o canal com o adaptador caiu: {0}")]
+    LinkCaiu(String),
 }
 
 /// De onde vêm as leituras.

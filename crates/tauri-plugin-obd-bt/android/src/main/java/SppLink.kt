@@ -10,6 +10,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import java.io.IOException
 import java.util.UUID
 
 internal class SppLink private constructor(private val socket: BluetoothSocket) : Link {
@@ -95,16 +96,47 @@ internal class SppLink private constructor(private val socket: BluetoothSocket) 
     }
 
     override fun send(cmd: String, timeoutMs: Int): String {
-        output.write((cmd + "\r").toByteArray(Charsets.US_ASCII))
-        output.flush()
+        // Escrever num socket morto dá erro na hora — e é a detecção mais
+        // barata que existe, antes de gastar o prazo esperando resposta.
+        try {
+            output.write((cmd + "\r").toByteArray(Charsets.US_ASCII))
+            output.flush()
+        } catch (e: IOException) {
+            throw ObdBtLinkMorto("escrita falhou: ${e.message}")
+        }
 
         val coletor = Coletor()
         val limite = System.currentTimeMillis() + timeoutMs
         val buf = ByteArray(64)
         var achouPrompt = false
         while (System.currentTimeMillis() < limite) {
-            if (input.available() > 0) {
-                val n = input.read(buf)
+            // `available()` de um socket MORTO devolve zero, igualzinho a um
+            // socket vivo e quieto. Sem olhar `isConnected` os dois casos ficam
+            // indistinguíveis, e um canal caído viraria "adaptador não
+            // respondeu" — que o poller trata como transitório e repete, PID
+            // por PID, prazo cheio cada. Era essa a queda de 32 em 32 segundos.
+            if (!socket.isConnected) {
+                throw ObdBtLinkMorto("o socket RFCOMM caiu durante $cmd")
+            }
+            val disponivel =
+                try {
+                    input.available()
+                } catch (e: IOException) {
+                    throw ObdBtLinkMorto("leitura falhou: ${e.message}")
+                }
+            if (disponivel > 0) {
+                val n =
+                    try {
+                        input.read(buf)
+                    } catch (e: IOException) {
+                        throw ObdBtLinkMorto("leitura falhou: ${e.message}")
+                    }
+                // Fim de stream. Num socket de rede isto é o outro lado
+                // fechando; aqui significa adaptador desligado ou fora de
+                // alcance, e nenhuma espera adicional vai trazer bytes.
+                if (n < 0) {
+                    throw ObdBtLinkMorto("o adaptador fechou o canal durante $cmd")
+                }
                 if (n > 0 && coletor.push(buf, n)) {
                     achouPrompt = true
                     break

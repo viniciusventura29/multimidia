@@ -73,7 +73,13 @@ fn normalizar(nome: &str) -> String {
 /// não responder um PID específico **não** passa por aqui — vem como texto
 /// `NO DATA` e o parser do `eclipse-obd` trata como `Unsupported`.)
 fn erro(e: tauri_plugin_obd_bt::Error) -> ObdError {
-    ObdError::Bus(e.to_string())
+    let texto = e.to_string();
+    // O marcador vem do Kotlin (`MARCADOR_LINK_MORTO` em `Link.kt`): a ponte do
+    // Tauri só carrega string, então o tipo da falha viaja no texto.
+    if texto.contains("[link-morto]") {
+        return ObdError::LinkCaiu(texto);
+    }
+    ObdError::Bus(texto)
 }
 
 /// O transporte de verdade: cada `command` vira uma chamada ao plugin Android.
