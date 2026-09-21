@@ -219,11 +219,15 @@ pub fn bombear_localizacao(app: tauri::AppHandle, emissor: eclipse_gps::Emissor)
         provedor: String,
         #[serde(default)]
         idade_ms: i64,
+        /// Por que não veio, quando não veio. Ver `Localizacao.diagnostico`.
+        #[serde(default)]
+        diagnostico: serde_json::Value,
     }
 
     tauri::async_runtime::spawn(async move {
         let mut relatou_fix = false;
-        let mut relatou_falta = false;
+        // Quando o último "ainda sem posição" foi ao diário. `None` = nenhum.
+        let mut ultimo_relato: Option<std::time::Instant> = None;
         // Rumo da leitura anterior: parado, o Android devolve `-1` (não sei), e
         // sem guardar o último a seta do mapa voltaria ao norte a cada parada.
         let mut ultimo_rumo = 0.0_f32;
@@ -239,13 +243,23 @@ pub fn bombear_localizacao(app: tauri::AppHandle, emissor: eclipse_gps::Emissor)
             };
 
             if !p.tem {
-                // Uma vez só: o diário é para contar o que mudou, não para
-                // repetir a cada segundo que ainda não fixou.
-                if !relatou_falta {
-                    relatou_falta = true;
+                // A cada 30 s, e não uma vez só. Contar uma vez foi um erro
+                // meu: "ainda sem posição" um segundo depois do boot é o
+                // esperado, e sem repetir não havia como saber se a posição
+                // chegou depois, se piorou, ou se o carro ficou minutos assim.
+                // Agora o diagnóstico vai junto, e é ele que aponta o dono do
+                // problema: localização desligada, ROM sem provedor, antena, ou
+                // céu.
+                let agora = std::time::Instant::now();
+                let na_hora = ultimo_relato
+                    .map(|t: std::time::Instant| agora.duration_since(t).as_secs() >= 30)
+                    .unwrap_or(true);
+                if na_hora {
+                    ultimo_relato = Some(agora);
                     tracing::warn!(
                         target: "nav",
                         motivo = %p.motivo,
+                        diagnostico = %p.diagnostico,
                         "o Android ainda não tem posição"
                     );
                 }
