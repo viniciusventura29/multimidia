@@ -35,6 +35,18 @@ dependencies {
     implementation("androidx.core:core-ktx:1.9.0")
     implementation("androidx.appcompat:appcompat:1.6.0")
     implementation("com.google.android.material:material:1.7.0")
+    // O provedor FUNDIDO de localização — o mesmo que o Google Maps usa.
+    //
+    // O `LocationManager` cru só entrega o que o chip de GPS der, e nesta
+    // central o chip nunca reportou um satélite sequer (diário de 21/09: o
+    // callback de GNSS registrou e NUNCA disparou). O fundido junta satélite,
+    // Wi-Fi e rede móvel, e é por isso que um tablet sem antena de GPS ainda
+    // sabe onde está.
+    //
+    // A ROM pode não ter Play Services — e aí a classe nem existe em tempo de
+    // execução. Por isso todo o uso está embrulhado em `catch (Throwable)`:
+    // `NoClassDefFoundError` não é `Exception`. Ver `Localizacao.kt`.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

@@ -116,7 +116,7 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     /**
-     * A posição vinda do `LocationManager`, sem passar pela WebView.
+     * A posição vinda do Android, sem passar pela WebView.
      *
      * Ver `Localizacao.kt`: o `navigator.geolocation` nunca entregou nada nesta
      * central porque o pedido não chega ao Android. Aqui o Rust puxa, de tempos
@@ -128,8 +128,22 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun ultimaPosicao(invoke: Invoke) {
         try {
+            val json = Localizacao.ultima(activity)
+
+            // Sem posição, e só então, pede o diálogo de precisão. A `Activity`
+            // é necessária para abri-lo, e ela existe aqui e não dentro do
+            // `Localizacao`, que só conhece `Context`.
+            //
+            // Depois de ler, e não antes: quando já há posição não há nada a
+            // consertar, e o diálogo seria interrupção gratuita em cima de quem
+            // está dirigindo. `pedirPrecisao` também se protege sozinho — uma
+            // vez por processo, e calado se o ajuste já estiver bom.
+            if (!json.optBoolean("tem", false)) {
+                Localizacao.pedirPrecisao(activity)
+            }
+
             val ret = JSObject()
-            ret.put("json", Localizacao.ultima(activity).toString())
+            ret.put("json", json.toString())
             invoke.resolve(ret)
         } catch (e: Exception) {
             invoke.reject(e.message ?: e.javaClass.simpleName)

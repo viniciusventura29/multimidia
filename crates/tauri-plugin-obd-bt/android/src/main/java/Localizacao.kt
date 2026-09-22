@@ -23,6 +23,7 @@
 package com.eclipseos.obdbt
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.GnssStatus
@@ -34,6 +35,14 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -46,6 +55,10 @@ private const val DISTANCIA_MIN_M = 0f
 
 /** O corte clássico do Android para "a posição velha não vale mais". */
 private const val VELHA_DEMAIS_MS = 120_000L
+
+/** Código do `startResolutionForResult`. Não lemos a resposta — o próprio
+ *  sistema liga o ajuste, e o provedor fundido passa a entregar sozinho. */
+private const val CODIGO_PRECISAO = 7311
 
 internal object Localizacao {
 
@@ -60,13 +73,46 @@ internal object Localizacao {
 
     @Volatile private var satelitesUsados = -1
 
+    /** O cliente do provedor fundido, quando a ROM tem Play Services. */
+    private var fundido: FusedLocationProviderClient? = null
+
+    /** Por que o fundido não subiu. `null` = subiu. */
+    @Volatile private var erroFundido: String? = null
+
+    /**
+     * O provedor fundido do Google — satélite, Wi-Fi e rede móvel somados.
+     *
+     * É ele que faz um tablet sem antena de GPS saber onde está: quando o chip
+     * não vê satélite, a posição sai dos pontos de Wi-Fi em volta, que o Google
+     * mapeou. Nesta central o chip nunca reportou um satélite sequer, então
+     * este caminho não é melhoria — é a única chance de haver posição.
+     *
+     * Chega por aqui e cai no MESMO `ouvinte` do `LocationManager`: o
+     * `melhorQue` já sabe escolher entre fontes misturadas, e ter duas regras
+     * de escolha seria pior que ter uma.
+     */
+    private val ouvinteFundido = object : LocationCallback() {
+        override fun onLocationResult(resultado: LocationResult) {
+            resultado.lastLocation?.let { ouvinte.onLocationChanged(it) }
+        }
+    }
+
     private val ouvinte = object : LocationListener {
-        @Synchronized
         override fun onLocationChanged(location: Location) {
-            // Guarda a melhor entre satélite e rede: os dois provedores chegam
-            // misturados, e o mais recente nem sempre é o mais preciso.
-            val atual = ultima
-            ultima = if (atual == null || melhorQue(location, atual)) location else atual
+            // `synchronized(Localizacao)`, e NÃO `@Synchronized`.
+            //
+            // `@Synchronized` aqui trancaria este objeto anônimo, enquanto quem
+            // lê `ultima` tranca o `Localizacao`. Dois monitores diferentes não
+            // estabelecem ordem de memória entre si: a posição escrita aqui
+            // podia não ficar visível para quem lê, e a JVM estaria no direito
+            // dela. Com o monitor do `Localizacao` os dois lados falam a mesma
+            // língua.
+            synchronized(Localizacao) {
+                // Guarda a melhor entre satélite e rede: as fontes chegam
+                // misturadas, e a mais recente nem sempre é a mais precisa.
+                val atual = ultima
+                ultima = if (atual == null || melhorQue(location, atual)) location else atual
+            }
         }
 
         // Obrigatórios em API < 30; sem eles o Android 10 derruba o registro.
@@ -159,10 +205,99 @@ internal object Localizacao {
             satelitesVisiveis = -2
         }
 
-        if (!algum && erro == null) {
+        val fundidoSubiu = ligarFundido(context)
+
+        // `algum` conta só o `LocationManager`. O fundido sozinho já basta para
+        // haver posição — e nesta central ele é a única fonte com chance real.
+        if (!algum && !fundidoSubiu && erro == null) {
             erro = "nenhum provedor de localização disponível"
         }
-        ligado = algum
+        ligado = algum || fundidoSubiu
+    }
+
+    /** Já pedimos? Uma vez por processo — insistir vira diálogo em loop. */
+    @Volatile private var pediuPrecisao = false
+
+    /**
+     * Pede ao sistema o diálogo de "melhorar a precisão de localização".
+     *
+     * É o MESMO diálogo que o Google Maps mostra ao abrir, e é o único caminho
+     * de um toque: mandar o dono cavar em Configurações > Localização >
+     * Precisão do Google é, na prática, não consertar.
+     *
+     * Quem liga o ajuste é ELE, tocando no diálogo do próprio Android — daqui
+     * não se mexe em configuração do aparelho, só se faz o pedido.
+     *
+     * Por que isto importa nesta central: o diário de 21/09 mostra o provedor
+     * `network` DESLIGADO. Sem ele o fundido não tem Wi-Fi para trabalhar e
+     * cai no satélite, que aqui nunca viu nada — ou seja, sem este diálogo o
+     * provedor fundido não resolve coisa alguma.
+     *
+     * Só é pedido quando há o que consertar: se o `network` já estiver ligado,
+     * o `checkLocationSettings` passa e nenhum diálogo aparece.
+     */
+    @Synchronized
+    fun pedirPrecisao(activity: Activity) {
+        if (pediuPrecisao) return
+        pediuPrecisao = true
+        try {
+            val pedido =
+                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, INTERVALO_MS).build()
+            val requisito = LocationSettingsRequest.Builder().addLocationRequest(pedido).build()
+            LocationServices.getSettingsClient(activity)
+                .checkLocationSettings(requisito)
+                .addOnFailureListener { e ->
+                    // `ResolvableApiException` = "dá para consertar com um
+                    // toque". Qualquer outra coisa não tem diálogo que resolva.
+                    if (e is ResolvableApiException) {
+                        try {
+                            e.startResolutionForResult(activity, CODIGO_PRECISAO)
+                        } catch (t: Throwable) {
+                            erroFundido = "não deu para abrir o diálogo: ${t.message}"
+                        }
+                    }
+                }
+        } catch (e: Throwable) {
+            // Sem Play Services não há diálogo — e nem fundido. O
+            // `LocationManager` segue sozinho.
+            erroFundido = erroFundido ?: (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Liga o provedor fundido. `true` se subiu.
+     *
+     * `catch (Throwable)` e não `catch (Exception)` de propósito: numa ROM sem
+     * Play Services a classe não existe em tempo de execução, e o que vem é
+     * `NoClassDefFoundError` — que é `Error`, não `Exception`. Com o `catch`
+     * estreito o app morreria inteiro no boot em vez de cair no plano B.
+     *
+     * Falhar aqui não é fatal: o `LocationManager` continua registrado. Numa
+     * central com antena de GPS funcionando, aquele caminho sozinho basta.
+     */
+    private fun ligarFundido(context: Context): Boolean {
+        return try {
+            val cliente = LocationServices.getFusedLocationProviderClient(context)
+            val pedido =
+                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, INTERVALO_MS)
+                    .setMinUpdateDistanceMeters(DISTANCIA_MIN_M)
+                    .build()
+            cliente.requestLocationUpdates(pedido, ouvinteFundido, Looper.getMainLooper())
+            // Arranque a frio, como no `LocationManager`: o Google costuma ter
+            // uma posição guardada, e ela pinta o mapa antes da primeira fixação.
+            cliente.lastLocation.addOnSuccessListener { l ->
+                l?.let { ouvinte.onLocationChanged(it) }
+            }
+            fundido = cliente
+            erroFundido = null
+            true
+        } catch (e: SecurityException) {
+            erroFundido = "permissão recusada pelo sistema: ${e.message}"
+            false
+        } catch (e: Throwable) {
+            erroFundido = e.message ?: e.javaClass.simpleName
+            false
+        }
     }
 
     /** O que há de mais recente, para o Rust buscar de tempos em tempos. */
@@ -253,6 +388,9 @@ internal object Localizacao {
         d.put("satelitesVisiveis", satelitesVisiveis)
         d.put("satelitesUsados", satelitesUsados)
         if (erro != null) d.put("erroAoLigar", erro)
+        // O fundido é a fonte com chance real nesta central; se ELE não subiu,
+        // é isso que explica a falta de posição, e não os satélites.
+        d.put("fundido", if (erroFundido == null) "ligado" else "não: $erroFundido")
         return d
     }
 }
