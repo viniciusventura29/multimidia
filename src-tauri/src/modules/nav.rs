@@ -3,8 +3,10 @@
 //! O que dá para fazer aqui é menor do que parece, e vale registrar por quê:
 //! **navegação turn-by-turn embutida não existe em nenhuma plataforma**. O Maps
 //! SDK entrega o mapa, não a navegação; o Navigation SDK, que entrega, é produto
-//! enterprise sem preço público. Então este módulo cuida do mapa seguindo o
-//! carro, e guiar de verdade continua sendo abrir o app do Google Maps por cima.
+//! enterprise sem preço público. Então a guiagem daqui é própria — rota da
+//! Routes API v2, e o raciocínio de "quanto falta / qual a próxima manobra /
+//! saí do caminho" no [`Guia`](eclipse_gps::Guia). O que não existe é
+//! orientação de faixa e trânsito ao vivo mudando a rota no meio do caminho.
 //!
 //! Como a UI roda num WebView, o mapa é um elemento comum da página — encolhe
 //! para widget e cresce para tela cheia sem truque nenhum. Foi por isso que a
@@ -59,6 +61,20 @@ const DESCANSO_ENTRE_RECALCULOS: Duration = Duration::from_secs(10);
 ///
 /// Vinte segundos: a Routes API responde em ~1 s, então isto é folga para rede
 /// ruim, não para rede morta.
+/// A partir de quanto a posição deixa de identificar a RUA.
+///
+/// Não é um número de qualidade de GPS; é uma pergunta de geometria urbana:
+/// com que raio de incerteza ainda dá para dizer em qual via o carro está?
+/// Quarteirões e vias paralelas em cidade ficam na casa das dezenas de metros,
+/// então acima de ~40 m a resposta é "não dá".
+///
+/// É o mesmo patamar da `TOLERANCIA_DESVIO_M` da guiagem (45 m), e não por
+/// acaso: as duas perguntam a mesma coisa — "este ponto está nesta rua?".
+const PRECISAO_CONFIAVEL_M: f32 = 40.0;
+
+/// Abaixo desta velocidade o rumo do GPS é ruído. Ver o uso em `tracar`.
+const VELOCIDADE_MINIMA_PARA_RUMO_KMH: f32 = 5.0;
+
 const TETO_DA_BUSCA: Duration = Duration::from_secs(20);
 
 /// De quanto em quanto tempo perguntar o tempo de novo.
@@ -485,6 +501,30 @@ impl NavModule {
         };
 
         estado.buscando = true;
+        // O rumo vai junto da origem: é ele que diz ao Google de que lado da
+        // via e em que sentido o carro está. Sem ele, um ponto solto numa
+        // avenida de pistas separadas (ou com uma paralela de mão única ao
+        // lado) faz o Google adivinhar — e adivinhar errado produz uma rota
+        // legal que começa mandando o carro contra o fluxo.
+        //
+        // Parado, não se manda nada: rumo de GPS parado é ruído, e um rumo
+        // errado com confiança é pior que rumo nenhum.
+        let rumo =
+            (fix.speed_kmh >= VELOCIDADE_MINIMA_PARA_RUMO_KMH).then(|| fix.heading.round() as i32);
+
+        // A precisão é a outra metade do problema. Num fix de rede de 110 m —
+        // que é o que esta central vem dando, porque o chip de GPS nunca
+        // reportou satélite — a origem pode cair na rua de trás, e aí NENHUMA
+        // rota estará certa desde o primeiro metro. Não dá para consertar isso
+        // aqui, mas dá para não deixar passar calado.
+        if fix.accuracy_m > PRECISAO_CONFIAVEL_M {
+            tracing::warn!(
+                precisao_m = fix.accuracy_m,
+                limite_m = PRECISAO_CONFIAVEL_M,
+                destino = %alvo.rotulo,
+                "a rota parte de uma posição imprecisa; as primeiras manobras podem sair da rua errada"
+            );
+        }
 
         let cliente = self.cliente.clone();
         let Some(chave) = estado.api_key.clone() else {
@@ -500,7 +540,7 @@ impl NavModule {
             let comecou = Instant::now();
             let rota = match tokio::time::timeout(
                 TETO_DA_BUSCA,
-                directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo),
+                directions::buscar(&cliente, &chave, (fix.lat, fix.lon), rumo, &alvo),
             )
             .await
             {

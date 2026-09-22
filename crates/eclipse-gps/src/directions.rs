@@ -55,6 +55,17 @@ pub enum DirectionsError {
     Rede,
     #[error("não achei esse endereço")]
     SemRota,
+    /// O Google atendeu e RECUSOU: chave inválida, API não habilitada, cota
+    /// estourada, billing desligado.
+    ///
+    /// Separado de [`SemRota`](DirectionsError::SemRota) porque a confusão
+    /// entre os dois é uma armadilha de diagnóstico cara: com a chave sem a
+    /// Routes API habilitada, o painel dizia "não achei esse endereço" para
+    /// QUALQUER destino — inclusive um que existe e está a dois quarteirões.
+    /// Quem lê isso culpa o que digitou, e o problema está no console do
+    /// Google.
+    #[error("o Google recusou o pedido de rota (chave, cota ou permissão)")]
+    Recusado,
 }
 
 /* ------------------------------------------------------------------ */
@@ -87,6 +98,21 @@ struct Ponto {
 struct Local {
     #[serde(rename = "latLng")]
     lat_lng: LatLng,
+    /// Para onde o carro aponta, em graus (0 = norte).
+    ///
+    /// É este campo que resolve o "ele me mandou pela contramão". Sem ele, o
+    /// Google recebe um ponto solto e tem que **adivinhar** de que via — e de
+    /// que lado dela — o carro saiu. Numa avenida de pistas separadas, ou com
+    /// uma paralela de mão única ao lado, adivinhar errado produz uma rota
+    /// perfeitamente legal que começa virando o carro contra o fluxo.
+    ///
+    /// Com o rumo, o Google encaixa a origem na via **no sentido da marcha**.
+    ///
+    /// `Option` porque parado o rumo é lixo: um GPS que não anda devolve rumo
+    /// instável, e mandar um rumo aleatório é pior do que não mandar nenhum —
+    /// fixaria a origem no sentido errado com toda a confiança.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    heading: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -242,10 +268,14 @@ impl RotaBruta {
 /* ------------------------------------------------------------------ */
 
 /// Traça uma rota de `origem` até `alvo`.
+///
+/// `rumo_graus` é para onde o carro aponta, quando se sabe — ver
+/// [`Local::heading`]. Passe `None` parado.
 pub async fn buscar(
     cliente: &reqwest::Client,
     chave: &str,
     origem: (f64, f64),
+    rumo_graus: Option<i32>,
     alvo: &Alvo,
 ) -> Result<Route, DirectionsError> {
     let destino = match (&alvo.place_id, &alvo.texto) {
@@ -261,6 +291,7 @@ pub async fn buscar(
                     latitude: origem.0,
                     longitude: origem.1,
                 },
+                heading: rumo_graus,
             },
         },
         destination: destino,
@@ -290,7 +321,8 @@ pub async fn buscar(
         let status = resposta.status();
         let corpo = resposta.text().await.unwrap_or_default();
         tracing::warn!(%status, %corpo, "o Google recusou a rota");
-        return Err(DirectionsError::SemRota);
+        // Recusa do serviço NÃO é "endereço não existe". Ver `Recusado`.
+        return Err(DirectionsError::Recusado);
     }
 
     let dados: Resposta = resposta.json().await.map_err(|err| {
@@ -427,8 +459,41 @@ mod tests {
         let erro = tokio::runtime::Builder::new_current_thread()
             .build()
             .unwrap()
-            .block_on(buscar(&cliente, "chave", (-23.5, -46.6), &alvo));
+            .block_on(buscar(&cliente, "chave", (-23.5, -46.6), None, &alvo));
 
         assert!(matches!(erro, Err(DirectionsError::SemRota)));
+    }
+
+    #[test]
+    fn o_rumo_so_e_enviado_quando_existe() {
+        // Parado, `heading` tem que sumir do JSON — e não ir como `null` nem
+        // como zero. Zero é norte, e mandar "norte" para um carro parado faria
+        // o Google encaixar a origem no sentido errado com toda a confiança,
+        // que é exatamente o defeito que este campo veio consertar.
+        let sem = Local {
+            lat_lng: LatLng {
+                latitude: -23.5,
+                longitude: -46.6,
+            },
+            heading: None,
+        };
+        let json = serde_json::to_string(&sem).expect("serializa");
+        assert!(
+            !json.contains("heading"),
+            "parado, o rumo não pode aparecer no pedido: {json}"
+        );
+
+        let com = Local {
+            lat_lng: LatLng {
+                latitude: -23.5,
+                longitude: -46.6,
+            },
+            heading: Some(90),
+        };
+        let json = serde_json::to_string(&com).expect("serializa");
+        assert!(
+            json.contains("\"heading\":90"),
+            "andando, o rumo vai: {json}"
+        );
     }
 }

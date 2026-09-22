@@ -1,9 +1,9 @@
 //! Guiagem: onde estou dentro de uma rota, e o que falar sobre isso.
 //!
-//! A rota vem de fora — quem a busca é o `DirectionsService`, que mora no lado
-//! JavaScript junto do mapa. O raciocínio em cima dela é feito aqui, que é onde
-//! a posição vive: quanto falta, qual a próxima manobra, se saímos do caminho e
-//! quando abrir a boca.
+//! A rota vem de fora — quem a busca é o [`directions`](crate::directions),
+//! aqui mesmo no Rust, contra a Routes API v2 do Google. O raciocínio em cima
+//! dela é feito neste módulo, que é onde a posição vive: quanto falta, qual a
+//! próxima manobra, se saímos do caminho e quando abrir a boca.
 //!
 //! Isto **não** é o Navigation SDK: não há orientação de faixa, nem trânsito ao
 //! vivo mudando a rota no meio do caminho. O trânsito entra só no tempo estimado,
