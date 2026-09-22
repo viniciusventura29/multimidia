@@ -645,6 +645,24 @@ body {
  * `font: inherit` zera o que o navegador põe em `<button>`, e o `font-size` vem
  * depois porque `inherit` traria o tamanho do body, não o dos vizinhos.
  */
+/* O número do build. Miúdo, apagado, e de largura estável.
+
+   `--muted` e 0.68rem colocam-no abaixo de tudo o mais na barra na ordem de
+   leitura: dirigindo, o olho não deve parar aqui. Ele existe para ser PROCURADO
+   parado ("em que versão eu estou?"), não para ser visto de relance.
+
+   `tabular-nums` já vem do `.barra__item`, e aqui importa: sem ele o número
+   muda de largura a cada build e empurra o resto da barra de lado.
+
+   Nenhuma superfície — sem fundo, sem borda, sem cápsula. O espaço da flex já
+   separa. */
+.barra__versao {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
 .barra__atualizar {
   align-self: stretch;
   padding: 0 0.7rem;

@@ -648,6 +648,7 @@ pub fn run() {
             push_location_error,
             imagem_ia,
             atualizacao::checar_atualizacao,
+            atualizacao::versao_rodando,
             atualizacao::baixar_atualizacao,
             diario::anotar_do_painel,
         ])

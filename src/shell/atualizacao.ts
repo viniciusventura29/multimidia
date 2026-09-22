@@ -112,3 +112,40 @@ export function useAtualizacao(): {
 
   return { nova, baixar };
 }
+
+/**
+ * A versão que está rodando, para a barra mostrar.
+ *
+ * Pergunta uma vez e pronto: o número só muda reinstalando o APK, e reinstalar
+ * reinicia o WebView. Não há o que revalidar.
+ *
+ * Vem do Rust em vez de um `define` do Vite de propósito. O `versionCode` é
+ * cravado pela CI no build do Android, DEPOIS do bundle do front; um valor
+ * assado no JavaScript seria o do momento do `vite build`, que não é o mesmo
+ * número — e um número errado aqui é pior que nenhum, porque é exatamente o
+ * número que se olha para confiar que atualizou.
+ */
+export function useVersao(): string | null {
+  const [versao, setVersao] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    void invoke<string>("versao_rodando")
+      .then((v) => {
+        if (vivo) setVersao(v);
+      })
+      .catch((err) => {
+        // Sem barulho na tela: o rodapé simplesmente não aparece. Mas vai para
+        // o diário, porque um carro que não sabe dizer sua versão é justamente
+        // o que quebra o diagnóstico que este número existe para dar.
+        anotar("aviso", "atualizacao", "não deu para saber a versão que está rodando", {
+          motivo: String(err).slice(0, 300),
+        });
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  return versao;
+}
