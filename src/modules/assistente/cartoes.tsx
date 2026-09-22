@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { invoke } from "@tauri-apps/api/core";
+// TEMPORÁRIO — `invoke` cronometrado; ver `core/perf.ts`.
+import { invoke } from "../../core/perf";
 
 import { Barras, Linha, MINIMO_PONTOS } from "./graficos";
 import {

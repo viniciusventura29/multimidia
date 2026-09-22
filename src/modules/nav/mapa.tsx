@@ -23,6 +23,8 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 configMapLibre.WORKER_URL = workerUrl;
 
+// TEMPORÁRIO — medição de performance; ver `core/perf.ts`.
+import { contarQuadro, medirMapa, quadroPausado } from "../../core/perf";
 import type { TileView } from "../../core/types";
 import { metros } from "./geo";
 import { Manobra } from "./manobra";
@@ -149,6 +151,9 @@ function SeguirCarro({
       return;
     }
     ultimoPasso.current = agora;
+    // TEMPORÁRIO — ver `core/perf.ts`. Mede o intervalo REAL entre quadros
+    // desenhados. É a única medida que responde "está travado?" com número.
+    contarQuadro(agora);
 
     // Trava em 1 quando a próxima leitura atrasa. Deixar passar continuaria
     // extrapolando o carro para longe do que se sabe; parar e esperar é
@@ -177,6 +182,9 @@ function SeguirCarro({
       // Chegou onde o aparelho conhece: dorme até o próximo fix acordar.
       quadro.current = 0;
       ultimoPasso.current = 0;
+      // O laço vai dormir: o próximo quadro não pode ser comparado com este,
+      // ou a pausa entraria na conta como se fosse um engasgo.
+      quadroPausado();
       return;
     }
     quadro.current = requestAnimationFrame(desenhar);
@@ -442,6 +450,12 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
     // acabou de carregar — logo depois do `load`.
     estiloAtual.current = noite ? ESTILOS.noite : ESTILOS.dia;
 
+    // TEMPORÁRIO — ver `core/perf.ts`. O mapa é recriado a cada abre/fecha de
+    // tela cheia (motivo no comentário acima), então este relógio mede
+    // exatamente a "demora para renderizar" de que o dono reclama, TODA vez
+    // que ela acontece — e não só no primeiro boot.
+    const nasceu = performance.now();
+
     const mapa = new MapaGL({
       container: caixa.current,
       style: estiloAtual.current,
@@ -454,6 +468,14 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
       // A atribuição do OpenStreetMap não é enfeite, é a licença — fica.
       attributionControl: { compact: true },
     });
+
+    // TEMPORÁRIO — os três marcos da vida de um mapa: estilo em pé, primeiro
+    // desenho, e nada mais pendente. Se o gargalo for rede (tiles vindo pelo
+    // hotspot) o `idle` fica muito acima do `load`; se for CPU, os dois sobem
+    // juntos.
+    mapa.once("styledata", () => medirMapa("estilo pronto", performance.now() - nasceu));
+    mapa.once("load", () => medirMapa("primeiro desenho", performance.now() - nasceu));
+    mapa.once("idle", () => medirMapa("acabou de desenhar", performance.now() - nasceu));
 
     mapa.on("dragstart", () => arrastar.current());
     // Falha de tile ou de estilo não pode ser silenciosa: sem isto, um mapa

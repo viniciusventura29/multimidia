@@ -248,6 +248,10 @@ impl Module for NavModule {
             tokio::select! {
                 posicao = self.gps.next_fix() => match posicao {
                     Ok(fix) => {
+                        // TEMPORÁRIO — ver `crate::perf`. Este braço roda a
+                        // 1 Hz e é o que alimenta o mapa: filtro, guiagem,
+                        // encaixe na rua e a serialização do estado inteiro.
+                        let _c = crate::perf::Cronometro::novo("nav.fix");
                         let fix = self.filtro.filtrar(fix);
                         self.ultimo_fix = Some(fix);
                         estado.noite = sol::e_noite(fix.lat, fix.lon, agora_unix());
@@ -286,6 +290,12 @@ impl Module for NavModule {
                         // em diante só a distância percorrida força a mão.
                         self.talvez_clima((fix.lat, fix.lon), &tx_clima);
 
+                        // Separado do resto do braço porque é o suspeito
+                        // número um: com rota ativa, o `Mapa` carrega a
+                        // polilinha inteira, e ela é serializada e comparada
+                        // campo a campo UMA VEZ POR SEGUNDO para que só
+                        // `lat`/`lon` tenham mudado.
+                        let _r = crate::perf::Cronometro::novo("nav.ready");
                         ctx.ready(&estado);
                     }
                     // Perder sinal não apaga o mapa: ele fica no último ponto
@@ -487,6 +497,7 @@ impl NavModule {
             // Teto por fora do cliente também: o que não pode acontecer é a
             // task morrer sem responder. Enquanto o canal não devolve nada,
             // `buscando` fica de pé e trava a busca e o recálculo juntos.
+            let comecou = Instant::now();
             let rota = match tokio::time::timeout(
                 TETO_DA_BUSCA,
                 directions::buscar(&cliente, &chave, (fix.lat, fix.lon), &alvo),
@@ -499,6 +510,10 @@ impl NavModule {
                     Err(DirectionsError::Rede)
                 }
             };
+            // TEMPORÁRIO — ver `crate::perf`. Até aqui só o estouro dos 20 s
+            // era relatado; quanto o Google leva quando NÃO estoura ninguém
+            // sabia, e é esse número que diz se traçar rota está lento.
+            crate::perf::medir("nav.rota_google", comecou.elapsed());
             let _ = tx.send((alvo, rota)).await;
         });
         true

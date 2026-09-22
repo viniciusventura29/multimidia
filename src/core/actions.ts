@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+// TEMPORÁRIO — `invoke` cronometrado; ver `core/perf.ts`.
+import { invoke } from "./perf";
 
 /**
  * Manda uma ação para o módulo dono dela.

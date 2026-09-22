@@ -8,6 +8,7 @@ mod atualizacao;
 mod diario;
 mod modules;
 mod obd_bt;
+mod perf;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -553,6 +554,11 @@ fn forward_states(app: tauri::AppHandle, supervisor: &Supervisor) {
         let mut tick = tokio::time::interval(JANELA);
 
         let emitir = |envelope: &StateEnvelope| {
+            // TEMPORÁRIO — ver `crate::perf`. A travessia da ponte: aqui o
+            // estado é serializado DE NOVO (o módulo já serializou uma vez em
+            // `ctx.ready`) e atravessa o IPC até a WebView. É o pedágio que
+            // todo módulo paga, e ninguém tinha medido.
+            let _c = perf::Cronometro::novo("ipc.emit");
             if let Err(err) = app.emit(EVENT_MODULE_STATE, envelope) {
                 tracing::warn!(%err, "não consegui emitir estado para a UI");
             }
@@ -651,6 +657,8 @@ pub fn run() {
             atualizacao::versao_rodando,
             atualizacao::baixar_atualizacao,
             diario::anotar_do_painel,
+            // TEMPORÁRIO — ver `crate::perf`.
+            perf::medir_do_painel,
         ])
         .setup(|app| {
             let dir = app
@@ -679,6 +687,11 @@ pub fn run() {
                     diario, destino, chave, sessao,
                 ));
             }
+
+            // TEMPORÁRIO — medição de performance; ver `crate::perf` para como
+            // arrancar. Relógio próprio, porque um relógio pendurado em módulo
+            // para de bater quando o módulo cai.
+            perf::ligar_relogio();
 
             // Sonda temporária do MediaBrowser — ver `obd_bt::sondar_media`.
             #[cfg(mobile)]

@@ -93,8 +93,18 @@ impl Module for ObdModule {
         let mut ultima_gravacao = Instant::now();
 
         loop {
-            painel.step(Instant::now()).await?;
-            ctx.ready(&painel.telemetria());
+            // TEMPORÁRIO — ver `crate::perf`. Esta é a volta mais quente do
+            // app: um PID por giro, ~300 ms cada, girando enquanto o carro
+            // estiver ligado. Se alguma coisa está comendo a central, é aqui
+            // que aparece primeiro.
+            {
+                let _c = crate::perf::Cronometro::novo("obd.step");
+                painel.step(Instant::now()).await?;
+            }
+            {
+                let _c = crate::perf::Cronometro::novo("obd.ready");
+                ctx.ready(&painel.telemetria());
+            }
 
             // Drena as ações **entre** leituras, e não num `select!`: a leitura de um
             // PID roda num `spawn_blocking` que espera o `>` do ELM327, e abandoná-la
