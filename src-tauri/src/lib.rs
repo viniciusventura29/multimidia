@@ -714,11 +714,18 @@ pub fn run() {
             // (Spotify Connect) em segundo plano — a UI é toda aqui. Isso
             // abandona o caminho da sessão de mídia (`AndroidConector`), que só
             // controlava o que já estivesse tocando e não sabia iniciar nada.
+            // A sessão de mídia voltou — mas como DECORADOR, não como
+            // substituta. É essa a diferença que fez o `AndroidConector` ser
+            // abandonado: sozinha, ela não sabe iniciar nada. Na frente da Web
+            // API, cada uma faz o que sabe — a local controla o que toca e
+            // entrega a capa sem rede, a nuvem inicia e navega a biblioteca.
+            // Ver `modules::musica_local`.
             let conector: Arc<dyn modules::music::Conector> =
                 Arc::new(modules::music::SpotifyConector {
                     client_id: client_id(&dir),
                     cofre: Arc::clone(&cofre),
                     demo: std::env::var("ECLIPSE_MUSIC_DEMO").is_ok_and(|v| v == "1"),
+                    app: Some(app.handle().clone()),
                 });
 
             let chave_mapa = maps_api_key(&dir);

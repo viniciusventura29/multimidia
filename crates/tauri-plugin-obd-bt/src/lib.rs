@@ -248,6 +248,38 @@ mod imp {
             let r: Resposta = self.plugin_handle.run_mobile_plugin("sondarMedia", ())?;
             Ok(r.json)
         }
+
+        /// O que o app do Spotify deste aparelho está tocando — ver
+        /// `SessaoMedia.kt`. Sem rede: é a sessão de mídia local.
+        pub fn sessao_media_estado(&self) -> crate::Result<String> {
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self
+                .plugin_handle
+                .run_mobile_plugin("sessaoMediaEstado", ())?;
+            Ok(r.json)
+        }
+
+        /// Um toque de transporte na sessão local. `false` = não atendeu, e
+        /// quem chamou deve repetir pela Web API.
+        pub fn sessao_media_comando(&self, acao: &str, valor: i64) -> crate::Result<bool> {
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Pedido<'a> {
+                acao: &'a str,
+                valor: i64,
+            }
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                atendeu: bool,
+            }
+            let r: Resposta = self
+                .plugin_handle
+                .run_mobile_plugin("sessaoMediaComando", Pedido { acao, valor })?;
+            Ok(r.atendeu)
+        }
     }
 }
 
@@ -396,6 +428,17 @@ mod imp {
         /// No desktop não há tocador do Android para sondar.
         pub fn sondar_media(&self) -> crate::Result<String> {
             Err(crate::Error::UnsupportedPlatform)
+        }
+
+        /// No desktop não há sessão de mídia do Android: quem toca é o SDK
+        /// dentro da WebView, que ali funciona.
+        pub fn sessao_media_estado(&self) -> crate::Result<String> {
+            Err(crate::Error::UnsupportedPlatform)
+        }
+
+        /// Idem — sem sessão local, nada a atender.
+        pub fn sessao_media_comando(&self, _acao: &str, _valor: i64) -> crate::Result<bool> {
+            Ok(false)
         }
     }
 
