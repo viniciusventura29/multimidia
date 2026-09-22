@@ -45,6 +45,15 @@ class CommandArgs {
     var timeoutMs: Int = 5000
 }
 
+@InvokeArg
+class ComandoSessaoArgs {
+    /** `tocar`, `pausar`, `alternar`, `proxima`, `anterior`, `saltar`. */
+    lateinit var acao: String
+
+    /** Só o `saltar` usa: a posição em milissegundos. */
+    var valor: Long = 0
+}
+
 @TauriPlugin(
     permissions = [
         Permission(
@@ -167,6 +176,44 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
             } catch (e: Exception) {
                 invoke.reject(e.message ?: e.javaClass.simpleName)
             }
+        }
+    }
+
+    /**
+     * O que o app do Spotify DESTE aparelho está tocando.
+     *
+     * Direto da `MediaSession` local: sem rede, sem nuvem, e com a capa já
+     * pronta em bitmap. Ver `SessaoMedia.kt` para por que isto existe.
+     *
+     * Não usa `io.execute`: são chamadas de binder, que voltam em
+     * microssegundos. Mandar para outra thread custaria mais que a leitura.
+     */
+    @Command
+    fun sessaoMediaEstado(invoke: Invoke) {
+        try {
+            val ret = JSObject()
+            ret.put("json", SessaoMedia.estado(activity).toString())
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Um toque de transporte na sessão local.
+     *
+     * `atendeu: false` não é erro — é o Rust sendo avisado de que precisa
+     * repetir o comando pela Web API.
+     */
+    @Command
+    fun sessaoMediaComando(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(ComandoSessaoArgs::class.java)
+            val ret = JSObject()
+            ret.put("atendeu", SessaoMedia.comando(activity, args.acao, args.valor))
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.javaClass.simpleName)
         }
     }
 

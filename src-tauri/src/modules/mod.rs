@@ -8,5 +8,6 @@ pub mod adaptador;
 pub mod assistente;
 pub mod messaging;
 pub mod music;
+pub mod musica_local;
 pub mod nav;
 pub mod obd;

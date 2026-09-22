@@ -65,6 +65,11 @@ pub struct SpotifyConector {
     /// `ECLIPSE_MUSIC_DEMO=1` troca o Spotify por faixas de mentira, para
     /// trabalhar no layout sem Client ID.
     pub demo: bool,
+    /// Para falar com a sessão de mídia do aparelho. `None` = só Web API.
+    ///
+    /// Opcional porque os testes deste módulo sobem o conector sem app do
+    /// Tauri, e porque no desktop não existe sessão local nenhuma.
+    pub app: Option<tauri::AppHandle>,
 }
 
 #[async_trait]
@@ -76,9 +81,22 @@ impl Conector for SpotifyConector {
 
         let client_id = self.client_id.as_deref().ok_or(MusicError::NotConfigured)?;
 
-        Ok(Box::new(
-            SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre)).await?,
-        ))
+        let nuvem: Box<dyn MusicSource> =
+            Box::new(SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre)).await?);
+
+        // A sessão local na FRENTE da nuvem, não no lugar dela: o que é rápido
+        // e local (o que toca, a capa, o transporte) passa a não usar rede, e a
+        // biblioteca continua na Web API. Ver `musica_local`.
+        //
+        // Se não houver sessão local — Spotify fechado, conexão recusada,
+        // desktop — o decorador devolve tudo à nuvem e nada piora.
+        match &self.app {
+            Some(app) => Ok(Box::new(crate::modules::musica_local::SessaoLocal::nova(
+                app.clone(),
+                nuvem,
+            ))),
+            None => Ok(nuvem),
+        }
     }
 }
 
