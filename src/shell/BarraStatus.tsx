@@ -6,7 +6,7 @@ import { corBateria, corFuel, voltagemPct } from "../core/telemetria";
 import type { ObdReadings } from "../core/types";
 import type { Clima, MapaState } from "../modules/nav/tipos";
 import { ClimaIcon } from "./clima";
-import { useAtualizacao } from "./atualizacao";
+import { useAtualizacao, useVersao } from "./atualizacao";
 import { BateriaIcon, GasolinaIcon } from "./indicadores";
 
 /**
@@ -68,6 +68,7 @@ export function BarraStatus() {
 
   const hora = useHora();
   const { nova, baixar } = useAtualizacao();
+  const versao = useVersao();
 
   return (
     <div className="barra">
@@ -124,6 +125,26 @@ export function BarraStatus() {
         >
           <TriangleAlert className="barra__icone" aria-hidden />
           {falhas ? falhas : "!"}
+        </span>
+      )}
+
+      {/* O número do build, miúdo e apagado, no fim da linha.
+
+          Não é rodapé de vaidade: sem ele, "atualizei e não mudou nada" e "não
+          atualizou" são a MESMA frase na boca de quem está no carro, e eu não
+          tenho como separar as duas daqui. Com o número, a pergunta acaba em um
+          segundo — ele lê, me diz, e nós dois sabemos de que build estamos
+          falando, porque é o mesmo texto que vai no diário de bordo.
+
+          Fica antes do "atualizar" de propósito: quando os dois aparecem
+          juntos, a linha lê "estou na 86" seguido de "tem coisa nova", que é a
+          ordem em que a pergunta acontece na cabeça.
+
+          Sem cápsula, sem moldura, sem fundo — é texto, e o vão já o separa do
+          resto. Ver `.barra__versao` no `App.css`. */}
+      {versao && (
+        <span className="barra__item barra__versao" title="versão instalada">
+          {versao}
         </span>
       )}
 

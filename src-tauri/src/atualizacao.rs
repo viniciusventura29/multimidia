@@ -114,6 +114,27 @@ fn versao_local() -> u64 {
         .unwrap_or(0)
 }
 
+/// Que versão está rodando AGORA, para a tela mostrar.
+///
+/// Existe por um motivo que não é vaidade de rodapé: sem isto, "atualizei e não
+/// mudou nada" e "não atualizou" são a mesma frase. O dono instala o APK, não vê
+/// diferença, e não há como saber se o conserto não funcionou ou se nunca
+/// chegou no aparelho. Um número na tela separa as duas em um segundo.
+///
+/// Mesmo formato do diário de bordo (`diario::versao`) de propósito: o que ele
+/// lê na tela é EXATAMENTE o que vai aparecer no log que eu leio daqui, então
+/// ele pode me dizer o número e nós dois estamos falando do mesmo build.
+///
+/// `+dev` quando não há `versionCode` embutido — todo build local. Também é
+/// informação: diz que não veio da CI.
+#[tauri::command]
+pub fn versao_rodando() -> String {
+    match versao_local() {
+        0 => format!("{}+dev", env!("CARGO_PKG_VERSION")),
+        code => format!("{}+{}", env!("CARGO_PKG_VERSION"), code),
+    }
+}
+
 /// De onde perguntar. A env existe para testar contra um arquivo local antes de
 /// a CI publicar o primeiro `versao.json`; na head unit ela nunca está definida.
 fn endereco_do_manifesto() -> String {
