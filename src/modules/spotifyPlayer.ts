@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+// TEMPORÁRIO — `invoke` cronometrado; ver `core/perf.ts`.
+import { invoke } from "../core/perf";
 
 /**
  * O Eclipse como tocador de Spotify.

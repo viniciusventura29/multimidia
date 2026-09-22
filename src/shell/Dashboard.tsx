@@ -148,7 +148,25 @@ export function Dashboard({
           <TileHost
             key={spec.id}
             spec={spec}
-            coberto={expandido === spec.id}
+            /* `!== null`, e não `=== spec.id`.
+
+               `coberto` quer dizer "ninguém está vendo isto, pode parar de
+               desenhar". Quando um quadro abre em tela cheia, quem some da
+               vista são TODOS os quadros do grid, atrás do overlay — não só o
+               que foi aberto (esse, aliás, é o único que continua visível, na
+               cópia do overlay).
+
+               Com a comparação antiga, abrir o mapa em tela cheia deixava a
+               cena 3D do carro desenhando a 30 fps atrás do overlay: um
+               segundo contexto WebGL com MSAA disputando a GPU com o MapLibre,
+               e ainda forçando o `backdrop-filter` do overlay a refazer o
+               desfoque da tela inteira a cada quadro, porque o fundo nunca
+               parava de mudar.
+
+               A defesa já existia em `carro3d/index.tsx` ("é justamente quando
+               o mapa está grande que o carro deixa de gastar") — e estava
+               desarmada por esta linha. */
+            coberto={expandido !== null}
             aoExpandir={aoExpandir}
           />
         ))}

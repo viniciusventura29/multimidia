@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from "react";
-import { invoke } from "@tauri-apps/api/core";
+// TEMPORÁRIO — `invoke` cronometrado; ver `core/perf.ts`.
+import { invoke } from "./perf";
 import { listen } from "@tauri-apps/api/event";
 
 import type { StateEnvelope, Status } from "./types";

@@ -89,6 +89,8 @@ impl Supervisor {
 
         let handle = tokio::spawn(async move {
             let mut backoff = Backoff::new();
+            // Quantas vezes ESTE módulo já reiniciou nesta sessão.
+            let mut reinicios: u32 = 0;
 
             loop {
                 let ctx = ModuleCtx::new(id.clone(), bus.clone());
@@ -111,7 +113,18 @@ impl Supervisor {
                     Err(_) => return,
                 };
 
-                tracing::error!(module = %id, reason, "módulo caiu, vai reiniciar");
+                // `vida_s` e `reinicios` respondem uma pergunta que o log não
+                // respondia: cair uma vez é azar, cair de 30 em 30 segundos é
+                // defeito — e os dois davam exatamente a mesma linha. O
+                // `started.elapsed()` já era calculado aqui e jogado fora.
+                reinicios += 1;
+                tracing::error!(
+                    module = %id,
+                    reason,
+                    vida_s = started.elapsed().as_secs(),
+                    reinicios,
+                    "módulo caiu, vai reiniciar"
+                );
                 bus.publish(&id, Status::Degraded, None, Some(reason));
 
                 if started.elapsed() >= HEALTHY_AFTER {
