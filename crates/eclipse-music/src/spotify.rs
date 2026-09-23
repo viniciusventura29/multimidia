@@ -128,6 +128,25 @@ pub struct SpotifySource {
     nome_do_aparelho: Option<String>,
 }
 
+/// O nome que o Spotify anuncia é o mesmo aparelho que o Android diz ser?
+///
+/// Comparação por continência, e não por igualdade, porque os dois lados nem
+/// sempre escrevem igual: o Spotify às vezes prefixa ou sufixa o nome do
+/// modelo, e o dono pode ter batizado a central em Configurações. Exigir
+/// igualdade exata faria o casamento falhar por um espaço — e falhar aqui
+/// manda o som para o celular no bolso de quem está dirigindo.
+///
+/// Vazio nunca casa: `"".contains("")` é verdadeiro, e isso faria QUALQUER
+/// dispositivo passar por "a central" quando o Android não soube responder.
+fn e_o_mesmo_aparelho(nome: &str, daqui: &str) -> bool {
+    let nome = nome.trim().to_lowercase();
+    let daqui = daqui.trim().to_lowercase();
+    if nome.is_empty() || daqui.is_empty() {
+        return false;
+    }
+    nome == daqui || nome.contains(&daqui) || daqui.contains(&nome)
+}
+
 /// Nota de um dispositivo do Connect. Maior ganha — ver `escolher_device`.
 ///
 /// Fora do método de propósito: é a regra que decide de onde sai o som, e
@@ -138,7 +157,7 @@ fn pontos(nome: &str, tipo: &rspotify::model::DeviceType, ativo: bool, daqui: Op
     // O app do Spotify DESTA central, achado pelo nome do aparelho. É o único
     // caso em que se tem certeza de onde o som vai sair.
     if let Some(daqui) = daqui {
-        if nome.eq_ignore_ascii_case(daqui) {
+        if e_o_mesmo_aparelho(nome, daqui) {
             return 100 + i32::from(ativo);
         }
     }
@@ -857,5 +876,32 @@ mod tests_escolha_de_device {
     fn o_nome_casa_sem_olhar_maiuscula() {
         let lista = [("uis7862", DeviceType::Smartphone, false)];
         assert_eq!(melhor(&lista, Some("UIS7862")), "uis7862");
+    }
+
+    #[test]
+    fn o_nome_casa_mesmo_com_prefixo_ou_sufixo() {
+        // O Spotify nem sempre anuncia o nome exatamente como o Android o
+        // escreve. Exigir igualdade faria o casamento falhar por um espaço — e
+        // falhar aqui manda o som para o celular no bolso de quem dirige.
+        for anunciado in ["Android UIS7862", "UIS7862 (Auto)", "uis7862"] {
+            let lista = [
+                ("iPhone do Vinicius", DeviceType::Smartphone, true),
+                (anunciado, DeviceType::Smartphone, false),
+            ];
+            assert_eq!(
+                melhor(&lista, Some(CENTRAL)),
+                anunciado,
+                "'{anunciado}' devia casar com '{CENTRAL}'"
+            );
+        }
+    }
+
+    #[test]
+    fn nome_vazio_nao_casa_com_ninguem() {
+        // `"".contains("")` é verdadeiro. Sem esta guarda, o Android não saber
+        // responder faria o PRIMEIRO dispositivo da lista virar "a central".
+        assert!(!e_o_mesmo_aparelho("", ""));
+        assert!(!e_o_mesmo_aparelho("iPhone do Vinicius", ""));
+        assert!(!e_o_mesmo_aparelho("", "UIS7862"));
     }
 }
