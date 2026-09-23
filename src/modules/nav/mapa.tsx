@@ -4,7 +4,6 @@ import {
   LngLatBounds,
   Map as MapaGL,
   Marker,
-  type GeoJSONSource,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 // O worker do MapLibre é um arquivo à parte desde a v6, e a biblioteca o
@@ -48,9 +47,6 @@ const ESTILOS = {
   dia: "https://tiles.openfreemap.org/styles/positron",
   noite: "https://tiles.openfreemap.org/styles/dark",
 } as const;
-
-/** Quantos pontos do caminho já andado manter desenhados. */
-const RASTRO_MAXIMO = 120;
 
 /** De quanto em quanto tempo chega uma posição nova. */
 const INTERVALO_GPS_MS = 1000;
@@ -133,7 +129,6 @@ function SeguirCarro({
   // marcador, porque `mostrarCarro` precisa saber se ainda falta anexar — ver
   // lá embaixo por que anexar não pode acontecer todo quadro.
   const carro = useRef<{ marcador: Marker; mapa: MapaGL } | null>(null);
-  const pontos = useRef<[number, number][]>([]);
   // O quadro agendado, ou 0 = loop dormindo. O loop só roda enquanto há trecho
   // a percorrer: com o carro parado não chega trecho novo (zona morta) e o rAF
   // se auto-encerra — numa head unit, trinta movimentos de câmera por segundo
@@ -238,9 +233,6 @@ function SeguirCarro({
       inicio: performance.now(),
     };
 
-    const ponto: [number, number] = [fix.lon, fix.lat];
-    pontos.current = [...pontos.current, ponto].slice(-RASTRO_MAXIMO);
-    rastro(map, pontos.current);
     acordar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix]);
@@ -269,7 +261,6 @@ function SeguirCarro({
     if (conhecido) {
       mostrarCarro(map, carro, [conhecido.lon, conhecido.lat], conhecido.heading);
     }
-    rastro(map, pontos.current);
 
     acordar();
     return () => {
@@ -338,17 +329,6 @@ function mostrarCarro(
   carro.current = { marcador, mapa: map };
 }
 
-/** Redesenha o caminho já andado. */
-function rastro(map: MapaGL | null, pontos: [number, number][]) {
-  const fonte = map?.getSource<GeoJSONSource>(`${NOSSO}rastro`);
-  if (!fonte) return;
-
-  fonte.setData({
-    type: "Feature",
-    properties: {},
-    geometry: { type: "LineString", coordinates: pontos },
-  });
-}
 
 /**
  * Botões de câmera: zoom, visão geral da rota e recentrar.
@@ -444,7 +424,7 @@ function Controles({
  * Cria o mapa e o mantém vivo.
  *
  * A troca de tema é `setStyle`, que substitui o documento de estilo inteiro e
- * levaria junto a rota e o rastro. O `transformStyle` reconduz para o estilo
+ * levaria a rota junto. O `transformStyle` reconduz para o estilo
  * novo tudo que for nosso (prefixo `eclipse-`) — é a resposta certa para a
  * mesma armadilha que o `colorScheme` do Google criava, e que ali só tinha
  * remendo. Marcadores (carro, POIs) são DOM e não passam por isso.
@@ -548,21 +528,6 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
     mapa.on("error", (e) => console.error("[eclipse] maplibre", e.error ?? e));
 
     mapa.on("load", () => {
-      mapa.addSource(`${NOSSO}rastro`, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      mapa.addLayer({
-        id: `${NOSSO}rastro`,
-        type: "line",
-        source: `${NOSSO}rastro`,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": "#a06bff",
-          "line-width": 6,
-          "line-opacity": 0.9,
-        },
-      });
       setMap(mapa);
     });
 

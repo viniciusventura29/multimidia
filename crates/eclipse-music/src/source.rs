@@ -139,8 +139,20 @@ pub enum MusicError {
 
     /// A Web API comanda um device que já esteja ativo — ela não cria um.
     /// Sem nada tocando em lugar nenhum, não há o que controlar.
-    #[error("nenhum dispositivo Spotify ativo")]
+    #[error("nenhum Spotify disponível; abra o app do Spotify na central uma vez")]
     NoActiveDevice,
+
+    /// Há dispositivos, mas NENHUM deles está dentro do carro.
+    ///
+    /// Separado de [`NoActiveDevice`](MusicError::NoActiveDevice) porque a
+    /// saída é outra, e porque o silêncio aqui é uma escolha: o dono relatou a
+    /// música começando a tocar no computador dele, em casa, enquanto dirigia.
+    /// Entre não tocar e tocar na casa vazia, não tocar é melhor — mas só se a
+    /// tela disser o que fazer.
+    #[error(
+        "o Spotify da central não está aberto; abra o app do Spotify uma vez para o som sair aqui"
+    )]
+    SoDispositivoDeFora,
 
     /// Controlar playback pela API exige Premium; conta free devolve 403.
     #[error("o controle de playback exige Spotify Premium")]
@@ -167,7 +179,7 @@ impl MusicError {
                 TipoProblema::PrecisaLogin
             }
             Self::PremiumRequired => TipoProblema::PrecisaPremium,
-            Self::NoActiveDevice => TipoProblema::SemDispositivo,
+            Self::NoActiveDevice | Self::SoDispositivoDeFora => TipoProblema::SemDispositivo,
             Self::Network(_) => TipoProblema::Rede,
         };
         Problema {
