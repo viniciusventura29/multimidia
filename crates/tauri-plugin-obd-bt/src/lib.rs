@@ -249,6 +249,17 @@ mod imp {
             Ok(r.json)
         }
 
+        /// O nome deste aparelho, para achar a central na lista do Spotify
+        /// Connect — ver `nomeDoAparelho` no plugin.
+        pub fn nome_do_aparelho(&self) -> crate::Result<String> {
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                nome: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin("nomeDoAparelho", ())?;
+            Ok(r.nome)
+        }
+
         /// O que o app do Spotify deste aparelho está tocando — ver
         /// `SessaoMedia.kt`. Sem rede: é a sessão de mídia local.
         pub fn sessao_media_estado(&self) -> crate::Result<String> {
@@ -427,6 +438,12 @@ mod imp {
 
         /// No desktop não há tocador do Android para sondar.
         pub fn sondar_media(&self) -> crate::Result<String> {
+            Err(crate::Error::UnsupportedPlatform)
+        }
+
+        /// No desktop não há app do Spotify concorrendo pelo Connect: quem
+        /// toca é o SDK dentro da WebView, que ali funciona.
+        pub fn nome_do_aparelho(&self) -> crate::Result<String> {
             Err(crate::Error::UnsupportedPlatform)
         }
 

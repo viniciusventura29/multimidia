@@ -121,6 +121,43 @@ pub struct SpotifySource {
     /// Último estado conhecido de reprodução, atualizado a cada `now_playing`.
     /// Evita uma consulta de rede extra no `toggle` — ver o comentário lá.
     tocando: bool,
+    /// O nome DESTE aparelho, para achar a central na lista do Connect.
+    ///
+    /// `None` no desktop e quando o Android não soube responder. Nesse caso a
+    /// escolha não arrisca adivinhar — ver `escolher_device`.
+    nome_do_aparelho: Option<String>,
+}
+
+/// Nota de um dispositivo do Connect. Maior ganha — ver `escolher_device`.
+///
+/// Fora do método de propósito: é a regra que decide de onde sai o som, e
+/// aninhada dentro de um `async fn` ela não podia ser testada.
+fn pontos(nome: &str, tipo: &rspotify::model::DeviceType, ativo: bool, daqui: Option<&str>) -> i32 {
+    use rspotify::model::DeviceType;
+
+    // O app do Spotify DESTA central, achado pelo nome do aparelho. É o único
+    // caso em que se tem certeza de onde o som vai sair.
+    if let Some(daqui) = daqui {
+        if nome.eq_ignore_ascii_case(daqui) {
+            return 100 + i32::from(ativo);
+        }
+    }
+
+    let base = match tipo {
+        // Uma central que se anuncia como automóvel também é daqui — e nenhum
+        // celular se anuncia assim.
+        DeviceType::Automobile => 60,
+        // O Eclipse pelo WebView: plano B. Continua melhor que mandar o som
+        // para um aparelho que não está dentro do carro.
+        _ if nome == NOME_DEVICE => 40,
+        // Celular/tablet que NÃO é esta central: provavelmente o telefone no
+        // bolso do dono. Só se não houver mais nada.
+        DeviceType::Smartphone | DeviceType::Tablet => 10,
+        // O PC é justamente o que se quer evitar aqui.
+        DeviceType::Computer => 0,
+        _ => 5,
+    };
+    base + i32::from(ativo)
 }
 
 impl SpotifySource {
@@ -129,6 +166,7 @@ impl SpotifySource {
         client_id: &str,
         perfil: Uuid,
         cofre: Arc<Mutex<TokenStore>>,
+        nome_do_aparelho: Option<String>,
     ) -> Result<Self, MusicError> {
         let guardado = {
             let cofre = cofre.lock().unwrap_or_else(|e| e.into_inner());
@@ -183,6 +221,7 @@ impl SpotifySource {
         Ok(Self {
             client,
             tocando: false,
+            nome_do_aparelho,
         })
     }
 
@@ -204,43 +243,53 @@ impl SpotifySource {
             .ok_or(MusicError::NeedsReauth)
     }
 
-    /// Escolhe onde tocar. Com o Spotify logado no PC E no celular ao mesmo
-    /// tempo, pegar só "o device ativo" fazia o som sair no PC. Aqui a gente
-    /// **prefere o próprio aparelho** (celular/tablet/automóvel = o head unit) e
-    /// evita o PC; `is_active` só desempata. Vazio = ninguém para comandar (abrir
-    /// o Spotify no aparelho uma vez para ele aparecer na lista).
+    /// Escolhe onde tocar.
+    ///
+    /// # Por que o WebView deixou de ser o preferido
+    ///
+    /// Até aqui a regra dava nota 100 para o próprio Eclipse — o Web Playback
+    /// SDK, que decodifica o áudio DENTRO da WebView. No papel é elegante:
+    /// dispensa o app do Spotify e responde na hora.
+    ///
+    /// No carro, não funciona. O relato do dono: "quando eu seleciono uma
+    /// música ele começa a pular músicas até que ele para depois de pular 5, e
+    /// aí toca um pouco e depois para de sair o som". Essa é a assinatura de
+    /// um decodificador que não dá conta — a cada faixa que ele não consegue
+    /// abrir, o Spotify avança para a próxima; quando enfim abre uma, o fôlego
+    /// acaba no meio. Decodificar áudio com DRM numa WebView de SoC barata,
+    /// disputando CPU com um mapa vetorial, é pedir demais.
+    ///
+    /// O app do Spotify instalado na central decodifica nativamente e não tem
+    /// nada disso. Então ele passa na frente, e o WebView vira plano B.
+    ///
+    /// # O problema de saber QUAL é a central
+    ///
+    /// O app da central e o Spotify do celular do dono aparecem os dois como
+    /// `Smartphone`. Escolher pelo tipo mandaria o som para o celular —
+    /// trocando um defeito por outro pior, porque o carro ficaria mudo e o
+    /// celular tocando no bolso.
+    ///
+    /// Por isso a identificação é pelo NOME: o app do Spotify se anuncia no
+    /// Connect com o nome do aparelho, e o Android sabe dizer o nome deste
+    /// aparelho (ver `nomeDoAparelho` no plugin). Sem esse nome — desktop, ou
+    /// a chamada falhou — a regra não arrisca: cai no WebView, que é o
+    /// comportamento de hoje.
     async fn escolher_device(&self) -> Result<String, MusicError> {
-        use rspotify::model::DeviceType;
-
-        fn pontos(nome: &str, tipo: &DeviceType, ativo: bool) -> i32 {
-            // O próprio Eclipse, via Web Playback SDK, é o alvo preferido: o som
-            // sai aqui dentro, sem depender do app oficial do Spotify.
-            if nome == NOME_DEVICE {
-                return 100 + if ativo { 1 } else { 0 };
-            }
-            let base = match tipo {
-                // Depois dele, o aparelho onde o Eclipse roda (head unit/celular).
-                DeviceType::Smartphone | DeviceType::Tablet | DeviceType::Automobile => 10,
-                // O PC é justamente o que se quer evitar aqui.
-                DeviceType::Computer => 0,
-                _ => 5,
-            };
-            base + if ativo { 1 } else { 0 }
-        }
-
         let devices = self.client.device().await.map_err(traduzir)?;
-        println!(
-            "[eclipse] devices Spotify: {:?}",
-            devices
+        let daqui = self.nome_do_aparelho.as_deref();
+        tracing::debug!(
+            aparelho = daqui.unwrap_or("(não sei)"),
+            lista = ?devices
                 .iter()
                 .map(|d| format!("{} ({:?}, ativo={})", d.name, d._type, d.is_active))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            "dispositivos do Spotify Connect"
         );
 
         devices
             .into_iter()
             .filter(|d| d.id.is_some())
-            .max_by_key(|d| pontos(&d.name, &d._type, d.is_active))
+            .max_by_key(|d| pontos(&d.name, &d._type, d.is_active, daqui))
             .and_then(|d| d.id)
             .ok_or(MusicError::NoActiveDevice)
     }
@@ -678,5 +727,91 @@ mod tests {
     fn requisicao_sem_query_nao_quebra() {
         assert_eq!(extrair_codigo("GET /callback HTTP/1.1\r\n\r\n"), None);
         assert_eq!(extrair_codigo(""), None);
+    }
+}
+
+#[cfg(test)]
+mod tests_escolha_de_device {
+    use super::*;
+    use rspotify::model::DeviceType;
+
+    /// O nome que o Android deu a esta central.
+    const CENTRAL: &str = "UIS7862";
+
+    fn melhor<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: Option<&str>) -> &'a str {
+        lista
+            .iter()
+            .max_by_key(|(nome, tipo, ativo)| pontos(nome, tipo, *ativo, daqui))
+            .map(|(nome, _, _)| *nome)
+            .expect("lista não-vazia")
+    }
+
+    #[test]
+    fn o_som_vai_para_a_central_e_nao_para_o_celular_do_dono() {
+        // O risco que quase me fez não mexer nisto: o app da central e o
+        // Spotify do celular aparecem os DOIS como `Smartphone`. Escolher pelo
+        // tipo deixaria o carro mudo e o celular tocando no bolso.
+        let lista = [
+            ("iPhone do Vinicius", DeviceType::Smartphone, true),
+            (CENTRAL, DeviceType::Smartphone, false),
+            (NOME_DEVICE, DeviceType::Computer, false),
+        ];
+        assert_eq!(
+            melhor(&lista, Some(CENTRAL)),
+            CENTRAL,
+            "com o nome do aparelho em mãos, não há empate a resolver"
+        );
+    }
+
+    #[test]
+    fn o_celular_do_dono_perde_ate_para_o_webview() {
+        // Sem o app da central na lista, o WebView (que ao menos toca DENTRO
+        // do carro) ganha do celular. Áudio ruim no carro é melhor que áudio
+        // bom no bolso de quem está dirigindo.
+        let lista = [
+            ("iPhone do Vinicius", DeviceType::Smartphone, true),
+            (NOME_DEVICE, DeviceType::Computer, false),
+        ];
+        assert_eq!(melhor(&lista, Some(CENTRAL)), NOME_DEVICE);
+    }
+
+    #[test]
+    fn sem_saber_o_nome_daqui_nao_se_arrisca() {
+        // Desktop, ou a pergunta ao Android falhou. Adivinhar entre dois
+        // `Smartphone` seria pior que manter o comportamento antigo.
+        let lista = [
+            ("iPhone do Vinicius", DeviceType::Smartphone, true),
+            (CENTRAL, DeviceType::Smartphone, false),
+            (NOME_DEVICE, DeviceType::Computer, false),
+        ];
+        assert_eq!(melhor(&lista, None), NOME_DEVICE);
+    }
+
+    #[test]
+    fn uma_central_que_se_diz_automovel_ganha_do_webview() {
+        // Nenhum celular se anuncia como `Automobile`; quem se anuncia assim
+        // está no carro, e decodifica nativamente.
+        let lista = [
+            ("Minha central", DeviceType::Automobile, false),
+            (NOME_DEVICE, DeviceType::Computer, true),
+        ];
+        assert_eq!(melhor(&lista, None), "Minha central");
+    }
+
+    #[test]
+    fn o_pc_e_o_ultimo_lugar_do_mundo() {
+        // O caso que originou a regra: Spotify aberto no PC de casa levava o
+        // som para lá, e o carro ficava mudo.
+        let lista = [
+            ("PC do escritório", DeviceType::Computer, true),
+            (CENTRAL, DeviceType::Smartphone, false),
+        ];
+        assert_eq!(melhor(&lista, Some(CENTRAL)), CENTRAL);
+    }
+
+    #[test]
+    fn o_nome_casa_sem_olhar_maiuscula() {
+        let lista = [("uis7862", DeviceType::Smartphone, false)];
+        assert_eq!(melhor(&lista, Some("UIS7862")), "uis7862");
     }
 }
