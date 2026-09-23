@@ -216,11 +216,44 @@ export function marcarPosicaoOtimista(posicaoMs: number): void {
  * Monta o player. Deve ficar no App (uma instância só) — o tile de música monta
  * duas vezes (compacto e expandido) e dois players brigariam pelo mesmo device.
  */
+/**
+ * Estamos na head unit?
+ *
+ * Mesma checagem do `nav/localizacao.ts`. Repetida em vez de importada porque
+ * este módulo não deve depender do de navegação por uma linha.
+ */
+function ehAndroid(): boolean {
+  return /android/i.test(navigator.userAgent);
+}
+
 export function useSpotifyPlayer(perfilId: string | null, logado: boolean): StatusPlayer {
   const [status, setStatus] = useState<StatusPlayer>("off");
 
   useEffect(() => {
     if (!perfilId || !logado) {
+      setStatus("off");
+      publicarStatus("off");
+      return;
+    }
+
+    // NA HEAD UNIT O PLAYER NÃO SOBE. Este é o conserto do "pula cinco músicas".
+    //
+    // Enquanto este SDK sobe, o Eclipse se anuncia ao Spotify Connect como um
+    // dispositivo chamado "Eclipse OS" — e o áudio passa a ser decodificado
+    // AQUI DENTRO, na WebView. Numa SoC barata, disputando CPU com um mapa
+    // vetorial, ele não dá conta: a faixa não carrega, o Spotify pula para a
+    // seguinte, tenta de novo, pula... até uma abrir. É exatamente o "ele
+    // começa a pular músicas até parar depois de cinco e aí começa a tocar".
+    //
+    // Tentar escolher o app nativo pela regra de pontos (#81) não bastou,
+    // porque o "Eclipse OS" continuava NA LISTA como candidato. Tirá-lo da
+    // lista é o que resolve de vez: sem este SDK o dispositivo não existe, e o
+    // único tocador local possível é o app do Spotify da central, que
+    // decodifica nativamente e não engasga.
+    //
+    // No desktop o SDK continua: lá ele funciona, e não há app do Spotify
+    // instalado para assumir o lugar dele.
+    if (ehAndroid()) {
       setStatus("off");
       publicarStatus("off");
       return;
