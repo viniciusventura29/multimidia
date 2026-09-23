@@ -34,14 +34,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.content.ContextCompat
+import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationSettingsRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
 import com.google.android.gms.location.Priority
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,6 +60,23 @@ private const val VELHA_DEMAIS_MS = 120_000L
 /** Código do `startResolutionForResult`. Não lemos a resposta — o próprio
  *  sistema liga o ajuste, e o provedor fundido passa a entregar sozinho. */
 private const val CODIGO_PRECISAO = 7311
+
+/**
+ * Quanto esperar sem NENHUMA posição antes de registrar tudo de novo.
+ *
+ * Existe por causa de um caso real: o dono abriu o app, aceitou o diálogo de
+ * precisão, e o mapa continuou vazio — só funcionou depois de fechar e abrir.
+ *
+ * O motivo é que o registro é feito UMA vez, e naquele momento o provedor de
+ * rede ainda estava desligado. Ligar o ajuste depois não faz o Android
+ * reentregar nada a quem já tinha se registrado contra um provedor morto: o
+ * pedido antigo continua de pé, apontando para o nada.
+ *
+ * Meio minuto é longo o bastante para não atrapalhar uma primeira fixação
+ * legítima (um GPS frio leva de 30 a 60 s), e curto o bastante para o dono não
+ * precisar fechar o app.
+ */
+private const val PACIENCIA_ANTES_DE_RELIGAR_MS = 30_000L
 
 internal object Localizacao {
 
@@ -213,10 +231,14 @@ internal object Localizacao {
             erro = "nenhum provedor de localização disponível"
         }
         ligado = algum || fundidoSubiu
+        if (ligado) ligadoDesdeMs = System.currentTimeMillis()
     }
 
     /** Já pedimos? Uma vez por processo — insistir vira diálogo em loop. */
     @Volatile private var pediuPrecisao = false
+
+    /** Quando os provedores foram registrados. Base do religamento. */
+    @Volatile private var ligadoDesdeMs = 0L
 
     /**
      * Pede ao sistema o diálogo de "melhorar a precisão de localização".
@@ -300,10 +322,63 @@ internal object Localizacao {
         }
     }
 
+    /**
+     * Solta tudo o que estava registrado.
+     *
+     * Sem isto o religamento empilharia pedidos: o Android guarda um registro
+     * por (ouvinte, provedor), e registrar de novo sem remover o anterior
+     * deixaria dois pedidos vivos para sempre — cada religada dobrando a conta
+     * de bateria por um ganho nenhum.
+     */
+    @Synchronized
+    private fun soltar() {
+        try {
+            manager?.removeUpdates(ouvinte)
+        } catch (e: Throwable) {
+            Log.w(TAG, "não consegui soltar o LocationManager: ${e.message}")
+        }
+        try {
+            manager?.unregisterGnssStatusCallback(satelites)
+        } catch (e: Throwable) {
+            Log.w(TAG, "não consegui soltar o contador de satélites: ${e.message}")
+        }
+        try {
+            fundido?.removeLocationUpdates(ouvinteFundido)
+        } catch (e: Throwable) {
+            Log.w(TAG, "não consegui soltar o provedor fundido: ${e.message}")
+        }
+        fundido = null
+        ligado = false
+    }
+
+    /**
+     * Registra tudo de novo quando já faz tempo demais sem posição nenhuma.
+     *
+     * O caso que isto conserta: o dono abre o app, aceita o diálogo de
+     * precisão, e o mapa continua vazio — porque o registro foi feito ANTES de
+     * o provedor de rede existir, e ligar o ajuste depois não reentrega nada a
+     * quem já estava registrado contra um provedor morto. Antes, a única saída
+     * era fechar e abrir o app; o dono descobriu isso sozinho, no carro.
+     *
+     * Só religa se NUNCA houve posição (`ultima == null`). Com uma posição na
+     * mão, mesmo velha, o caminho está funcionando e mexer nele só arriscaria
+     * perder o que já se tem.
+     */
+    @Synchronized
+    private fun talvezReligar(context: Context) {
+        if (!ligado || ultima != null) return
+        if (System.currentTimeMillis() - ligadoDesdeMs < PACIENCIA_ANTES_DE_RELIGAR_MS) return
+
+        Log.w(TAG, "sem posição há ${PACIENCIA_ANTES_DE_RELIGAR_MS}ms; registrando de novo")
+        soltar()
+        ligar(context)
+    }
+
     /** O que há de mais recente, para o Rust buscar de tempos em tempos. */
     @Synchronized
     fun ultima(context: Context): JSONObject {
         ligar(context)
+        talvezReligar(context)
 
         val fora = JSONObject()
         val l = ultima
