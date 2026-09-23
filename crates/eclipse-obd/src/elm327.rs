@@ -407,6 +407,7 @@ fn classificar_erro(bruto: &str) -> ObdError {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn rpm_do_exemplo_do_manual() {
@@ -685,16 +686,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn o_atz_tem_prazo_maior_que_os_outros_comandos() {
+    async fn o_atz_recebe_um_prazo_maior_que_os_outros_comandos() {
         // `ATZ` é um reinício: o adaptador desliga, religa e só então responde.
-        // Dar a ele o mesmo prazo de um `ATE0` é o que derrubava tudo antes de
-        // qualquer outra coisa ser tentada.
-        let mut fake = FakeElm::new([("ATZ", &["ELM327 v1.5"] as &[&str])]);
-        let _ = fake.command("ATZ", TIMEOUT_RESET_MS).await;
+        // Dar a ele o mesmo prazo de um `ATE0` é o que derrubava a conexão
+        // antes de qualquer outra coisa ser tentada.
+        //
+        // Observa o prazo REALMENTE passado ao transporte — comparar as duas
+        // constantes entre si não provaria que o `conectar` usa a certa.
+        #[derive(Default)]
+        struct Anota {
+            prazos: Arc<Mutex<Vec<(String, u32)>>>,
+        }
+        #[async_trait]
+        impl Elm327Transport for Anota {
+            async fn command(&mut self, cmd: &str, t: u32) -> Result<String, ObdError> {
+                self.prazos.lock().unwrap().push((cmd.to_string(), t));
+                Ok(match cmd {
+                    "ATZ" => "ELM327 v1.5".into(),
+                    "0100" => "4100BE3EB811".into(),
+                    _ => "OK".into(),
+                })
+            }
+        }
+
+        let prazos: Arc<Mutex<Vec<(String, u32)>>> = Arc::default();
+        let _ = Elm327Source::conectar(Anota {
+            prazos: Arc::clone(&prazos),
+        })
+        .await;
+
+        let vistos = prazos.lock().unwrap().clone();
+        let atz = vistos
+            .iter()
+            .find(|(c, _)| c == "ATZ")
+            .expect("o handshake manda ATZ");
+        let ate0 = vistos
+            .iter()
+            .find(|(c, _)| c == "ATE0")
+            .expect("o handshake manda ATE0");
 
         assert!(
-            TIMEOUT_RESET_MS > TIMEOUT_COMANDO_MS,
-            "o reset precisa de mais fôlego que um comando comum"
+            atz.1 > ate0.1,
+            "o ATZ ({}ms) precisa de mais fôlego que um comando comum ({}ms)",
+            atz.1,
+            ate0.1
         );
     }
 }
