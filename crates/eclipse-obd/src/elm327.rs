@@ -35,6 +35,40 @@ pub trait Elm327Transport: Send {
 /// mudo de verdade.
 const TIMEOUT_COMANDO_MS: u32 = 5_000;
 
+/// Prazo só para o `ATZ`.
+///
+/// O `ATZ` é um reinício de verdade: o adaptador desliga, religa e só então
+/// responde. Num clone barato isso passa de 5 s com facilidade — e, como é o
+/// PRIMEIRO comando do handshake, um prazo curto aqui derruba a conexão inteira
+/// antes de qualquer outra coisa ser tentada.
+///
+/// O diário do carro em 23/09 mostrou o preço disso: nove reinícios seguidos do
+/// módulo, todos com `adaptador não respondeu ATZ em 5000ms`, com o motor
+/// rodando. O adaptador não estava mudo; estava reiniciando.
+const TIMEOUT_RESET_MS: u32 = 15_000;
+
+/// Quantas vezes tentar o `ATZ` antes de desistir da conexão.
+///
+/// Duas, não uma. A primeira tentativa logo após o socket abrir pega o
+/// adaptador no pior momento — RFCOMM recém-estabelecido, buffer sujo do uso
+/// anterior, e em alguns clones o firmware ainda subindo. A segunda encontra
+/// ele acordado.
+///
+/// Não é chute: o diário de 22/09 mostra o padrão exato — a primeira tentativa
+/// falhava e a SEGUNDA funcionava, de forma consistente, em todos os boots. O
+/// supervisor já fazia essa segunda tentativa; só que pelo caminho caro,
+/// derrubando o módulo e reconectando o Bluetooth inteiro, o que custava ~20 s
+/// de telemetria em cada partida.
+const TENTATIVAS_RESET: usize = 2;
+
+/// Respiro entre abrir o canal e falar a primeira palavra.
+///
+/// Um socket RFCOMM recém-aberto não quer dizer adaptador pronto: a pilha de
+/// Bluetooth do Android devolve o socket assim que o canal existe, e o
+/// firmware do outro lado pode ainda estar acordando. Mandar `ATZ` nesse
+/// instante é falar com quem não está ouvindo.
+const RESPIRO_APOS_ABRIR_MS: u64 = 600;
+
 /// Teto para o `0100` de aquecimento, quando o adaptador ainda está descobrindo
 /// o protocolo do carro (`SEARCHING...`). O slow init do ISO 9141-2 mais a busca
 /// pelos outros protocolos pode passar fácil de 10 s — e interromper a busca
@@ -70,7 +104,35 @@ impl<T: Elm327Transport> Elm327Source<T> {
     /// Se qualquer um não voltar (timeout/barramento), falha aqui: é melhor o
     /// supervisor reconectar do que entregar lixo ao painel.
     pub async fn conectar(mut transport: T) -> Result<Self, ObdError> {
-        for cmd in ["ATZ", "ATE0", "ATL0", "ATS0", "ATSP0"] {
+        // Respiro antes da primeira palavra — ver `RESPIRO_APOS_ABRIR_MS`.
+        tokio::time::sleep(std::time::Duration::from_millis(RESPIRO_APOS_ABRIR_MS)).await;
+
+        // O `ATZ` tem prazo e tentativas próprios: é um reinício, é o mais
+        // lento, e é o primeiro. Falhar nele derrubava a conexão antes de
+        // qualquer outra coisa ser tentada.
+        let mut ultimo_erro = None;
+        for tentativa in 1..=TENTATIVAS_RESET {
+            match transport.command("ATZ", TIMEOUT_RESET_MS).await {
+                Ok(_) => {
+                    ultimo_erro = None;
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        tentativa,
+                        de = TENTATIVAS_RESET,
+                        %err,
+                        "o ATZ não voltou; tentando de novo antes de desistir"
+                    );
+                    ultimo_erro = Some(err);
+                }
+            }
+        }
+        if let Some(err) = ultimo_erro {
+            return Err(err);
+        }
+
+        for cmd in ["ATE0", "ATL0", "ATS0", "ATSP0"] {
             // O conteúdo da resposta ao handshake não importa (versão de firmware,
             // "OK", eco do power-on); o que importa é o adaptador ter respondido
             // sem erro de transporte, que o `?` propaga.
@@ -580,5 +642,59 @@ mod tests {
             }
         }
         assert!(Elm327Source::conectar(Morto).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn o_atz_ganha_uma_segunda_chance() {
+        // O caso do carro: o diário de 23/09 traz NOVE reinícios seguidos do
+        // módulo, todos com "adaptador não respondeu ATZ em 5000ms", com o
+        // motor rodando. E o de 22/09 mostra o padrão: a primeira tentativa
+        // falha, a segunda funciona — sempre.
+        //
+        // O supervisor já fazia essa segunda tentativa, mas pelo caminho caro:
+        // derrubando o módulo e reconectando o Bluetooth inteiro, ~20s de
+        // telemetria perdidos em cada partida.
+        struct AtzTeimoso {
+            tentativas_de_atz: usize,
+        }
+        #[async_trait]
+        impl Elm327Transport for AtzTeimoso {
+            async fn command(&mut self, cmd: &str, _t: u32) -> Result<String, ObdError> {
+                if cmd == "ATZ" {
+                    self.tentativas_de_atz += 1;
+                    if self.tentativas_de_atz == 1 {
+                        return Err(ObdError::Timeout);
+                    }
+                    return Ok("ELM327 v1.5".into());
+                }
+                if cmd == "0100" {
+                    return Ok("4100BE3EB811".into());
+                }
+                Ok("OK".into())
+            }
+        }
+
+        let fonte = Elm327Source::conectar(AtzTeimoso {
+            tentativas_de_atz: 0,
+        })
+        .await;
+        assert!(
+            fonte.is_ok(),
+            "um ATZ que falha na primeira não pode derrubar a conexão"
+        );
+    }
+
+    #[tokio::test]
+    async fn o_atz_tem_prazo_maior_que_os_outros_comandos() {
+        // `ATZ` é um reinício: o adaptador desliga, religa e só então responde.
+        // Dar a ele o mesmo prazo de um `ATE0` é o que derrubava tudo antes de
+        // qualquer outra coisa ser tentada.
+        let mut fake = FakeElm::new([("ATZ", &["ELM327 v1.5"] as &[&str])]);
+        let _ = fake.command("ATZ", TIMEOUT_RESET_MS).await;
+
+        assert!(
+            TIMEOUT_RESET_MS > TIMEOUT_COMANDO_MS,
+            "o reset precisa de mais fôlego que um comando comum"
+        );
     }
 }
