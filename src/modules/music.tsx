@@ -563,9 +563,18 @@ function Completa({ data }: TileView<MusicState>) {
       )}
 
       <StatusDevice />
-      {problema && problema.tipo !== "semDispositivo" && (
-        <p className="tile__reason">{problema.detalhe}</p>
-      )}
+      {/* `semDispositivo` era escondido aqui porque a mensagem antiga
+          ("nenhum dispositivo Spotify ativo") era ruído constante: o
+          dispositivo da WebView levava um instante para se registrar a cada
+          boot, e o aviso piscava sem que houvesse nada a fazer.
+
+          Agora é o contrário. Sem o player da WebView, este estado significa
+          que o som NÃO TEM PARA ONDE IR — e a mensagem diz o que fazer (abrir
+          o Spotify na central uma vez). Esconder justamente a única mensagem
+          acionável do módulo deixaria o dono diante de um silêncio sem
+          explicação, que foi como ele descobriu o problema: a música começou a
+          tocar no computador de casa e ele teve que adivinhar. */}
+      {problema && <p className="tile__reason">{problema.detalhe}</p>}
 
       <div className="sp-lista">
         {faixasCarregando || carregando === "buscando" ? (

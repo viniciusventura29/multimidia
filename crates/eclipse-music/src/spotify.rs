@@ -147,6 +147,35 @@ fn e_o_mesmo_aparelho(nome: &str, daqui: &str) -> bool {
     nome == daqui || nome.contains(&daqui) || daqui.contains(&nome)
 }
 
+/// Este dispositivo pode estar DENTRO do carro?
+///
+/// Existe por um defeito que chegou a acontecer: o dono deu play dirigindo e a
+/// música começou a tocar no computador dele, em casa. Ele teve que abrir o
+/// Spotify na central e trocar para "tocar neste dispositivo".
+///
+/// Como isso passou: antes, o Eclipse se anunciava pela WebView e estava
+/// SEMPRE na lista, funcionando como piso — o computador, com a nota mais
+/// baixa, nunca ganhava. Ao tirar a WebView do caminho do áudio (que é o
+/// conserto do "pula cinco músicas"), o piso saiu junto. Sobrando só o
+/// computador na lista, ele vence por ser o único.
+///
+/// A correção não é dar nota menor ao computador — ele já tinha a menor. É
+/// dizer que certos dispositivos não são candidatos **em nenhuma hipótese**.
+///
+/// Só duas coisas contam como "dentro do carro":
+/// - o aparelho cujo nome bate com o desta central;
+/// - um que se anuncie como `Automobile` (nenhum computador ou celular faz isso).
+///
+/// O celular do dono fica de fora de propósito, mesmo que esteja no carro: o
+/// som sairia pelo alto-falante dele, não pelo do veículo.
+fn pode_ser_o_carro(nome: &str, tipo: &rspotify::model::DeviceType, daqui: Option<&str>) -> bool {
+    use rspotify::model::DeviceType;
+    if matches!(tipo, DeviceType::Automobile) {
+        return true;
+    }
+    daqui.is_some_and(|daqui| e_o_mesmo_aparelho(nome, daqui))
+}
+
 /// Nota de um dispositivo do Connect. Maior ganha — ver `escolher_device`.
 ///
 /// Fora do método de propósito: é a regra que decide de onde sai o som, e
@@ -297,9 +326,13 @@ impl SpotifySource {
         let devices = self.client.device().await.map_err(traduzir)?;
         let daqui = self.nome_do_aparelho.as_deref();
 
+        // Filtra ANTES de pontuar. Pontuação escolhe o melhor entre candidatos
+        // aceitáveis; ela não sabe recusar TODOS — e foi isso que deixou o som
+        // sair no computador de casa quando ele era o único da lista.
         let escolhido = devices
             .iter()
             .filter(|d| d.id.is_some())
+            .filter(|d| pode_ser_o_carro(&d.name, &d._type, daqui))
             .max_by_key(|d| pontos(&d.name, &d._type, d.is_active, daqui))
             .cloned();
 
@@ -352,9 +385,13 @@ impl SpotifySource {
             );
         }
 
-        escolhido
-            .and_then(|d| d.id)
-            .ok_or(MusicError::NoActiveDevice)
+        match escolhido.and_then(|d| d.id) {
+            Some(id) => Ok(id),
+            // Lista vazia e "lista cheia de gente de fora" são problemas
+            // diferentes, e só o segundo tem uma saída que o dono pode tomar.
+            None if devices.is_empty() => Err(MusicError::NoActiveDevice),
+            None => Err(MusicError::SoDispositivoDeFora),
+        }
     }
 
     async fn tocando_agora(&self) -> Result<Option<NowPlaying>, MusicError> {
@@ -894,6 +931,63 @@ mod tests_escolha_de_device {
                 "'{anunciado}' devia casar com '{CENTRAL}'"
             );
         }
+    }
+
+    fn aceitos<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: Option<&str>) -> Vec<&'a str> {
+        lista
+            .iter()
+            .filter(|(nome, tipo, _)| pode_ser_o_carro(nome, tipo, daqui))
+            .map(|(nome, _, _)| *nome)
+            .collect()
+    }
+
+    #[test]
+    fn o_computador_de_casa_nunca_e_candidato() {
+        // ACONTECEU DE VERDADE: o dono deu play dirigindo e a música começou a
+        // tocar no computador dele, em casa.
+        //
+        // A pontuação sozinha não evitava isso. O computador já tinha a nota
+        // mais baixa — mas nota mais baixa entre um candidato só ainda é o
+        // vencedor. Recusar tem que ser categórico, não relativo.
+        let lista = [("PC do escritório", DeviceType::Computer, true)];
+        assert!(
+            aceitos(&lista, Some(CENTRAL)).is_empty(),
+            "sozinho na lista, o computador ainda assim não pode receber o som"
+        );
+    }
+
+    #[test]
+    fn o_celular_do_dono_tambem_nao_serve() {
+        // Mesmo que o celular esteja DENTRO do carro, o som sairia pelo
+        // alto-falante dele, não pelo do veículo.
+        let lista = [("iPhone do Vinicius", DeviceType::Smartphone, true)];
+        assert!(aceitos(&lista, Some(CENTRAL)).is_empty());
+    }
+
+    #[test]
+    fn a_central_e_aceita_pelo_nome_ou_por_se_dizer_automovel() {
+        let lista = [
+            ("PC do escritório", DeviceType::Computer, true),
+            ("iPhone do Vinicius", DeviceType::Smartphone, true),
+            (CENTRAL, DeviceType::Smartphone, false),
+            ("Minha central", DeviceType::Automobile, false),
+        ];
+        let ok = aceitos(&lista, Some(CENTRAL));
+        assert!(ok.contains(&CENTRAL), "casou pelo nome");
+        assert!(ok.contains(&"Minha central"), "se anunciou como automóvel");
+        assert_eq!(ok.len(), 2, "e mais ninguém: {ok:?}");
+    }
+
+    #[test]
+    fn sem_o_nome_daqui_so_o_automovel_passa() {
+        // Se o Android não soube dizer o nome do aparelho, resta o único sinal
+        // que não depende dele. Melhor não tocar do que tocar longe do carro.
+        let lista = [
+            ("PC do escritório", DeviceType::Computer, true),
+            ("Algum celular", DeviceType::Smartphone, true),
+            ("Central", DeviceType::Automobile, false),
+        ];
+        assert_eq!(aceitos(&lista, None), vec!["Central"]);
     }
 
     #[test]
