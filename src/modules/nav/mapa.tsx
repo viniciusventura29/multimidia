@@ -69,6 +69,16 @@ const PERIODO_MS = 1000 / 30;
 const ZOOM_DE_RUA = 17;
 
 /**
+ * De quanto em quanto tempo o mapa pode GIRAR.
+ *
+ * Bem mais lento que o dos quadros de propósito — ver o uso em `desenhar`.
+ * Girar refaz a colocação de todos os rótulos do estilo vetorial; deslocar,
+ * não. Seis giros por segundo é imperceptível para quem dirige e corta o
+ * trabalho mais caro do mapa por cinco.
+ */
+const PERIODO_GIRO_MS = 1000 / 6;
+
+/**
  * Interpola dois rumos pelo caminho mais curto.
  *
  * Sem isto, ir de 359° para 1° faria o mapa girar 358° para trás em vez de 2°
@@ -132,6 +142,8 @@ function SeguirCarro({
   // Quando o último passo saiu. Zero enquanto o laço dorme, e é isso que faz o
   // primeiro passo depois de acordar desenhar na hora, sem esperar o período.
   const ultimoPasso = useRef(0);
+  /** Quando o mapa girou pela última vez — ver `PERIODO_GIRO_MS`. */
+  const ultimoGiro = useRef(0);
   const navegandoRef = useRef(navegando);
   const seguindoRef = useRef(seguindo);
 
@@ -172,9 +184,25 @@ function SeguirCarro({
     // A câmera só acompanha se o motorista não estiver segurando o mapa —
     // mexer a câmera durante o gesto seria brigar com o dedo.
     if (seguindoRef.current) {
+      // O CENTRO anda a cada quadro; o RUMO, não.
+      //
+      // Deslocar o centro é barato: o MapLibre translada o que já está
+      // desenhado. Girar não é — mudar o `bearing` refaz a colocação de TODOS
+      // os rótulos e a detecção de colisão entre eles, que é o trabalho mais
+      // caro que um estilo vetorial tem. A 30 quadros por segundo, isso é o
+      // mapa refazendo o próprio texto 30 vezes por segundo enquanto o carro
+      // anda — e `navegando` nasce `true`, então é o padrão.
+      //
+      // O rumo não precisa dessa taxa. Ele muda devagar (uma curva leva
+      // segundos) e o olho não distingue giro a 30 fps de giro a 6 fps. O
+      // centro continua fluido, que é o que dá a sensação de movimento.
+      const giroAgora =
+        navegandoRef.current && agora - ultimoGiro.current >= PERIODO_GIRO_MS;
+      if (giroAgora) ultimoGiro.current = agora;
+
       map.jumpTo({
         center: [lng, lat],
-        ...(navegandoRef.current ? { bearing: rumo } : {}),
+        ...(giroAgora ? { bearing: rumo } : {}),
       });
     }
 
@@ -467,6 +495,43 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
       dragRotate: false,
       // A atribuição do OpenStreetMap não é enfeite, é a licença — fica.
       attributionControl: { compact: true },
+
+      /* Daqui para baixo: performance. Até agora o mapa rodava com TODOS os
+         padrões do MapLibre, que são pensados para um desktop.
+
+         Os números do carro (v109) justificam cada linha: 11,3 s da primeira
+         abertura até acabar de desenhar, e 3,7 a 7,8 s nas reaberturas — que
+         acontecem a cada abre/fecha de tela cheia, seis vezes em três minutos
+         no teste do dono. */
+
+      // O maior deles. O MapLibre desenha na densidade da tela; numa head unit
+      // com DPR 2 isso é QUATRO vezes mais pixels que o necessário para um
+      // mapa de rua visto a um braço de distância. A cena 3D já faz esse
+      // mesmo teto (ver `cena.ts`); o mapa, que é o elemento caro, não fazia.
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+
+      // 300 ms de transição por tile que aparece. Num mapa que se move o tempo
+      // todo, é trabalho de composição contínuo para um efeito que ninguém
+      // pediu — e que, dirigindo, ninguém vê.
+      fadeDuration: 0,
+
+      // Sem isto o MapLibre revalida tiles que "venceram" pelo cabeçalho HTTP.
+      // Rua não muda de lugar numa viagem, e cada revalidação é uma ida à rede
+      // pelo hotspot do celular.
+      refreshExpiredTiles: false,
+
+      // Cópias do mundo à esquerda e à direita, para quem navega pelo
+      // antimeridiano. Este carro anda em Campinas.
+      renderWorldCopies: false,
+
+      // (Antialiasing não entra aqui: nesta versão do MapLibre ele mora em
+      // `canvasContextAttributes` e JÁ vem desligado por padrão. Conferido no
+      // `.d.ts` antes de escrever a linha — que teria sido ruído.)
+
+      // Mais tiles guardados = menos re-decodificação ao voltar da tela cheia.
+      // É barato em memória (tile vetorial decodificado é pequeno perto de uma
+      // textura) e ataca exatamente a reabertura, que é o caso frequente.
+      maxTileCacheSize: 200,
     });
 
     // TEMPORÁRIO — os três marcos da vida de um mapa: estilo em pé, primeiro
