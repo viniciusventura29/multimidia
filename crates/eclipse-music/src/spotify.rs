@@ -277,19 +277,63 @@ impl SpotifySource {
     async fn escolher_device(&self) -> Result<String, MusicError> {
         let devices = self.client.device().await.map_err(traduzir)?;
         let daqui = self.nome_do_aparelho.as_deref();
-        tracing::debug!(
-            aparelho = daqui.unwrap_or("(não sei)"),
-            lista = ?devices
-                .iter()
-                .map(|d| format!("{} ({:?}, ativo={})", d.name, d._type, d.is_active))
-                .collect::<Vec<_>>(),
-            "dispositivos do Spotify Connect"
-        );
 
-        devices
-            .into_iter()
+        let escolhido = devices
+            .iter()
             .filter(|d| d.id.is_some())
             .max_by_key(|d| pontos(&d.name, &d._type, d.is_active, daqui))
+            .cloned();
+
+        // O nível depende da RESPOSTA, e isso é de propósito.
+        //
+        // Esta é a decisão que define se o som sai pela WebView (que engasga,
+        // pula faixa e emudece) ou pelo app nativo. Depois do primeiro teste no
+        // carro ela era a única coisa que eu precisava saber — e estava em
+        // `debug`, que nunca sai da memória. O diário voltou sem uma palavra
+        // sobre o assunto.
+        //
+        // `info` não bastaria: linha de `info` só chega ao servidor de carona no
+        // rastro de um aviso, e o rastro guarda 50 linhas. Numa sessão com o OBD
+        // reiniciando em série, a linha que interessa é engolida antes de
+        // alguém drená-la.
+        //
+        // Então: deu certo -> `info` (bom saber, dispensável). NÃO deu -> `warn`,
+        // porque aí é degradação de verdade e precisa chegar.
+        //
+        // A lista inteira vai junto: "escolhi X" sem as alternativas não permite
+        // julgar a escolha, e o caso de falha mais provável — a central nem
+        // aparecer na lista — fica indistinguível de "escolhi errado".
+        let candidatos: Vec<String> = devices
+            .iter()
+            .map(|d| format!("{} ({:?}, ativo={})", d.name, d._type, d.is_active))
+            .collect();
+        let nome_escolhido = escolhido
+            .as_ref()
+            .map(|d| format!("{} ({:?})", d.name, d._type))
+            .unwrap_or_else(|| "nenhum".into());
+        let e_daqui = match (&escolhido, daqui) {
+            (Some(d), Some(daqui)) => d.name.eq_ignore_ascii_case(daqui),
+            _ => false,
+        };
+
+        if e_daqui {
+            tracing::info!(
+                aparelho = daqui.unwrap_or("(não sei)"),
+                escolhido = nome_escolhido,
+                ?candidatos,
+                "o som vai pelo app do Spotify desta central"
+            );
+        } else {
+            tracing::warn!(
+                aparelho = daqui.unwrap_or("(não sei)"),
+                escolhido = nome_escolhido,
+                ?candidatos,
+                "o som NÃO vai pelo app do Spotify desta central; \
+                 ele é quem decodifica sem engasgar"
+            );
+        }
+
+        escolhido
             .and_then(|d| d.id)
             .ok_or(MusicError::NoActiveDevice)
     }
