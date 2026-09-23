@@ -15,6 +15,7 @@ import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -211,6 +212,37 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
             val args = invoke.parseArgs(ComandoSessaoArgs::class.java)
             val ret = JSObject()
             ret.put("atendeu", SessaoMedia.comando(activity, args.acao, args.valor))
+            invoke.resolve(ret)
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * O nome deste aparelho, como o Android o conhece.
+     *
+     * Serve para uma pergunta só, e ela é surpreendentemente difícil sem isto:
+     * **qual dos dispositivos do Spotify Connect é ESTA central?**
+     *
+     * O app do Spotify se anuncia no Connect com o nome do aparelho. Sem esse
+     * nome, a lista traz "o celular dele" e "a central" as duas como
+     * `Smartphone`, indistinguíveis — e mandar o som para a errada é pior que
+     * não mandar.
+     *
+     * `DEVICE_NAME` é o nome que o dono deu em Configurações; `Build.MODEL` é
+     * o de fábrica, e é o que o Spotify usa quando não há o outro.
+     */
+    @Command
+    fun nomeDoAparelho(invoke: Invoke) {
+        try {
+            val escolhido =
+                try {
+                    Settings.Global.getString(activity.contentResolver, Settings.Global.DEVICE_NAME)
+                } catch (e: Exception) {
+                    null
+                }
+            val ret = JSObject()
+            ret.put("nome", escolhido?.takeIf { it.isNotBlank() } ?: Build.MODEL ?: "")
             invoke.resolve(ret)
         } catch (e: Exception) {
             invoke.reject(e.message ?: e.javaClass.simpleName)

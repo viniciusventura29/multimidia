@@ -12,6 +12,7 @@ use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
 use eclipse_music::{
     DemoSource, EmAndamento, MusicError, MusicSource, MusicState, SpotifySource, TokenStore,
 };
+use tauri_plugin_obd_bt::ObdBtExt;
 use uuid::Uuid;
 
 pub const MUSIC: ModuleId = ModuleId::new("music");
@@ -81,8 +82,25 @@ impl Conector for SpotifyConector {
 
         let client_id = self.client_id.as_deref().ok_or(MusicError::NotConfigured)?;
 
-        let nuvem: Box<dyn MusicSource> =
-            Box::new(SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre)).await?);
+        // O nome deste aparelho é o que separa "a central" de "o celular dele"
+        // na lista do Spotify Connect — ver `escolher_device`. Falhar aqui não
+        // é fatal: sem o nome a escolha cai no WebView, que é o de hoje.
+        let nome_do_aparelho = match &self.app {
+            Some(app) => {
+                let app = app.clone();
+                tokio::task::spawn_blocking(move || app.obd_bt().nome_do_aparelho())
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok())
+                    .filter(|n| !n.trim().is_empty())
+            }
+            None => None,
+        };
+
+        let nuvem: Box<dyn MusicSource> = Box::new(
+            SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre), nome_do_aparelho)
+                .await?,
+        );
 
         // A sessão local na FRENTE da nuvem, não no lugar dela: o que é rápido
         // e local (o que toca, a capa, o transporte) passa a não usar rede, e a
