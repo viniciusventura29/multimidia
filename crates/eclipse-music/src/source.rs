@@ -235,6 +235,27 @@ pub trait MusicSource: Send {
         Err(MusicError::NotConfigured)
     }
 
+    /// Os dispositivos que o serviço conhece agora, como (nome, é_computador).
+    ///
+    /// Existe para uma pergunta que não dá para responder de outro jeito neste
+    /// carro: **qual destes é o Spotify da central?**
+    ///
+    /// O nome não resolve. O Android chama o aparelho de "K706" em todos os
+    /// campos que sabe (`DEVICE_NAME`, `MODEL`, `DEVICE`, `PRODUCT`), e o app
+    /// do Spotify se anuncia como "HT-9960CA" — um nome que só ele conhece.
+    /// Não há letra em comum para casar.
+    ///
+    /// O que resolve é observar QUEM APARECE quando o app local é acordado.
+    /// Ver `SessaoLocal::tocar`.
+    async fn dispositivos(&mut self) -> Result<Vec<(String, bool)>, MusicError> {
+        Ok(Vec::new())
+    }
+
+    /// Fixa o dispositivo, pelo nome, acima de qualquer regra de escolha.
+    ///
+    /// `None` volta ao automático.
+    fn fixar_dispositivo(&mut self, _nome: Option<String>) {}
+
     /// As playlists do usuário. Default vazio.
     async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {
         Ok(Vec::new())
