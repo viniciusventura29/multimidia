@@ -78,6 +78,25 @@ private const val CODIGO_PRECISAO = 7311
  */
 private const val PACIENCIA_ANTES_DE_RELIGAR_MS = 30_000L
 
+/**
+ * Teto da espera entre religadas.
+ *
+ * A espera DOBRA a cada tentativa, e isto é um conserto de um defeito que eu
+ * mesmo criei: religar de 30 em 30 segundos, para sempre, derruba o pedido de
+ * localização antes de ele ter chance de responder.
+ *
+ * Localização por rede não é instantânea — ela varre Wi-Fi e consulta o Google
+ * para transformar isso em coordenada. Num lugar com poucas redes conhecidas
+ * ou internet ruim, passa de trinta segundos com facilidade. Reiniciar o
+ * pedido nesse intervalo é garantir que ele nunca termine: cada religada
+ * começa a varredura do zero.
+ *
+ * Com o dobro a cada vez (30 s, 1 min, 2 min, 4 min, 8 min), o religar
+ * continua resolvendo o caso para o qual foi criado — o ajuste de precisão
+ * ligado com o app aberto — e para de atrapalhar a aquisição normal.
+ */
+private const val TETO_DA_ESPERA_PARA_RELIGAR_MS = 8 * 60_000L
+
 internal object Localizacao {
 
     private var manager: LocationManager? = null
@@ -130,6 +149,9 @@ internal object Localizacao {
                 // misturadas, e a mais recente nem sempre é a mais precisa.
                 val atual = ultima
                 ultima = if (atual == null || melhorQue(location, atual)) location else atual
+                // Veio posição: se um dia ela sumir de novo, começar a tentar
+                // do intervalo curto outra vez.
+                esperaParaReligarMs = PACIENCIA_ANTES_DE_RELIGAR_MS
             }
         }
 
@@ -239,6 +261,9 @@ internal object Localizacao {
 
     /** Quando os provedores foram registrados. Base do religamento. */
     @Volatile private var ligadoDesdeMs = 0L
+
+    /** Quanto esperar antes da PRÓXIMA religada. Dobra a cada uma. */
+    @Volatile private var esperaParaReligarMs = PACIENCIA_ANTES_DE_RELIGAR_MS
 
     /**
      * Pede ao sistema o diálogo de "melhorar a precisão de localização".
@@ -367,11 +392,16 @@ internal object Localizacao {
     @Synchronized
     private fun talvezReligar(context: Context) {
         if (!ligado || ultima != null) return
-        if (System.currentTimeMillis() - ligadoDesdeMs < PACIENCIA_ANTES_DE_RELIGAR_MS) return
+        val espera = esperaParaReligarMs
+        if (System.currentTimeMillis() - ligadoDesdeMs < espera) return
 
-        Log.w(TAG, "sem posição há ${PACIENCIA_ANTES_DE_RELIGAR_MS}ms; registrando de novo")
+        Log.w(TAG, "sem posição há ${espera}ms; registrando de novo")
         soltar()
         ligar(context)
+        // Dobra ANTES da próxima: cada religada custa uma varredura de Wi-Fi
+        // começada do zero, e insistir no mesmo ritmo impede a aquisição em
+        // vez de ajudá-la.
+        esperaParaReligarMs = (espera * 2).coerceAtMost(TETO_DA_ESPERA_PARA_RELIGAR_MS)
     }
 
     /** O que há de mais recente, para o Rust buscar de tempos em tempos. */

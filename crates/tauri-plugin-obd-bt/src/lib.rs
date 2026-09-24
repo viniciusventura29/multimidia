@@ -251,13 +251,14 @@ mod imp {
 
         /// O nome deste aparelho, para achar a central na lista do Spotify
         /// Connect — ver `nomeDoAparelho` no plugin.
-        pub fn nome_do_aparelho(&self) -> crate::Result<String> {
+        pub fn nome_do_aparelho(&self) -> crate::Result<Vec<String>> {
             #[derive(serde::Deserialize)]
             struct Resposta {
-                nome: String,
+                #[serde(default)]
+                nomes: Vec<String>,
             }
             let r: Resposta = self.plugin_handle.run_mobile_plugin("nomeDoAparelho", ())?;
-            Ok(r.nome)
+            Ok(r.nomes)
         }
 
         /// O que o app do Spotify deste aparelho está tocando — ver
@@ -443,7 +444,7 @@ mod imp {
 
         /// No desktop não há app do Spotify concorrendo pelo Connect: quem
         /// toca é o SDK dentro da WebView, que ali funciona.
-        pub fn nome_do_aparelho(&self) -> crate::Result<String> {
+        pub fn nome_do_aparelho(&self) -> crate::Result<Vec<String>> {
             Err(crate::Error::UnsupportedPlatform)
         }
 

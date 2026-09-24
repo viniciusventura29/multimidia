@@ -75,14 +75,38 @@ pub struct SessaoLocal {
     ja_reclamou: bool,
 }
 
+/// Quanto esperar o Spotify aparecer na lista do Connect depois de acordado.
+///
+/// Não é chute: no diário de 24/09 o app da central apareceu entre 28 e 31
+/// segundos depois do bind. Mas a maior parte disso é o intervalo de leitura,
+/// não o tempo de acordar — três segundos é o que separa "ainda subindo" de
+/// "não vai subir", e esperar mais que isso com o dedo do dono no botão seria
+/// pior que falhar.
+const ESPERA_ACORDAR_MS: u64 = 3_000;
+
 impl SessaoLocal {
     pub fn nova(app: tauri::AppHandle, nuvem: Box<dyn MusicSource>) -> Self {
+        // Acorda o Spotify JÁ, na subida do módulo, sem esperar o primeiro
+        // toque. É o que evita o fluxo que o dono recusou com razão — ligar o
+        // carro, abrir o Spotify na mão, e só então abrir o Eclipse.
+        despertar(app.clone());
+
         Self {
             app,
             nuvem,
             capa: None,
             ja_reclamou: false,
         }
+    }
+
+    /// Acorda o app do Spotify e espera ele se anunciar.
+    ///
+    /// Recebe o `AppHandle` em vez de usar o `self` pelo mesmo motivo do
+    /// `mandar`: `MusicSource` é `Send` mas não `Sync`, e segurar um `&self`
+    /// através do `await` tornaria a future não-`Send`.
+    async fn acordar_e_esperar(app: tauri::AppHandle) {
+        let _ = tokio::task::spawn_blocking(move || app.obd_bt().sessao_media_estado()).await;
+        tokio::time::sleep(std::time::Duration::from_millis(ESPERA_ACORDAR_MS)).await;
     }
 
     /// Lê a sessão local. `None` = não deu, siga pela nuvem.
@@ -167,6 +191,32 @@ fn montar(estado: EstadoLocal, guardada: &mut Option<String>) -> Option<NowPlayi
     })
 }
 
+/// Cutuca o app do Spotify para ele existir.
+///
+/// # Por que isto acorda o Spotify
+///
+/// Ligar no `MediaBrowserService` dele é um `bindService`, e o Android inicia o
+/// serviço — logo, o PROCESSO do app — para atender. O Spotify então recusa a
+/// navegação (ele só libera para Android Auto e afins), mas a essa altura já
+/// acordou: o app vivo se anuncia sozinho como dispositivo do Spotify Connect.
+///
+/// Não é teoria. O diário de 24/09 mostra a sequência:
+///
+/// ```text
+/// 01:43:30  candidatos: ["DESKTOP-ATVE3IV"]                  <- só o PC
+/// 01:43:33  musica_local: "o Spotify recusou a conexão"      <- o bind aconteceu
+/// 01:44:01  candidatos: ["HT-9960CA", "DESKTOP-ATVE3IV"]     <- a central apareceu
+/// ```
+///
+/// A recusa que parecia o fim da linha é, na prática, o despertador.
+///
+/// Sem barulho e sem esperar: se falhar, o pior caso é o de hoje.
+fn despertar(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let _ = tokio::task::spawn_blocking(move || app.obd_bt().sessao_media_estado()).await;
+    });
+}
+
 #[async_trait]
 impl MusicSource for SessaoLocal {
     async fn now_playing(&mut self) -> Result<Option<NowPlaying>, MusicError> {
@@ -220,7 +270,18 @@ impl MusicSource for SessaoLocal {
         faixa: Option<&str>,
         contexto: Option<&str>,
     ) -> Result<(), MusicError> {
-        self.nuvem.tocar(faixa, contexto).await
+        match self.nuvem.tocar(faixa, contexto).await {
+            // "Só tem dispositivo de fora" quase sempre quer dizer que o app
+            // do Spotify da central ainda não acordou. Acordar e tentar de
+            // novo é o que transforma um erro na tela em música tocando — e é
+            // o que dispensa o dono de abrir o Spotify na mão.
+            Err(MusicError::SoDispositivoDeFora) => {
+                tracing::info!("nenhum Spotify no carro; acordando o app e tentando de novo");
+                Self::acordar_e_esperar(self.app.clone()).await;
+                self.nuvem.tocar(faixa, contexto).await
+            }
+            outro => outro,
+        }
     }
 }
 
