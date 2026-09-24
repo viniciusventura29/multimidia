@@ -225,12 +225,31 @@ export interface Problema {
 }
 
 /** O que o módulo está buscando no Spotify agora. Espelha `EmAndamento`. */
-export type EmAndamento = "abrindo" | "buscando" | "playlists" | "transporte";
+export type EmAndamento =
+  | "abrindo"
+  | "buscando"
+  | "playlists"
+  | "recentes"
+  | "transporte";
+
+/** O que o dono ouviu por último. Espelha `Recentes` do Rust. */
+export interface Recentes {
+  albuns: Album[];
+  faixas: Faixa[];
+}
 
 /** O estado do módulo de música. */
 export interface MusicState {
   nowPlaying: NowPlaying | null;
   busca: Busca;
+  /**
+   * O que o dono ouviu por último.
+   *
+   * Existe porque o painel abria com uma barra de busca e mais nada: sem
+   * playlist na conta, a tela inteira era um campo de texto e a frase "busque
+   * uma música acima". Um carro não é lugar de digitar.
+   */
+  recentes: Recentes;
   playlists: Playlist[];
   contexto: Contexto | null;
   problema: Problema | null;

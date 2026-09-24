@@ -53,6 +53,18 @@ pub struct Busca {
     pub albuns: Vec<Album>,
 }
 
+/// O que o dono ouviu por último.
+///
+/// Os álbuns saem das próprias faixas recentes, sem uma segunda ida à rede: o
+/// Spotify devolve o álbum junto de cada faixa tocada, e repetir um álbum que
+/// rendeu cinco músicas seguidas só encheria a tela.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recentes {
+    pub albuns: Vec<Album>,
+    pub faixas: Vec<Faixa>,
+}
+
 /// Uma playlist ou álbum **aberto**, com as faixas dentro.
 ///
 /// É o que faltava para escolher a música: antes tocar numa playlist já mandava
@@ -103,6 +115,12 @@ pub struct Problema {
 pub struct MusicState {
     pub now_playing: Option<NowPlaying>,
     pub busca: Busca,
+    /// O que o dono ouviu por último.
+    ///
+    /// Existe porque o painel abria com uma barra de busca e mais nada: sem
+    /// playlist nenhuma na conta, a tela inteira era um campo de texto e a
+    /// frase "busque uma música acima". Um carro não é lugar de digitar.
+    pub recentes: Recentes,
     pub playlists: Vec<Playlist>,
     pub contexto: Option<Contexto>,
     /// `None` = tudo bem.
@@ -125,6 +143,8 @@ pub enum EmAndamento {
     Buscando,
     /// Carregando a lista de playlists do usuário.
     Playlists,
+    /// Carregando o que o dono ouviu por último.
+    Recentes,
     /// Mandando tocar, pausar, pular — a mudança leva um instante para o
     /// Spotify confirmar, e é esse instante que precisa ser visível.
     Transporte,
@@ -255,6 +275,11 @@ pub trait MusicSource: Send {
     ///
     /// `None` volta ao automático.
     fn fixar_dispositivo(&mut self, _nome: Option<String>) {}
+
+    /// O que o dono ouviu por último — álbuns e faixas. Default vazio.
+    async fn recentes(&mut self) -> Result<Recentes, MusicError> {
+        Ok(Recentes::default())
+    }
 
     /// As playlists do usuário. Default vazio.
     async fn playlists(&mut self) -> Result<Vec<Playlist>, MusicError> {

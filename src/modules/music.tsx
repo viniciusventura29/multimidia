@@ -145,6 +145,45 @@ function Linha({
 }
 
 /**
+ * Uma fileira de capas que corre para o lado.
+ *
+ * É o gesto do Spotify, e ele existe por um motivo prático num carro: capa de
+ * álbum se reconhece de relance, título lido em lista não. Quem quer "aquele
+ * disco" acha pela cor antes de ler o nome.
+ *
+ * Sem placa, sem cápsula, sem moldura — a capa já é um retângulo com borda
+ * própria, e desenhar outra em volta seria a mesma superfície duas vezes. O
+ * vão entre elas basta para separar.
+ */
+function FileiraDeCapas({
+  itens,
+  onAbrir,
+}: {
+  itens: { uri: string; nome: string; artist: string; albumArt: string | null }[];
+  onAbrir: (e: MouseEvent, a: { uri: string; nome: string; artist: string; albumArt: string | null }) => void;
+}) {
+  return (
+    <div className="sp-capas">
+      {itens.map((a) => (
+        <button key={a.uri} className="sp-capa" onClick={(e) => onAbrir(e, a)}>
+          {a.albumArt ? (
+            <img className="sp-capa__img" src={a.albumArt} alt="" loading="lazy" />
+          ) : (
+            <span className="sp-capa__img sp-capa__img--vazia">
+              <Disc3 size="1.6em" />
+            </span>
+          )}
+          {/* Duas linhas e para: numa tela de carro, a terceira já não é lida
+              de relance — e o que não é lido de relance é ruído. */}
+          <span className="sp-capa__nome">{a.nome}</span>
+          <span className="sp-capa__artista">{a.artist}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * O que toca agora + controles, fixo no rodapé da tela cheia.
  *
  * Prefere o estado do SDK ao do Rust: o do SDK chega no instante da mudança, o
@@ -439,13 +478,20 @@ function Completa({ data }: TileView<MusicState>) {
   const precisaLogin = problema?.tipo === "precisaLogin";
 
   const busca = data?.busca ?? { faixas: [], albuns: [] };
+  const recentes = data?.recentes ?? { albuns: [], faixas: [] };
   const playlists = data?.playlists ?? [];
   const contexto = data?.contexto ?? null;
   const carregando = data?.carregando ?? null;
 
-  // Ao abrir a tela cheia, já carrega as playlists do usuário.
+  // Ao abrir a tela cheia, carrega o que o dono ouviu e as playlists dele.
+  //
+  // Os recentes vêm primeiro de propósito: são o que enche a tela para quem
+  // não tem playlist nenhuma — que era o caso do dono, e o motivo de o painel
+  // abrir com uma barra de busca e a frase "busque uma música acima".
   useEffect(() => {
-    if (!precisaLogin) dispatchAction(MUSIC, { acao: "playlists" });
+    if (precisaLogin) return;
+    dispatchAction(MUSIC, { acao: "recentes" });
+    dispatchAction(MUSIC, { acao: "playlists" });
   }, [precisaLogin]);
 
   // O contexto de verdade chegou (ou o pedido morreu): larga o otimismo.
@@ -623,6 +669,25 @@ function Completa({ data }: TileView<MusicState>) {
           </>
         ) : (
           <>
+            {/* Ordem pensada para o carro parado no semáforo: primeiro o que se
+                reconhece de relance (capas), depois o que precisa ser lido. */}
+            {recentes.albuns.length > 0 && (
+              <>
+                <p className="sp-secao">Ouvidos recentemente</p>
+                <FileiraDeCapas
+                  itens={recentes.albuns}
+                  onAbrir={(e, a) =>
+                    abrir(e, {
+                      uri: a.uri,
+                      nome: a.nome,
+                      subtitulo: a.artist,
+                      albumArt: a.albumArt,
+                    })
+                  }
+                />
+              </>
+            )}
+
             {playlists.length > 0 && <p className="sp-secao">Suas playlists</p>}
             {playlists.map((p) => (
               <Linha
@@ -641,9 +706,28 @@ function Completa({ data }: TileView<MusicState>) {
                 }
               />
             ))}
-            {playlists.length === 0 && (
-              <p className="musica__vazio">busque uma música acima 👆</p>
+
+            {recentes.faixas.length > 0 && (
+              <p className="sp-secao">Tocadas recentemente</p>
             )}
+            {recentes.faixas.map((f) => (
+              <Linha
+                key={f.uri}
+                capa={f.albumArt}
+                titulo={f.track}
+                subtitulo={f.artist}
+                onClick={(e) => tocar(e, { uri: f.uri })}
+              />
+            ))}
+
+            {/* Só quando NADA veio. Antes esta frase aparecia sempre que a
+                conta não tinha playlist, mesmo com um histórico inteiro de
+                músicas tocadas — e era a tela inteira. */}
+            {playlists.length === 0 &&
+              recentes.albuns.length === 0 &&
+              recentes.faixas.length === 0 && (
+                <p className="musica__vazio">busque uma música acima 👆</p>
+              )}
           </>
         )}
       </div>

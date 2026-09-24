@@ -82,7 +82,16 @@ pub fn escopos() -> HashSet<String> {
         // dois `user-read-*` são exigidos pelo SDK para identificar a conta.
         "streaming",
         "user-read-email",
-        "user-read-private"
+        "user-read-private",
+        // Para a tela abrir mostrando o que o dono ouviu, em vez de um campo
+        // de texto vazio. Um carro não é lugar de digitar.
+        //
+        // ⚠️ ESCOPO NOVO = TOKEN VELHO NÃO SERVE. O refresh token guardado foi
+        // emitido com a lista antiga, e o Spotify não amplia permissão de um
+        // token já existente. Quem já estava conectado precisa reconectar UMA
+        // vez — e o app precisa dizer isso, senão vira "sumiu e não sei por
+        // quê". Ver o tratamento de 403 em `traduzir`.
+        "user-read-recently-played"
     )
 }
 
@@ -696,6 +705,76 @@ impl MusicSource for SpotifySource {
 
     fn fixar_dispositivo(&mut self, nome: Option<String>) {
         self.dispositivo_fixado = nome;
+    }
+
+    /// O que o dono ouviu por último, em álbuns e faixas.
+    ///
+    /// Uma chamada só. Os álbuns saem das próprias faixas — o Spotify manda o
+    /// álbum junto de cada reprodução, então buscá-los de novo seria uma ida à
+    /// rede pelo hotspot do celular para repetir o que já veio.
+    ///
+    /// Os dois são deduplicados, e por razões diferentes: a mesma faixa
+    /// repetida três vezes no trânsito viraria três linhas iguais, e um álbum
+    /// que rendeu cinco músicas seguidas encheria a fileira de capas sozinho.
+    async fn recentes(&mut self) -> Result<crate::source::Recentes, MusicError> {
+        use rspotify::model::Id;
+
+        let pagina = self
+            .client
+            .current_user_recently_played(Some(50), None)
+            .await
+            .map_err(|e| match traduzir(e) {
+                // 403 AQUI não é falta de Premium — este endpoint funciona em
+                // conta free. É o token antigo, emitido antes de
+                // `user-read-recently-played` entrar na lista de escopos: o
+                // Spotify não amplia permissão de um token já existente.
+                //
+                // Sem esta tradução a tela diria "o controle de playback exige
+                // Spotify Premium" para quem tem Premium, e o dono passaria a
+                // tarde procurando um problema de assinatura que não existe.
+                MusicError::PremiumRequired => MusicError::NeedsReauth,
+                outro => outro,
+            })?;
+
+        let mut faixas: Vec<crate::source::Faixa> = Vec::new();
+        let mut albuns: Vec<crate::source::Album> = Vec::new();
+
+        for item in pagina.items {
+            let f = item.track;
+            let capa = f.album.images.first().map(|i| i.url.clone());
+            let artista = f
+                .artists
+                .first()
+                .map(|a| a.name.clone())
+                .unwrap_or_default();
+
+            if let Some(uri_album) = f.album.id.as_ref().map(|id| id.uri()) {
+                if !albuns.iter().any(|a| a.uri == uri_album) {
+                    albuns.push(crate::source::Album {
+                        uri: uri_album,
+                        nome: f.album.name.clone(),
+                        artist: artista.clone(),
+                        album_art: capa.clone(),
+                    });
+                }
+            }
+
+            // Faixa sem `id` é conteúdo local do usuário: não dá para mandar
+            // tocar por URI, então mostrá-la seria oferecer um botão morto.
+            let Some(uri) = f.id.as_ref().map(|id| id.uri()) else {
+                continue;
+            };
+            if !faixas.iter().any(|x| x.uri == uri) {
+                faixas.push(crate::source::Faixa {
+                    uri,
+                    track: f.name,
+                    artist: artista,
+                    album_art: capa,
+                });
+            }
+        }
+
+        Ok(crate::source::Recentes { albuns, faixas })
     }
 
     async fn playlists(&mut self) -> Result<Vec<crate::source::Playlist>, MusicError> {

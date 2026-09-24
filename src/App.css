@@ -3073,6 +3073,97 @@ body {
   color: var(--muted);
 }
 
+/* A fileira de capas que corre para o lado.
+
+   Rolagem horizontal e não grade: a grade empurraria a lista de faixas para
+   fora da tela, e numa head unit a altura é o recurso escasso. Correndo para o
+   lado, a fileira custa uma altura fixa e cabe quanto álbum for.
+
+   `scroll-snap` porque num carro o dedo é impreciso: sem ele a fileira para
+   com meia capa cortada na borda, e meia capa não se reconhece. */
+.sp-capas {
+  /* `flex: 0 0 auto` porque `.sp-lista` é uma COLUNA flex: sem isto a fileira
+     é tratada como item flexível e o navegador a esmaga até virar uma tira de
+     poucos pixels — foi exatamente o que aconteceu na primeira captura. */
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.7rem;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.2rem;
+  /* A barra de rolagem horizontal come altura e ninguém a usa com o dedo. */
+  scrollbar-width: none;
+}
+.sp-capas::-webkit-scrollbar {
+  display: none;
+}
+
+.sp-capa {
+  flex: 0 0 auto;
+  width: 7.5rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* Sem placa, sem moldura, sem fundo: a capa já é um retângulo com borda
+     própria, e desenhar outra em volta seria a mesma superfície duas vezes. */
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  /* Sem os 300 ms do duplo-toque e sem o flash cinza do WebView. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sp-capa__img {
+  width: 7.5rem;
+  height: 7.5rem;
+  /* Mesma razão do pai: item de flex encolhe por padrão. */
+  flex: 0 0 auto;
+  border-radius: 0.5rem;
+  object-fit: cover;
+  display: block;
+}
+
+.sp-capa__img--vazia {
+  display: grid;
+  place-items: center;
+  background: var(--surface-2, rgba(128, 128, 128, 0.12));
+  color: var(--muted);
+}
+
+/* Uma linha cada, cortada com reticências. Duas linhas de título fariam as
+   capas terem alturas diferentes e a fileira perderia o alinhamento de base. */
+.sp-capa__nome,
+.sp-capa__artista {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-capa__nome {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.sp-capa__artista {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.sp-capa:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 0.5rem;
+}
+
 .sp-linha {
   display: flex;
   align-items: center;
