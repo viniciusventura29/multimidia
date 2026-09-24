@@ -71,6 +71,8 @@ pub struct SpotifyConector {
     /// Opcional porque os testes deste módulo sobem o conector sem app do
     /// Tauri, e porque no desktop não existe sessão local nenhuma.
     pub app: Option<tauri::AppHandle>,
+    /// Onde guardar o que for aprendido sobre o Spotify da central.
+    pub dir: std::path::PathBuf,
 }
 
 #[async_trait]
@@ -116,6 +118,7 @@ impl Conector for SpotifyConector {
         match &self.app {
             Some(app) => Ok(Box::new(crate::modules::musica_local::SessaoLocal::nova(
                 app.clone(),
+                self.dir.clone(),
                 nuvem,
             ))),
             None => Ok(nuvem),

@@ -33,6 +33,7 @@
 
 use async_trait::async_trait;
 use eclipse_music::{Busca, Contexto, MusicError, MusicSource, NowPlaying};
+use eclipse_obd::veiculo::Arquivo;
 use serde::Deserialize;
 use tauri_plugin_obd_bt::ObdBtExt;
 
@@ -63,6 +64,8 @@ struct EstadoLocal {
 
 pub struct SessaoLocal {
     app: tauri::AppHandle,
+    /// Onde guardar o que for aprendido sobre o dispositivo da central.
+    dir: std::path::PathBuf,
     /// A Web API. Continua dona da biblioteca, e é o plano B de tudo.
     nuvem: Box<dyn MusicSource>,
     /// A última capa recebida.
@@ -84,18 +87,97 @@ pub struct SessaoLocal {
 /// pior que falhar.
 const ESPERA_ACORDAR_MS: u64 = 3_000;
 
+/// Onde fica guardado qual é o Spotify da central.
+///
+/// Aprendido uma vez, vale para sempre — inclusive depois de reinstalar o app,
+/// porque mora no diretório de dados e não no binário.
+const APRENDIDO_JSON: &str = "spotify_da_central.json";
+
 impl SessaoLocal {
-    pub fn nova(app: tauri::AppHandle, nuvem: Box<dyn MusicSource>) -> Self {
+    pub fn nova(
+        app: tauri::AppHandle,
+        dir: std::path::PathBuf,
+        mut nuvem: Box<dyn MusicSource>,
+    ) -> Self {
         // Acorda o Spotify JÁ, na subida do módulo, sem esperar o primeiro
         // toque. É o que evita o fluxo que o dono recusou com razão — ligar o
         // carro, abrir o Spotify na mão, e só então abrir o Eclipse.
         despertar(app.clone());
 
+        // O que já foi aprendido em viagens anteriores vale desde o primeiro
+        // toque desta — sem repetir a descoberta.
+        if let Some(nome) = aprendido(&dir) {
+            tracing::info!(dispositivo = %nome, "já sei qual é o Spotify da central");
+            nuvem.fixar_dispositivo(Some(nome));
+        }
+
         Self {
             app,
+            dir,
             nuvem,
             capa: None,
             ja_reclamou: false,
+        }
+    }
+
+    /// Descobre qual dispositivo do Connect é o Spotify DESTA central.
+    ///
+    /// # Por que observar, e não perguntar
+    ///
+    /// O nome não serve. O Android chama este aparelho de "K706" em todos os
+    /// campos que conhece; o app do Spotify se anuncia como "HT-9960CA". Não há
+    /// letra em comum, e não existe API que ligue um ao outro.
+    ///
+    /// Mas existe um fato que só vale para o app local: **ele aparece na lista
+    /// porque NÓS o acordamos**. Ligar no `MediaBrowserService` inicia o
+    /// processo do Spotify deste aparelho — e de nenhum outro. O celular do
+    /// dono, ou o computador da casa dele, não ligam por causa de um bind aqui.
+    ///
+    /// Então: fotografa a lista, acorda, fotografa de novo. Quem nasceu no meio
+    /// é o daqui. O diário de 24/09 mostra exatamente essa sequência:
+    ///
+    /// ```text
+    /// 17:37:20  candidatos: []                 <- antes
+    /// 17:38:11  candidatos: ["HT-9960CA"]      <- depois do despertador
+    /// ```
+    ///
+    /// Computadores ficam de fora mesmo assim: um PC não nasce de um bind
+    /// local, e se aparecer no meio é coincidência — e coincidência não pode
+    /// mandar som para a casa vazia do dono.
+    ///
+    /// Aprendido uma vez, fica guardado em disco e vale para sempre.
+    async fn aprender_qual_e_o_carro(&mut self) {
+        let antes: Vec<String> = self
+            .nuvem
+            .dispositivos()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(nome, _)| nome)
+            .collect();
+
+        Self::acordar_e_esperar(self.app.clone()).await;
+
+        let depois = self.nuvem.dispositivos().await.unwrap_or_default();
+        let novos = quem_nasceu_agora(&antes, &depois);
+
+        // Exatamente um. Dois ao mesmo tempo seria coincidência (o celular do
+        // dono acordando junto), e na dúvida é melhor não tocar do que tocar
+        // no lugar errado — foi assim que o som foi parar no computador dele.
+        match novos.as_slice() {
+            [unico] => {
+                tracing::info!(
+                    dispositivo = %unico,
+                    "descobri qual é o Spotify da central: ele nasceu quando eu acordei o app daqui"
+                );
+                guardar_aprendido(&self.dir, unico);
+                self.nuvem.fixar_dispositivo(Some(unico.clone()));
+            }
+            [] => tracing::warn!("acordei o app e nenhum dispositivo novo apareceu"),
+            varios => tracing::warn!(
+                ?varios,
+                "mais de um dispositivo novo apareceu; não dá para saber qual é o do carro"
+            ),
         }
     }
 
@@ -191,6 +273,35 @@ fn montar(estado: EstadoLocal, guardada: &mut Option<String>) -> Option<NowPlayi
     })
 }
 
+/// Quem apareceu na lista entre as duas fotografias, ignorando computadores.
+///
+/// Isolada do resto porque é a regra que decide de onde sai o som, e errar
+/// aqui não dá erro nenhum: dá música tocando na casa vazia do dono.
+fn quem_nasceu_agora(antes: &[String], depois: &[(String, bool)]) -> Vec<String> {
+    depois
+        .iter()
+        // Um computador não nasce de um bind local. Se apareceu no meio, é
+        // coincidência — e coincidência não pode mandar som para outra casa.
+        .filter(|(_, e_computador)| !e_computador)
+        .map(|(nome, _)| nome.clone())
+        .filter(|nome| !antes.iter().any(|a| a.eq_ignore_ascii_case(nome)))
+        .collect()
+}
+
+/// O nome do Spotify da central, se já tiver sido descoberto.
+fn aprendido(dir: &std::path::Path) -> Option<String> {
+    Arquivo::<Option<String>>::load(dir.join(APRENDIDO_JSON)).dados
+}
+
+/// Guarda o que foi descoberto, para nunca mais precisar descobrir.
+fn guardar_aprendido(dir: &std::path::Path, nome: &str) {
+    let mut arq = Arquivo::<Option<String>>::load(dir.join(APRENDIDO_JSON));
+    arq.dados = Some(nome.to_string());
+    if let Err(err) = arq.salvar() {
+        tracing::warn!(%err, "não consegui guardar qual é o Spotify da central");
+    }
+}
+
 /// Cutuca o app do Spotify para ele existir.
 ///
 /// # Por que isto acorda o Spotify
@@ -275,9 +386,9 @@ impl MusicSource for SessaoLocal {
             // do Spotify da central ainda não acordou. Acordar e tentar de
             // novo é o que transforma um erro na tela em música tocando — e é
             // o que dispensa o dono de abrir o Spotify na mão.
-            Err(MusicError::SoDispositivoDeFora) => {
-                tracing::info!("nenhum Spotify no carro; acordando o app e tentando de novo");
-                Self::acordar_e_esperar(self.app.clone()).await;
+            Err(MusicError::SoDispositivoDeFora) | Err(MusicError::NoActiveDevice) => {
+                tracing::info!("nenhum Spotify no carro; acordando o app e descobrindo qual é");
+                self.aprender_qual_e_o_carro().await;
                 self.nuvem.tocar(faixa, contexto).await
             }
             outro => outro,
@@ -373,5 +484,63 @@ mod tests {
             ..tocando("Faixa", None)
         };
         assert_eq!(montar(torta, &mut capa).unwrap().progress_ms, Some(0));
+    }
+}
+
+#[cfg(test)]
+mod tests_aprender {
+    use super::*;
+
+    fn lista(v: &[(&str, bool)]) -> Vec<(String, bool)> {
+        v.iter().map(|(n, c)| (n.to_string(), *c)).collect()
+    }
+
+    fn nomes(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn o_caso_real_do_carro() {
+        // Diário de 24/09, a sequência exata:
+        //   17:37:20  candidatos: []
+        //   17:38:11  candidatos: ["HT-9960CA"]
+        // O app da central nasceu porque o Eclipse o acordou.
+        let novos = quem_nasceu_agora(&[], &lista(&[("HT-9960CA", false)]));
+        assert_eq!(novos, vec!["HT-9960CA"]);
+    }
+
+    #[test]
+    fn o_computador_de_casa_nao_e_aprendido_nem_se_aparecer_agora() {
+        // Um PC não nasce de um bind local. Se apareceu no meio, foi o dono
+        // abrindo o Spotify em casa — e aprender isso mandaria TODA música
+        // futura para lá.
+        let novos = quem_nasceu_agora(&[], &lista(&[("DESKTOP-ATVE3IV", true)]));
+        assert!(novos.is_empty());
+    }
+
+    #[test]
+    fn quem_ja_estava_na_lista_nao_conta() {
+        // O celular do dono já estava ligado antes do despertador; ele não
+        // nasceu de nada que o Eclipse fez.
+        let antes = nomes(&["iPhone do Vinicius"]);
+        let depois = lista(&[("iPhone do Vinicius", false), ("HT-9960CA", false)]);
+        assert_eq!(quem_nasceu_agora(&antes, &depois), vec!["HT-9960CA"]);
+    }
+
+    #[test]
+    fn dois_nascendo_juntos_nao_ensinam_nada() {
+        // Ambiguidade não vira palpite. Melhor não tocar do que tocar longe.
+        let novos = quem_nasceu_agora(&[], &lista(&[("HT-9960CA", false), ("Outro", false)]));
+        assert_eq!(novos.len(), 2, "quem chama precisa ver a ambiguidade");
+    }
+
+    #[test]
+    fn a_comparacao_ignora_maiuscula() {
+        let antes = nomes(&["ht-9960ca"]);
+        let depois = lista(&[("HT-9960CA", false)]);
+        assert!(
+            quem_nasceu_agora(&antes, &depois).is_empty(),
+            "é o mesmo aparelho escrito diferente, não um recém-nascido"
+        );
     }
 }

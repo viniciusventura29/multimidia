@@ -132,6 +132,12 @@ pub struct SpotifySource {
     /// Vazio no desktop e quando o Android não soube responder. Nesse caso a
     /// escolha não arrisca adivinhar — ver `escolher_device`.
     nomes_do_aparelho: Vec<String>,
+    /// O dispositivo que o Eclipse APRENDEU ser o da central.
+    ///
+    /// Aprendido observando quem aparece na lista quando o app local é
+    /// acordado — ver `MusicSource::dispositivos`. Uma vez sabido, vence
+    /// qualquer regra de nome: é conhecimento, não palpite.
+    dispositivo_fixado: Option<String>,
 }
 
 /// O nome que o Spotify anuncia é o mesmo aparelho que o Android diz ser?
@@ -275,6 +281,7 @@ impl SpotifySource {
             client,
             tocando: false,
             nomes_do_aparelho,
+            dispositivo_fixado: None,
         })
     }
 
@@ -330,6 +337,18 @@ impl SpotifySource {
     async fn escolher_device(&self) -> Result<String, MusicError> {
         let devices = self.client.device().await.map_err(traduzir)?;
         let daqui: &[String] = &self.nomes_do_aparelho;
+
+        // O aprendido vence tudo. Se o Eclipse já descobriu qual é o Spotify
+        // da central, não há regra de nome nem de tipo que deva discordar.
+        if let Some(fixado) = &self.dispositivo_fixado {
+            if let Some(d) = devices
+                .iter()
+                .find(|d| d.id.is_some() && d.name.eq_ignore_ascii_case(fixado))
+            {
+                tracing::info!(dispositivo = %d.name, "usando o Spotify aprendido da central");
+                return d.id.clone().ok_or(MusicError::NoActiveDevice);
+            }
+        }
 
         // Filtra ANTES de pontuar. Pontuação escolhe o melhor entre candidatos
         // aceitáveis; ela não sabe recusar TODOS — e foi isso que deixou o som
@@ -663,6 +682,20 @@ impl MusicSource for SpotifySource {
             .seek_track(chrono::Duration::milliseconds(posicao_ms as i64), None)
             .await
             .map_err(traduzir)
+    }
+
+    async fn dispositivos(&mut self) -> Result<Vec<(String, bool)>, MusicError> {
+        use rspotify::model::DeviceType;
+        let devices = self.client.device().await.map_err(traduzir)?;
+        Ok(devices
+            .into_iter()
+            .filter(|d| d.id.is_some())
+            .map(|d| (d.name, matches!(d._type, DeviceType::Computer)))
+            .collect())
+    }
+
+    fn fixar_dispositivo(&mut self, nome: Option<String>) {
+        self.dispositivo_fixado = nome;
     }
 
     async fn playlists(&mut self) -> Result<Vec<crate::source::Playlist>, MusicError> {
