@@ -85,21 +85,26 @@ impl Conector for SpotifyConector {
         // O nome deste aparelho é o que separa "a central" de "o celular dele"
         // na lista do Spotify Connect — ver `escolher_device`. Falhar aqui não
         // é fatal: sem o nome a escolha cai no WebView, que é o de hoje.
-        let nome_do_aparelho = match &self.app {
+        let nomes_do_aparelho = match &self.app {
             Some(app) => {
                 let app = app.clone();
                 tokio::task::spawn_blocking(move || app.obd_bt().nome_do_aparelho())
                     .await
                     .ok()
                     .and_then(|r| r.ok())
-                    .filter(|n| !n.trim().is_empty())
+                    .unwrap_or_default()
             }
-            None => None,
+            None => Vec::new(),
         };
 
         let nuvem: Box<dyn MusicSource> = Box::new(
-            SpotifySource::conectar(client_id, perfil, Arc::clone(&self.cofre), nome_do_aparelho)
-                .await?,
+            SpotifySource::conectar(
+                client_id,
+                perfil,
+                Arc::clone(&self.cofre),
+                nomes_do_aparelho,
+            )
+            .await?,
         );
 
         // A sessão local na FRENTE da nuvem, não no lugar dela: o que é rápido

@@ -17,6 +17,7 @@ import android.bluetooth.BluetoothDevice
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import org.json.JSONArray
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.Permission
@@ -235,14 +236,33 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun nomeDoAparelho(invoke: Invoke) {
         try {
-            val escolhido =
-                try {
-                    Settings.Global.getString(activity.contentResolver, Settings.Global.DEVICE_NAME)
-                } catch (e: Exception) {
-                    null
-                }
+            // TODOS os nomes, não o primeiro que existir.
+            //
+            // A versão anterior fazia `DEVICE_NAME ?: Build.MODEL` — só caía no
+            // modelo se o nome de configuração faltasse. No carro do dono os
+            // dois existem E SÃO DIFERENTES: o Android diz "K706" (o nome que
+            // ele deu nas configurações) e o Spotify se anuncia como
+            // "HT-9960CA" (o modelo de fábrica).
+            //
+            // Resultado: o app do Spotify da central ESTAVA na lista, e era
+            // rejeitado por não casar com o único nome que eu mandava. A tela
+            // pedia para abrir o Spotify que já estava aberto.
+            val nomes = mutableListOf<String>()
+            try {
+                Settings.Global.getString(activity.contentResolver, Settings.Global.DEVICE_NAME)
+                    ?.let { nomes.add(it) }
+            } catch (e: Exception) {
+                Log.w(TAG, "sem DEVICE_NAME: ${e.message}")
+            }
+            Build.MODEL?.let { nomes.add(it) }
+            Build.DEVICE?.let { nomes.add(it) }
+            Build.PRODUCT?.let { nomes.add(it) }
+
             val ret = JSObject()
-            ret.put("nome", escolhido?.takeIf { it.isNotBlank() } ?: Build.MODEL ?: "")
+            val limpos = nomes.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            ret.put("nomes", JSONArray(limpos))
+            // Mantido para quem só quer um: é o mais "humano" dos quatro.
+            ret.put("nome", limpos.firstOrNull() ?: "")
             invoke.resolve(ret)
         } catch (e: Exception) {
             invoke.reject(e.message ?: e.javaClass.simpleName)

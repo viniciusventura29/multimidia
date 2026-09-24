@@ -256,7 +256,7 @@ async fn spotify_access_token(app: tauri::AppHandle, id: Uuid) -> Result<String,
 
     // Aqui o nome do aparelho não importa: este caminho só serve para pegar o
     // access token para o WebView, e nunca escolhe device.
-    let fonte = eclipse_music::SpotifySource::conectar(&client_id, id, cofre, None)
+    let fonte = eclipse_music::SpotifySource::conectar(&client_id, id, cofre, Vec::new())
         .await
         .map_err(|e| e.to_string())?;
     fonte.access_token().await.map_err(|e| e.to_string())

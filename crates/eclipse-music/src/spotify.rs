@@ -121,11 +121,17 @@ pub struct SpotifySource {
     /// Último estado conhecido de reprodução, atualizado a cada `now_playing`.
     /// Evita uma consulta de rede extra no `toggle` — ver o comentário lá.
     tocando: bool,
-    /// O nome DESTE aparelho, para achar a central na lista do Connect.
+    /// Os nomes DESTE aparelho, para achar a central na lista do Connect.
     ///
-    /// `None` no desktop e quando o Android não soube responder. Nesse caso a
+    /// Plural porque o Android e o Spotify discordam: no carro do dono o
+    /// sistema diz "K706" (nome de configuração) e o Spotify se anuncia como
+    /// "HT-9960CA" (modelo de fábrica). Mandar um só fazia o app da central
+    /// ser rejeitado — e a tela pedia para abrir o Spotify que já estava
+    /// aberto.
+    ///
+    /// Vazio no desktop e quando o Android não soube responder. Nesse caso a
     /// escolha não arrisca adivinhar — ver `escolher_device`.
-    nome_do_aparelho: Option<String>,
+    nomes_do_aparelho: Vec<String>,
 }
 
 /// O nome que o Spotify anuncia é o mesmo aparelho que o Android diz ser?
@@ -168,27 +174,26 @@ fn e_o_mesmo_aparelho(nome: &str, daqui: &str) -> bool {
 ///
 /// O celular do dono fica de fora de propósito, mesmo que esteja no carro: o
 /// som sairia pelo alto-falante dele, não pelo do veículo.
-fn pode_ser_o_carro(nome: &str, tipo: &rspotify::model::DeviceType, daqui: Option<&str>) -> bool {
+fn pode_ser_o_carro(nome: &str, tipo: &rspotify::model::DeviceType, daqui: &[String]) -> bool {
     use rspotify::model::DeviceType;
     if matches!(tipo, DeviceType::Automobile) {
         return true;
     }
-    daqui.is_some_and(|daqui| e_o_mesmo_aparelho(nome, daqui))
+    daqui.iter().any(|d| e_o_mesmo_aparelho(nome, d))
 }
 
 /// Nota de um dispositivo do Connect. Maior ganha — ver `escolher_device`.
 ///
 /// Fora do método de propósito: é a regra que decide de onde sai o som, e
 /// aninhada dentro de um `async fn` ela não podia ser testada.
-fn pontos(nome: &str, tipo: &rspotify::model::DeviceType, ativo: bool, daqui: Option<&str>) -> i32 {
+fn pontos(nome: &str, tipo: &rspotify::model::DeviceType, ativo: bool, daqui: &[String]) -> i32 {
     use rspotify::model::DeviceType;
 
-    // O app do Spotify DESTA central, achado pelo nome do aparelho. É o único
-    // caso em que se tem certeza de onde o som vai sair.
-    if let Some(daqui) = daqui {
-        if e_o_mesmo_aparelho(nome, daqui) {
-            return 100 + i32::from(ativo);
-        }
+    // O app do Spotify DESTA central, achado por QUALQUER UM dos nomes que o
+    // Android dá a si mesmo. É o único caso em que se tem certeza de onde o
+    // som vai sair.
+    if daqui.iter().any(|d| e_o_mesmo_aparelho(nome, d)) {
+        return 100 + i32::from(ativo);
     }
 
     let base = match tipo {
@@ -214,7 +219,7 @@ impl SpotifySource {
         client_id: &str,
         perfil: Uuid,
         cofre: Arc<Mutex<TokenStore>>,
-        nome_do_aparelho: Option<String>,
+        nomes_do_aparelho: Vec<String>,
     ) -> Result<Self, MusicError> {
         let guardado = {
             let cofre = cofre.lock().unwrap_or_else(|e| e.into_inner());
@@ -269,7 +274,7 @@ impl SpotifySource {
         Ok(Self {
             client,
             tocando: false,
-            nome_do_aparelho,
+            nomes_do_aparelho,
         })
     }
 
@@ -324,7 +329,7 @@ impl SpotifySource {
     /// comportamento de hoje.
     async fn escolher_device(&self) -> Result<String, MusicError> {
         let devices = self.client.device().await.map_err(traduzir)?;
-        let daqui = self.nome_do_aparelho.as_deref();
+        let daqui: &[String] = &self.nomes_do_aparelho;
 
         // Filtra ANTES de pontuar. Pontuação escolhe o melhor entre candidatos
         // aceitáveis; ela não sabe recusar TODOS — e foi isso que deixou o som
@@ -363,21 +368,20 @@ impl SpotifySource {
             .as_ref()
             .map(|d| format!("{} ({:?})", d.name, d._type))
             .unwrap_or_else(|| "nenhum".into());
-        let e_daqui = match (&escolhido, daqui) {
-            (Some(d), Some(daqui)) => d.name.eq_ignore_ascii_case(daqui),
-            _ => false,
-        };
+        let e_daqui = escolhido
+            .as_ref()
+            .is_some_and(|d| daqui.iter().any(|n| e_o_mesmo_aparelho(&d.name, n)));
 
         if e_daqui {
             tracing::info!(
-                aparelho = daqui.unwrap_or("(não sei)"),
+                aparelho = ?daqui,
                 escolhido = nome_escolhido,
                 ?candidatos,
                 "o som vai pelo app do Spotify desta central"
             );
         } else {
             tracing::warn!(
-                aparelho = daqui.unwrap_or("(não sei)"),
+                aparelho = ?daqui,
                 escolhido = nome_escolhido,
                 ?candidatos,
                 "o som NÃO vai pelo app do Spotify desta central; \
@@ -838,7 +842,11 @@ mod tests_escolha_de_device {
     /// O nome que o Android deu a esta central.
     const CENTRAL: &str = "UIS7862";
 
-    fn melhor<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: Option<&str>) -> &'a str {
+    fn nomes(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn melhor<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: &[String]) -> &'a str {
         lista
             .iter()
             .max_by_key(|(nome, tipo, ativo)| pontos(nome, tipo, *ativo, daqui))
@@ -857,7 +865,7 @@ mod tests_escolha_de_device {
             (NOME_DEVICE, DeviceType::Computer, false),
         ];
         assert_eq!(
-            melhor(&lista, Some(CENTRAL)),
+            melhor(&lista, &nomes(&[CENTRAL])),
             CENTRAL,
             "com o nome do aparelho em mãos, não há empate a resolver"
         );
@@ -872,7 +880,7 @@ mod tests_escolha_de_device {
             ("iPhone do Vinicius", DeviceType::Smartphone, true),
             (NOME_DEVICE, DeviceType::Computer, false),
         ];
-        assert_eq!(melhor(&lista, Some(CENTRAL)), NOME_DEVICE);
+        assert_eq!(melhor(&lista, &nomes(&[CENTRAL])), NOME_DEVICE);
     }
 
     #[test]
@@ -884,7 +892,7 @@ mod tests_escolha_de_device {
             (CENTRAL, DeviceType::Smartphone, false),
             (NOME_DEVICE, DeviceType::Computer, false),
         ];
-        assert_eq!(melhor(&lista, None), NOME_DEVICE);
+        assert_eq!(melhor(&lista, &[]), NOME_DEVICE);
     }
 
     #[test]
@@ -895,7 +903,7 @@ mod tests_escolha_de_device {
             ("Minha central", DeviceType::Automobile, false),
             (NOME_DEVICE, DeviceType::Computer, true),
         ];
-        assert_eq!(melhor(&lista, None), "Minha central");
+        assert_eq!(melhor(&lista, &[]), "Minha central");
     }
 
     #[test]
@@ -906,13 +914,13 @@ mod tests_escolha_de_device {
             ("PC do escritório", DeviceType::Computer, true),
             (CENTRAL, DeviceType::Smartphone, false),
         ];
-        assert_eq!(melhor(&lista, Some(CENTRAL)), CENTRAL);
+        assert_eq!(melhor(&lista, &nomes(&[CENTRAL])), CENTRAL);
     }
 
     #[test]
     fn o_nome_casa_sem_olhar_maiuscula() {
         let lista = [("uis7862", DeviceType::Smartphone, false)];
-        assert_eq!(melhor(&lista, Some("UIS7862")), "uis7862");
+        assert_eq!(melhor(&lista, &nomes(&["UIS7862"])), "uis7862");
     }
 
     #[test]
@@ -926,14 +934,14 @@ mod tests_escolha_de_device {
                 (anunciado, DeviceType::Smartphone, false),
             ];
             assert_eq!(
-                melhor(&lista, Some(CENTRAL)),
+                melhor(&lista, &nomes(&[CENTRAL])),
                 anunciado,
                 "'{anunciado}' devia casar com '{CENTRAL}'"
             );
         }
     }
 
-    fn aceitos<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: Option<&str>) -> Vec<&'a str> {
+    fn aceitos<'a>(lista: &[(&'a str, DeviceType, bool)], daqui: &[String]) -> Vec<&'a str> {
         lista
             .iter()
             .filter(|(nome, tipo, _)| pode_ser_o_carro(nome, tipo, daqui))
@@ -951,7 +959,7 @@ mod tests_escolha_de_device {
         // vencedor. Recusar tem que ser categórico, não relativo.
         let lista = [("PC do escritório", DeviceType::Computer, true)];
         assert!(
-            aceitos(&lista, Some(CENTRAL)).is_empty(),
+            aceitos(&lista, &nomes(&[CENTRAL])).is_empty(),
             "sozinho na lista, o computador ainda assim não pode receber o som"
         );
     }
@@ -961,7 +969,7 @@ mod tests_escolha_de_device {
         // Mesmo que o celular esteja DENTRO do carro, o som sairia pelo
         // alto-falante dele, não pelo do veículo.
         let lista = [("iPhone do Vinicius", DeviceType::Smartphone, true)];
-        assert!(aceitos(&lista, Some(CENTRAL)).is_empty());
+        assert!(aceitos(&lista, &nomes(&[CENTRAL])).is_empty());
     }
 
     #[test]
@@ -972,7 +980,7 @@ mod tests_escolha_de_device {
             (CENTRAL, DeviceType::Smartphone, false),
             ("Minha central", DeviceType::Automobile, false),
         ];
-        let ok = aceitos(&lista, Some(CENTRAL));
+        let ok = aceitos(&lista, &nomes(&[CENTRAL]));
         assert!(ok.contains(&CENTRAL), "casou pelo nome");
         assert!(ok.contains(&"Minha central"), "se anunciou como automóvel");
         assert_eq!(ok.len(), 2, "e mais ninguém: {ok:?}");
@@ -987,7 +995,36 @@ mod tests_escolha_de_device {
             ("Algum celular", DeviceType::Smartphone, true),
             ("Central", DeviceType::Automobile, false),
         ];
-        assert_eq!(aceitos(&lista, None), vec!["Central"]);
+        assert_eq!(aceitos(&lista, &[]), vec!["Central"]);
+    }
+
+    #[test]
+    fn o_caso_real_do_carro_k706_e_ht_9960ca() {
+        // ACONTECEU: o dono abriu o Spotify na central e a tela continuou
+        // dizendo para abrir o Spotify na central.
+        //
+        // O Android se apresenta como "K706" (o nome que ele deu nas
+        // configurações) e o app do Spotify se anuncia como "HT-9960CA" (o
+        // modelo de fábrica). Mandando um nome só, o dispositivo CERTO era
+        // rejeitado — e a única coisa que sobrava na lista era o computador
+        // de casa.
+        let lista = [
+            ("HT-9960CA", DeviceType::Tablet, false),
+            ("DESKTOP-ATVE3IV", DeviceType::Computer, false),
+        ];
+
+        // Como era: só o nome de configuração.
+        assert!(
+            aceitos(&lista, &nomes(&["K706"])).is_empty(),
+            "com um nome só, a central do dono não é reconhecida"
+        );
+
+        // Como fica: os dois nomes que o Android sabe dar a si mesmo.
+        assert_eq!(
+            aceitos(&lista, &nomes(&["K706", "HT-9960CA"])),
+            vec!["HT-9960CA"],
+            "com os dois, a central aparece — e o PC continua fora"
+        );
     }
 
     #[test]
