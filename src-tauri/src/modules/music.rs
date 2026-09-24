@@ -193,6 +193,7 @@ impl Module for MusicModule {
                             Some("abrir") => Some(EmAndamento::Abrindo),
                             Some("buscar") => Some(EmAndamento::Buscando),
                             Some("playlists") => Some(EmAndamento::Playlists),
+                            Some("recentes") => Some(EmAndamento::Recentes),
                             Some("toggle" | "next" | "prev" | "tocar" | "seek") => {
                                 Some(EmAndamento::Transporte)
                             }
@@ -245,6 +246,14 @@ impl Module for MusicModule {
                             Some("playlists") => match atual.playlists().await {
                                 Ok(pls) => {
                                     estado.playlists = pls;
+                                    ctx.ready(&estado);
+                                    Ok(())
+                                }
+                                Err(err) => Err(err),
+                            },
+                            Some("recentes") => match atual.recentes().await {
+                                Ok(r) => {
+                                    estado.recentes = r;
                                     ctx.ready(&estado);
                                     Ok(())
                                 }
