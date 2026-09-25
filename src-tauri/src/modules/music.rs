@@ -119,6 +119,7 @@ impl Conector for SpotifyConector {
             Some(app) => Ok(Box::new(crate::modules::musica_local::SessaoLocal::nova(
                 app.clone(),
                 self.dir.clone(),
+                client_id.to_string(),
                 nuvem,
             ))),
             None => Ok(nuvem),

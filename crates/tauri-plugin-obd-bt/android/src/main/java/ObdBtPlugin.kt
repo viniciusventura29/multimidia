@@ -48,6 +48,25 @@ class CommandArgs {
 }
 
 @InvokeArg
+class AppRemoteTocarArgs {
+    /** Client ID e redirect vêm do Rust: o plugin não conhece credencial. */
+    lateinit var clientId: String
+    lateinit var redirectUri: String
+    var uri: String? = null
+    var contexto: String? = null
+    /** Posição da faixa dentro do contexto. `-1` = do começo. */
+    var indice: Int = -1
+}
+
+@InvokeArg
+class AppRemoteComandoArgs {
+    lateinit var clientId: String
+    lateinit var redirectUri: String
+    lateinit var acao: String
+    var valor: Long = 0
+}
+
+@InvokeArg
 class ComandoSessaoArgs {
     /** `tocar`, `pausar`, `alternar`, `proxima`, `anterior`, `saltar`. */
     lateinit var acao: String
@@ -266,6 +285,59 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(ret)
         } catch (e: Exception) {
             invoke.reject(e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * Manda o app do Spotify DESTA central tocar.
+     *
+     * Ver `AppRemoteSpotify.kt` para por que isto existe e por que a Web API
+     * não dava conta.
+     *
+     * Usa `io.execute`: conectar pode ter de INICIAR o app do Spotify, e isso
+     * demora — segurar a thread que chamou por doze segundos travaria a ponte.
+     */
+    @Command
+    fun appRemoteTocar(invoke: Invoke) {
+        io.execute {
+            try {
+                val a = invoke.parseArgs(AppRemoteTocarArgs::class.java)
+                val r = AppRemoteSpotify.tocar(
+                    activity,
+                    a.clientId,
+                    a.redirectUri,
+                    a.uri,
+                    a.contexto,
+                    a.indice,
+                )
+                val ret = JSObject()
+                ret.put("json", r.toString())
+                invoke.resolve(ret)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Um toque de transporte no app do Spotify da central. */
+    @Command
+    fun appRemoteComando(invoke: Invoke) {
+        io.execute {
+            try {
+                val a = invoke.parseArgs(AppRemoteComandoArgs::class.java)
+                val r = AppRemoteSpotify.comando(
+                    activity,
+                    a.clientId,
+                    a.redirectUri,
+                    a.acao,
+                    a.valor,
+                )
+                val ret = JSObject()
+                ret.put("json", r.toString())
+                invoke.resolve(ret)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.javaClass.simpleName)
+            }
         }
     }
 

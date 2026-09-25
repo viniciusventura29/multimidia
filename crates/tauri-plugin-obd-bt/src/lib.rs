@@ -292,7 +292,96 @@ mod imp {
                 .run_mobile_plugin("sessaoMediaComando", Pedido { acao, valor })?;
             Ok(r.atendeu)
         }
+        /// Manda o app do Spotify DESTA central tocar — ver
+        /// `AppRemoteSpotify.kt`.
+        ///
+        /// `Ok(None)` = deu certo. `Ok(Some(motivo))` = não deu, e o motivo é
+        /// para o log. `Err` = a ponte falhou.
+        pub fn app_remote_tocar(
+            &self,
+            client_id: &str,
+            redirect_uri: &str,
+            uri: Option<&str>,
+            contexto: Option<&str>,
+            indice: i32,
+        ) -> crate::Result<Option<String>> {
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Pedido<'a> {
+                client_id: &'a str,
+                redirect_uri: &'a str,
+                uri: Option<&'a str>,
+                contexto: Option<&'a str>,
+                indice: i32,
+            }
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin(
+                "appRemoteTocar",
+                Pedido {
+                    client_id,
+                    redirect_uri,
+                    uri,
+                    contexto,
+                    indice,
+                },
+            )?;
+            Ok(motivo_da_resposta(&r.json))
+        }
+
+        /// Um toque de transporte no app do Spotify da central.
+        pub fn app_remote_comando(
+            &self,
+            client_id: &str,
+            redirect_uri: &str,
+            acao: &str,
+            valor: i64,
+        ) -> crate::Result<Option<String>> {
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Pedido<'a> {
+                client_id: &'a str,
+                redirect_uri: &'a str,
+                acao: &'a str,
+                valor: i64,
+            }
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin(
+                "appRemoteComando",
+                Pedido {
+                    client_id,
+                    redirect_uri,
+                    acao,
+                    valor,
+                },
+            )?;
+            Ok(motivo_da_resposta(&r.json))
+        }
     }
+}
+
+/// Lê o `{"ok":bool,"motivo":"..."}` que o Kotlin do App Remote devolve.
+///
+/// `None` = deu certo. `Some(motivo)` = não deu — e o motivo importa: "o
+/// Spotify não está instalado" e "o app recusou a conexão" pedem coisas
+/// diferentes do dono.
+#[allow(dead_code)]
+fn motivo_da_resposta(json: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    if v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
+        return None;
+    }
+    Some(
+        v.get("motivo")
+            .and_then(|x| x.as_str())
+            .unwrap_or("o Spotify recusou")
+            .to_string(),
+    )
 }
 
 #[cfg(not(target_os = "android"))]
@@ -457,6 +546,30 @@ mod imp {
         /// Idem — sem sessão local, nada a atender.
         pub fn sessao_media_comando(&self, _acao: &str, _valor: i64) -> crate::Result<bool> {
             Ok(false)
+        }
+
+        /// No desktop não há app do Spotify para comandar: quem toca é o SDK
+        /// dentro da WebView, que ali funciona.
+        pub fn app_remote_tocar(
+            &self,
+            _client_id: &str,
+            _redirect_uri: &str,
+            _uri: Option<&str>,
+            _contexto: Option<&str>,
+            _indice: i32,
+        ) -> crate::Result<Option<String>> {
+            Err(crate::Error::UnsupportedPlatform)
+        }
+
+        /// Idem.
+        pub fn app_remote_comando(
+            &self,
+            _client_id: &str,
+            _redirect_uri: &str,
+            _acao: &str,
+            _valor: i64,
+        ) -> crate::Result<Option<String>> {
+            Err(crate::Error::UnsupportedPlatform)
         }
     }
 

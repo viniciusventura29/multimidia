@@ -47,6 +47,18 @@ dependencies {
     // execução. Por isso todo o uso está embrulhado em `catch (Throwable)`:
     // `NoClassDefFoundError` não é `Exception`. Ver `Localizacao.kt`.
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // O App Remote do Spotify — ver `libs/PROCEDENCIA.md` para de onde veio, o
+    // sha256, e por que um binário solto em vez de uma dependência normal.
+    //
+    // Em resumo: a Spotify NÃO publica o App Remote em repositório nenhum, e
+    // sem ele não há como mandar o som para o app da central. Três versões
+    // tentaram pela Web API e falharam, porque ela só comanda um aparelho que
+    // já esteja anunciado no Spotify Connect — e o app só se anuncia depois de
+    // ser aberto na mão.
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    // O App Remote serializa por Gson e não o embute.
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")

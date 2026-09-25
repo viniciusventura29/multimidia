@@ -64,6 +64,13 @@ struct EstadoLocal {
 
 pub struct SessaoLocal {
     app: tauri::AppHandle,
+    /// Credenciais do App Remote. O plugin não conhece credencial; elas
+    /// atravessam a ponte a cada chamada.
+    client_id: String,
+    redirect_uri: &'static str,
+    /// O App Remote já se recusou nesta sessão? Evita insistir numa central
+    /// sem Spotify instalado — cada tentativa custa 12 s de espera.
+    app_remote_desistiu: bool,
     /// Onde guardar o que for aprendido sobre o dispositivo da central.
     dir: std::path::PathBuf,
     /// A Web API. Continua dona da biblioteca, e é o plano B de tudo.
@@ -97,6 +104,7 @@ impl SessaoLocal {
     pub fn nova(
         app: tauri::AppHandle,
         dir: std::path::PathBuf,
+        client_id: String,
         mut nuvem: Box<dyn MusicSource>,
     ) -> Self {
         // Acorda o Spotify JÁ, na subida do módulo, sem esperar o primeiro
@@ -114,10 +122,91 @@ impl SessaoLocal {
         Self {
             app,
             dir,
+            client_id,
+            redirect_uri: eclipse_music::REDIRECT_URI,
+            app_remote_desistiu: false,
             nuvem,
             capa: None,
             ja_reclamou: false,
         }
+    }
+
+    /// Manda tocar pelo App Remote. `true` = o app da central atendeu.
+    ///
+    /// É o caminho PREFERIDO, e não um plano B: ele fala com o app do Spotify
+    /// deste aparelho, inicia o processo dele sozinho, e não depende de o
+    /// dispositivo estar anunciado no Spotify Connect — que é o muro em que as
+    /// três tentativas anteriores bateram.
+    async fn tocar_no_app_da_central(
+        &mut self,
+        faixa: Option<&str>,
+        contexto: Option<&str>,
+    ) -> bool {
+        if self.app_remote_desistiu || self.client_id.is_empty() {
+            return false;
+        }
+        let app = self.app.clone();
+        let id = self.client_id.clone();
+        let redirect = self.redirect_uri;
+        let uri = faixa.map(str::to_string);
+        let ctx = contexto.map(str::to_string);
+
+        let resultado = tokio::task::spawn_blocking(move || {
+            app.obd_bt().app_remote_tocar(
+                &id,
+                redirect,
+                uri.as_deref(),
+                ctx.as_deref(),
+                // O índice da faixa dentro do contexto ainda não é sabido
+                // aqui; `-1` toca o contexto do começo. Melhorar isto exige a
+                // posição vir da tela, e tocar o álbum certo já é mais do que
+                // havia antes.
+                -1,
+            )
+        })
+        .await;
+
+        match resultado {
+            Ok(Ok(None)) => {
+                tracing::info!("o app do Spotify da central atendeu");
+                true
+            }
+            Ok(Ok(Some(motivo))) => {
+                tracing::warn!(%motivo, "o App Remote não atendeu; tentando pela Web API");
+                // "não instalado" não melhora tentando de novo; qualquer outra
+                // coisa pode ser transitória.
+                if motivo.contains("não está instalado") {
+                    self.app_remote_desistiu = true;
+                }
+                false
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(%err, "a ponte do App Remote falhou; tentando pela Web API");
+                self.app_remote_desistiu = true;
+                false
+            }
+            Err(err) => {
+                tracing::warn!(%err, "a task do App Remote morreu");
+                false
+            }
+        }
+    }
+
+    /// Um toque de transporte pelo App Remote. `true` = atendeu.
+    async fn transporte_no_app_da_central(&mut self, acao: &'static str, valor: i64) -> bool {
+        if self.app_remote_desistiu || self.client_id.is_empty() {
+            return false;
+        }
+        let app = self.app.clone();
+        let id = self.client_id.clone();
+        let redirect = self.redirect_uri;
+        matches!(
+            tokio::task::spawn_blocking(move || app
+                .obd_bt()
+                .app_remote_comando(&id, redirect, acao, valor))
+            .await,
+            Ok(Ok(None))
+        )
     }
 
     /// Descobre qual dispositivo do Connect é o Spotify DESTA central.
@@ -339,6 +428,9 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn toggle(&mut self) -> Result<(), MusicError> {
+        if self.transporte_no_app_da_central("alternar", 0).await {
+            return Ok(());
+        }
         if Self::mandar(self.app.clone(), "alternar", 0).await {
             return Ok(());
         }
@@ -346,6 +438,9 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn next(&mut self) -> Result<(), MusicError> {
+        if self.transporte_no_app_da_central("proxima", 0).await {
+            return Ok(());
+        }
         if Self::mandar(self.app.clone(), "proxima", 0).await {
             return Ok(());
         }
@@ -353,6 +448,9 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn previous(&mut self) -> Result<(), MusicError> {
+        if self.transporte_no_app_da_central("anterior", 0).await {
+            return Ok(());
+        }
         if Self::mandar(self.app.clone(), "anterior", 0).await {
             return Ok(());
         }
@@ -360,6 +458,12 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn seek(&mut self, posicao_ms: u32) -> Result<(), MusicError> {
+        if self
+            .transporte_no_app_da_central("saltar", i64::from(posicao_ms))
+            .await
+        {
+            return Ok(());
+        }
         if Self::mandar(self.app.clone(), "saltar", i64::from(posicao_ms)).await {
             return Ok(());
         }
@@ -381,11 +485,18 @@ impl MusicSource for SessaoLocal {
         faixa: Option<&str>,
         contexto: Option<&str>,
     ) -> Result<(), MusicError> {
+        // O App Remote PRIMEIRO. Ele fala com o app do Spotify deste aparelho e
+        // inicia o processo dele sozinho — não depende de o dispositivo estar
+        // anunciado no Spotify Connect, que é o muro em que as três tentativas
+        // anteriores bateram.
+        if self.tocar_no_app_da_central(faixa, contexto).await {
+            return Ok(());
+        }
+
         match self.nuvem.tocar(faixa, contexto).await {
-            // "Só tem dispositivo de fora" quase sempre quer dizer que o app
-            // do Spotify da central ainda não acordou. Acordar e tentar de
-            // novo é o que transforma um erro na tela em música tocando — e é
-            // o que dispensa o dono de abrir o Spotify na mão.
+            // Sem App Remote e sem dispositivo: ainda vale acordar pelo
+            // caminho antigo e tentar mais uma vez. Custa pouco e às vezes
+            // pega — mas não é mais a aposta principal.
             Err(MusicError::SoDispositivoDeFora) | Err(MusicError::NoActiveDevice) => {
                 tracing::info!("nenhum Spotify no carro; acordando o app e descobrindo qual é");
                 self.aprender_qual_e_o_carro().await;
