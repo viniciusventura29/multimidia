@@ -59,6 +59,12 @@ class AppRemoteTocarArgs {
 }
 
 @InvokeArg
+class AppRemoteEstadoArgs {
+    lateinit var clientId: String
+    lateinit var redirectUri: String
+}
+
+@InvokeArg
 class AppRemoteComandoArgs {
     lateinit var clientId: String
     lateinit var redirectUri: String
@@ -310,6 +316,22 @@ class ObdBtPlugin(private val activity: Activity) : Plugin(activity) {
                     a.contexto,
                     a.indice,
                 )
+                val ret = JSObject()
+                ret.put("json", r.toString())
+                invoke.resolve(ret)
+            } catch (e: Exception) {
+                invoke.reject(e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** O que o app do Spotify da central está tocando. Sem rede. */
+    @Command
+    fun appRemoteEstado(invoke: Invoke) {
+        io.execute {
+            try {
+                val a = invoke.parseArgs(AppRemoteEstadoArgs::class.java)
+                val r = AppRemoteSpotify.estado(activity, a.clientId, a.redirectUri)
                 val ret = JSObject()
                 ret.put("json", r.toString())
                 invoke.resolve(ret)

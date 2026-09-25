@@ -41,12 +41,16 @@
 package com.eclipseos.obdbt
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.util.Log
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.protocol.types.Image
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -64,6 +68,9 @@ private const val ESPERA_CONEXAO_MS = 12_000L
 
 /** Quanto esperar um comando (tocar, pausar) responder. Chamada local. */
 private const val ESPERA_COMANDO_MS = 6_000L
+
+/** Qualidade do JPEG da capa. Ver o mesmo número em `SessaoMedia`. */
+private const val CAPA_QUALIDADE = 85
 
 internal object AppRemoteSpotify {
 
@@ -197,6 +204,92 @@ internal object AppRemoteSpotify {
             esperar(chamada)
         } catch (t: Throwable) {
             JSONObject().put("ok", false).put("motivo", t.message ?: t.javaClass.simpleName)
+        }
+    }
+
+    /**
+     * O que está tocando AGORA, direto do app ao lado.
+     *
+     * Sem rede. O caminho antigo perguntava à nuvem do Spotify a cada três
+     * segundos e a resposta levava dois — o diário registrava "ler o que está
+     * tocando demora mais que o esperado" com 2.747 ms. Aqui a resposta é uma
+     * chamada de processo a processo.
+     *
+     * A capa só sai quando a FAIXA muda: ela custa uns 30 KB de base64, e
+     * repeti-la a cada leitura seria desperdício. Quem guarda entre uma
+     * leitura e outra é o Rust — ver `musica_local`.
+     */
+    fun estado(context: Context, clientId: String, redirectUri: String): JSONObject {
+        val r = garantir(context, clientId, redirectUri)
+            ?: return JSONObject().put("conectado", false).put("motivo", motivo ?: "sem conexão")
+
+        return try {
+            val res = r.playerApi.playerState.await(ESPERA_COMANDO_MS, TimeUnit.MILLISECONDS)
+            if (!res.isSuccessful) {
+                return JSONObject()
+                    .put("conectado", true)
+                    .put("tem", false)
+                    .put("motivo", res.errorMessage ?: "não deu para ler o estado")
+            }
+            val st = res.data
+            val faixa = st?.track
+            if (faixa == null) {
+                // Conectado e sem faixa: o Spotify está aberto e parado. Não é
+                // erro, e não pode derrubar a conexão.
+                return JSONObject().put("conectado", true).put("tem", false)
+            }
+
+            val fora = JSONObject()
+                .put("conectado", true)
+                .put("tem", true)
+                .put("faixa", faixa.name ?: "")
+                .put("artista", faixa.artist?.name ?: "")
+                .put("tocando", !st.isPaused)
+                .put("posicaoMs", st.playbackPosition)
+                .put("uri", faixa.uri ?: "")
+            if (faixa.duration > 0) fora.put("duracaoMs", faixa.duration)
+
+            val id = faixa.uri ?: faixa.name
+            if (id != null && id != capaEnviadaDe) {
+                capaEmBase64(r, faixa.imageUri)?.let {
+                    fora.put("capa", it)
+                    capaEnviadaDe = id
+                }
+            }
+            fora
+        } catch (t: Throwable) {
+            JSONObject()
+                .put("conectado", false)
+                .put("motivo", t.message ?: t.javaClass.simpleName)
+        }
+    }
+
+    /** De qual faixa a capa já foi enviada. */
+    @Volatile private var capaEnviadaDe: String? = null
+
+    /**
+     * A capa como `data:` URI.
+     *
+     * Base64 porque o bitmap vive na memória do app e a WebView não abre
+     * `content://`. `SMALL` (~144px) basta para a tela do carro e mantém o
+     * payload na casa de dezenas de KB.
+     */
+    private fun capaEmBase64(
+        r: SpotifyAppRemote,
+        uri: com.spotify.protocol.types.ImageUri?,
+    ): String? {
+        if (uri == null) return null
+        return try {
+            val res = r.imagesApi
+                .getImage(uri, Image.Dimension.SMALL)
+                .await(ESPERA_COMANDO_MS, TimeUnit.MILLISECONDS)
+            val bmp: Bitmap = res.data ?: return null
+            val saco = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, CAPA_QUALIDADE, saco)
+            "data:image/jpeg;base64," + Base64.encodeToString(saco.toByteArray(), Base64.NO_WRAP)
+        } catch (t: Throwable) {
+            Log.w(TAG, "não deu para trazer a capa: ${t.message}")
+            null
         }
     }
 

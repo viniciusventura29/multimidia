@@ -331,6 +331,33 @@ mod imp {
             Ok(motivo_da_resposta(&r.json))
         }
 
+        /// O que o app do Spotify da central está tocando — ver
+        /// `AppRemoteSpotify.estado`. Devolve o JSON cru.
+        pub fn app_remote_estado(
+            &self,
+            client_id: &str,
+            redirect_uri: &str,
+        ) -> crate::Result<String> {
+            #[derive(serde::Serialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Pedido<'a> {
+                client_id: &'a str,
+                redirect_uri: &'a str,
+            }
+            #[derive(serde::Deserialize)]
+            struct Resposta {
+                json: String,
+            }
+            let r: Resposta = self.plugin_handle.run_mobile_plugin(
+                "appRemoteEstado",
+                Pedido {
+                    client_id,
+                    redirect_uri,
+                },
+            )?;
+            Ok(r.json)
+        }
+
         /// Um toque de transporte no app do Spotify da central.
         pub fn app_remote_comando(
             &self,
@@ -569,6 +596,15 @@ mod imp {
             _acao: &str,
             _valor: i64,
         ) -> crate::Result<Option<String>> {
+            Err(crate::Error::UnsupportedPlatform)
+        }
+
+        /// Idem.
+        pub fn app_remote_estado(
+            &self,
+            _client_id: &str,
+            _redirect_uri: &str,
+        ) -> crate::Result<String> {
             Err(crate::Error::UnsupportedPlatform)
         }
     }
