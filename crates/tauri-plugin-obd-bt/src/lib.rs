@@ -328,7 +328,7 @@ mod imp {
                     indice,
                 },
             )?;
-            Ok(motivo_da_resposta(&r.json))
+            Ok(super::motivo_da_resposta(&r.json))
         }
 
         /// O que o app do Spotify da central está tocando — ver
@@ -387,7 +387,7 @@ mod imp {
                     valor,
                 },
             )?;
-            Ok(motivo_da_resposta(&r.json))
+            Ok(super::motivo_da_resposta(&r.json))
         }
     }
 }
