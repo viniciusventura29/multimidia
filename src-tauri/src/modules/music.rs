@@ -71,8 +71,6 @@ pub struct SpotifyConector {
     /// Opcional porque os testes deste módulo sobem o conector sem app do
     /// Tauri, e porque no desktop não existe sessão local nenhuma.
     pub app: Option<tauri::AppHandle>,
-    /// Onde guardar o que for aprendido sobre o Spotify da central.
-    pub dir: std::path::PathBuf,
 }
 
 #[async_trait]
@@ -109,20 +107,30 @@ impl Conector for SpotifyConector {
             .await?,
         );
 
-        // A sessão local na FRENTE da nuvem, não no lugar dela: o que é rápido
-        // e local (o que toca, a capa, o transporte) passa a não usar rede, e a
-        // biblioteca continua na Web API. Ver `musica_local`.
+        // NO CARRO, QUEM TOCA É O APP DO SPOTIFY. Um caminho só.
         //
-        // Se não houver sessão local — Spotify fechado, conexão recusada,
-        // desktop — o decorador devolve tudo à nuvem e nada piora.
+        // A Web API vira exclusivamente biblioteca — busca, playlists,
+        // recentes. Ela não produz mais som nenhum, e por isso não há "camada
+        // que falhou": ou o app da central tocou, ou a tela diz por que não.
+        //
+        // No desktop o caminho continua sendo a Web API com o Web Playback SDK
+        // da WebView, que ALI funciona: é onde se mexe em layout, e não há app
+        // do Spotify instalado para assumir o lugar. Não é fallback — é outra
+        // plataforma, com outro tocador.
+        #[cfg(mobile)]
         match &self.app {
             Some(app) => Ok(Box::new(crate::modules::musica_local::SessaoLocal::nova(
                 app.clone(),
-                self.dir.clone(),
+                client_id.to_string(),
                 nuvem,
             ))),
+            // Sem `AppHandle` não há ponte para o app do Spotify. Só acontece
+            // nos testes deste módulo, que sobem o conector sem Tauri.
             None => Ok(nuvem),
         }
+
+        #[cfg(not(mobile))]
+        Ok(nuvem)
     }
 }
 

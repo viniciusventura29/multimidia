@@ -742,7 +742,6 @@ pub fn run() {
                     cofre: Arc::clone(&cofre),
                     demo: std::env::var("ECLIPSE_MUSIC_DEMO").is_ok_and(|v| v == "1"),
                     app: Some(app.handle().clone()),
-                    dir: dir.clone(),
                 });
 
             let chave_mapa = maps_api_key(&dir);
