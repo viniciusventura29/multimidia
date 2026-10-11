@@ -35,6 +35,23 @@ export default tseslint.config(
   reactHooks.configs.flat["recommended-latest"],
 
   {
+    // As ferramentas da ponte do carro (`eclipse-dev.mjs`, `carro.mjs`,
+    // `ponte-do-carro.ts`) rodam no Node do Mac, não no WebView.
+    files: ["scripts/**/*.{mjs,ts}"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        clearTimeout: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
+
+  {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: { ecmaVersion: 2022, sourceType: "module" },

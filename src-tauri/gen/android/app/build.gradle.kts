@@ -66,6 +66,15 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            /*
+             * O build debug vira OUTRO app, "Eclipse DEV", ao lado do de
+             * verdade — é o que `scripts/eclipse-dev.mjs` instala no carro para
+             * a tela vir do Vite do Mac. Id próprio porque a assinatura debug
+             * não instala por cima da de release (o Android obrigaria a
+             * desinstalar, e desinstalar apaga a calibração do tanque). O nome
+             * vem de `src/debug/res/values/strings.xml`. A CI só compila
+             * release (`apk.yml`), então o canal público não muda.
+             */
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true

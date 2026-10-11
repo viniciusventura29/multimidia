@@ -1,12 +1,16 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+import { ponteDoCarro } from "./scripts/ponte-do-carro";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  // A ponte só existe no `serve` (ver `scripts/ponte-do-carro.ts`): é o que
+  // deixa ler o console e mexer na tela do Eclipse DEV rodando na central.
+  plugins: [react(), ponteDoCarro(fileURLToPath(new URL(".", import.meta.url)))],
 
   // O worker do MapLibre é ESM e importa outro módulo. Empacotá-lo como ES
   // (e não como IIFE, que é o padrão) mantém o arquivo coerente com o

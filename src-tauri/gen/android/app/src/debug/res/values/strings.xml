@@ -1,0 +1,6 @@
+<resources>
+    <!-- Sobrepõe o `main` só no build debug: o ícone na central tem que dizer
+         qual dos dois apps é o de desenvolvimento. -->
+    <string name="app_name">"Eclipse DEV"</string>
+    <string name="main_activity_title">"Eclipse DEV"</string>
+</resources>
