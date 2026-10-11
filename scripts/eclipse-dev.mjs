@@ -43,6 +43,10 @@ function ipDoMac() {
 }
 
 function pagina(urlDoMac) {
+  // O IP do Mac muda quando ele troca de rede (hotspot → Wi-Fi de casa). Se a
+  // página só soubesse o IP de quando foi compilada, cada troca custaria um APK
+  // novo. Então ela tenta o último IP que funcionou (guardado no localStorage,
+  // que é do app e sobrevive a reinício) e, enquanto não acha, deixa digitar.
   return `<!doctype html>
 <html>
 <head>
@@ -52,25 +56,61 @@ function pagina(urlDoMac) {
 <style>
   html, body { margin: 0; height: 100%; background: #000; color: #8a8f98; }
   body { display: grid; place-items: center; font: 22px system-ui, sans-serif; text-align: center; }
-  small { display: block; margin-top: 12px; font-size: 15px; opacity: .6; }
+  small { display: block; margin-top: 10px; font-size: 15px; opacity: .6; }
+  form { margin-top: 28px; display: flex; gap: 12px; justify-content: center; }
+  input, button { font: inherit; padding: 12px 16px; border-radius: 10px; border: 1px solid #333; }
+  input { background: #111; color: #ddd; width: 300px; }
+  button { background: #1db954; color: #000; border: 0; }
 </style>
 </head>
 <body>
-<div id="msg">procurando o Mac em ${urlDoMac}</div>
+<div>
+  <div id="msg">procurando o Mac…</div>
+  <form id="form">
+    <input id="ip" inputmode="decimal" autocomplete="off" placeholder="IP do Mac" />
+    <button>conectar</button>
+  </form>
+</div>
 <script>
-  const MAC = ${JSON.stringify(urlDoMac + "/")};
+  const CHAVE = "eclipse-dev-mac";
+  const PADRAO = ${JSON.stringify(urlDoMac)};
+  let mac = localStorage.getItem(CHAVE) || PADRAO;
+  let tentativa = null;
+  // Uma tentativa num IP velho pode terminar DEPOIS de outra já ter carregado
+  // a tela; sem esta trava ela reescreveria o documento e reiniciaria o painel.
+  let carregou = false;
+  const campo = document.getElementById("ip");
+  campo.value = new URL(mac).hostname;
+
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const ip = campo.value.trim();
+    if (!ip) return;
+    mac = "http://" + ip + ":${PORTA}";
+    clearTimeout(tentativa);
+    tentar();
+  });
+
   async function tentar() {
+    if (carregou) return;
+    const base = mac + "/";
+    document.getElementById("msg").innerHTML = "procurando o Mac em " + base;
     try {
-      const resposta = await fetch(MAC, { cache: "no-store" });
+      const resposta = await fetch(base, { cache: "no-store" });
       if (!resposta.ok) throw new Error("HTTP " + resposta.status);
-      const html = (await resposta.text()).replace(/<head([^>]*)>/i, '<head$1><base href="' + MAC + '">');
+      const html = (await resposta.text()).replace(/<head([^>]*)>/i, '<head$1><base href="' + base + '">');
+      if (carregou) return;
+      carregou = true;
+      localStorage.setItem(CHAVE, mac);
       document.open();
       document.write(html);
       document.close();
     } catch (e) {
+      if (carregou) return;
       document.getElementById("msg").innerHTML =
-        "esperando o Mac em " + MAC + "<small>" + e.message + " — o \\"eclipse-dev tela\\" está rodando?</small>";
-      setTimeout(tentar, 2000);
+        "esperando o Mac em " + base +
+        "<small>" + e.message + " — o \\"eclipse-dev tela\\" está rodando? Mesma rede? Se o IP mudou, digite abaixo.</small>";
+      tentativa = setTimeout(tentar, 3000);
     }
   }
   tentar();

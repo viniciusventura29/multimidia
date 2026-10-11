@@ -57,7 +57,11 @@ export default defineConfig(async () => ({
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      //
+      // `target/` e `.ponte/` também: o cargo escreve HTML em `target/` a cada
+      // build Android, e o Vite recarregava a tela do Eclipse DEV no carro no
+      // meio do trabalho.
+      ignored: ["**/src-tauri/**", "**/target/**", "**/.ponte/**"],
     },
   },
 }));
