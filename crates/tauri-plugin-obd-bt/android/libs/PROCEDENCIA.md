@@ -44,6 +44,13 @@ No painel de desenvolvedor do Spotify, no mesmo app do deep link:
 - pacote: `com.eclipseos.app`
 - SHA1: `2A:18:98:48:FE:2F:E6:94:C6:79:32:CD:99:F9:E2:0C:39:85:0E:08`
 
+E, desde 11/10/2026, o Eclipse DEV (o build debug, ver `scripts/eclipse-dev.mjs`):
+
+- pacote: `com.eclipseos.app.dev`
+- SHA1: `F6:6B:69:14:04:86:BF:DF:B6:47:81:D3:5C:FD:6B:9B:96:BA:B8:AD` (o
+  `~/.android/debug.keystore` deste Mac; outro Mac tem outra chave debug e
+  precisa de outra linha)
+
 Sem isso o SDK recusa a conexão.
 
 ## Como atualizar
