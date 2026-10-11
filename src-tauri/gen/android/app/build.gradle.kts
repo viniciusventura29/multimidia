@@ -66,6 +66,7 @@ android {
     }
     buildTypes {
         getByName("debug") {
+            applicationIdSuffix = ".dev"
             /*
              * O build debug vira OUTRO app, "Eclipse DEV", ao lado do de
              * verdade — é o que `scripts/eclipse-dev.mjs` instala no carro para
@@ -74,6 +75,11 @@ android {
              * desinstalar, e desinstalar apaga a calibração do tanque). O nome
              * vem de `src/debug/res/values/strings.xml`. A CI só compila
              * release (`apk.yml`), então o canal público não muda.
+             *
+             * O `applicationIdSuffix` NÃO se escreve aqui: o `tauri android
+             * build` reescreve a linha a cada build a partir de
+             * `bundle.android.debugApplicationIdSuffix` no `tauri.conf.json`,
+             * e apaga a que não vier de lá.
              */
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
