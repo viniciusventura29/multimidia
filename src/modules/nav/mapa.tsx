@@ -20,7 +20,14 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // worker inteiro, dependências dentro, e devolve a URL do resultado.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
-configMapLibre.WORKER_URL = workerUrl;
+// Absoluta contra o `document.baseURI`, e não relativa: no Eclipse DEV (ver
+// `scripts/eclipse-dev.mjs`) a página é `tauri.localhost` mas o `<base>` aponta
+// para o Vite do Mac. O MapLibre decide se o worker é de outra origem
+// resolvendo contra `location.href`, achava que era da mesma e chamava
+// `new Worker` direto, e o Android recusava (SecurityError). Com a URL
+// absoluta ele percebe a outra origem e usa o caminho do blob. No APK normal
+// o `baseURI` é o próprio `tauri.localhost`, e nada muda.
+configMapLibre.WORKER_URL = new URL(workerUrl, document.baseURI).href;
 
 // TEMPORÁRIO — medição de performance; ver `core/perf.ts`.
 import { contarQuadro, medirMapa, quadroPausado } from "../../core/perf";
