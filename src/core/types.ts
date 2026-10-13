@@ -353,6 +353,12 @@ export interface TileSpec<T> {
    */
   sangra?: boolean;
   /**
+   * A tela cheia também sem moldura: o conteúdo vai de beirada a beirada e o
+   * "fechar" flutua por cima dele. É o `"nu"` aplicado à tela cheia — para o
+   * mapa, o card com título em volta só roubava tela do que se quer ver.
+   */
+  cheioNu?: boolean;
+  /**
    * Tile que não lê de módulo nenhum (relógio, por ex.): nasce pronto em vez de
    * "carregando", já que nunca vai chegar um evento para ele.
    */
