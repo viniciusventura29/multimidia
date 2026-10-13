@@ -81,7 +81,9 @@ function Expandido({
   return (
     <div className="overlay" onClick={aoFechar}>
       <section
-        className={`overlay__painel overlay__painel--${status}`}
+        className={`overlay__painel overlay__painel--${status}${
+          spec.cheioNu ? " overlay__painel--nu" : ""
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         <header className="overlay__head">

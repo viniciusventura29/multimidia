@@ -55,6 +55,67 @@ const ESTILOS = {
   noite: "https://tiles.openfreemap.org/styles/dark",
 } as const;
 
+/**
+ * A noite do OpenFreeMap repintada para ser LIDA, não decorada.
+ *
+ * O estilo `dark` foi feito para fundo de dashboard de dados: rua `#181818`
+ * sobre fundo `#0c0c0c`, nome de rua `rgb(80,78,78)`. No carro, a um braço de
+ * distância e com sol batendo de lado, isso era um retângulo preto com riscos
+ * que só se via de perto. Aqui as ruas sobem de tom por hierarquia (via local <
+ * avenida < rodovia), o nome de rua fica claro com contorno do fundo, a água
+ * fica azul e o verde fica verde, e o fundo vira o mesmo `--mapa-vazio` do
+ * painel — o mapa deixa de ser um buraco mais preto que o resto da tela.
+ *
+ * Por id de camada, e não por cor: se o OpenFreeMap renomear uma camada, ela
+ * só volta à cor original (o `getLayer` pula), sem quebrar nada.
+ */
+const REALCE_NOITE: Record<string, Record<string, string>> = {
+  background: { "background-color": "#0d1117" },
+  landuse_residential: { "fill-color": "#11161d" },
+  landcover_wood: { "fill-color": "#0f1c16" },
+  landuse_park: { "fill-color": "#0f1c16" },
+  water: { "fill-color": "#0b1d2e" },
+  waterway: { "line-color": "#0b1d2e" },
+  building: { "fill-color": "#151b23", "fill-outline-color": "#1c2430" },
+  highway_path: { "line-color": "#232a33" },
+  highway_minor: { "line-color": "#2b333e" },
+  highway_major_casing: { "line-color": "#0d1117" },
+  highway_major_inner: { "line-color": "#3d4654" },
+  highway_major_subtle: { "line-color": "#3d4654" },
+  highway_motorway_casing: { "line-color": "#0d1117" },
+  highway_motorway_inner: { "line-color": "#56616f" },
+  highway_motorway_subtle: { "line-color": "#56616f" },
+  railway: { "line-color": "#262d36" },
+  railway_minor: { "line-color": "#262d36" },
+  railway_transit: { "line-color": "#262d36" },
+  highway_name_other: { "text-color": "#a9b2bd", "text-halo-color": "#0d1117" },
+  highway_name_motorway: { "text-color": "#c3cbd5" },
+  water_name: { "text-color": "#5b7d9c", "text-halo-color": "#0d1117" },
+  place_other: { "text-color": "#c9d1d9", "text-halo-color": "rgba(13,17,23,0.9)" },
+  place_suburb: { "text-color": "#c9d1d9", "text-halo-color": "rgba(13,17,23,0.9)" },
+  place_village: { "text-color": "#c9d1d9", "text-halo-color": "rgba(13,17,23,0.9)" },
+  place_town: { "text-color": "#d5dbe2", "text-halo-color": "rgba(13,17,23,0.9)" },
+  place_city: { "text-color": "#e1e6eb", "text-halo-color": "rgba(13,17,23,0.9)" },
+  place_city_large: { "text-color": "#e1e6eb", "text-halo-color": "rgba(13,17,23,0.9)" },
+};
+
+function realcar(mapa: MapaGL, noite: boolean) {
+  if (!noite) return;
+  for (const [camada, pintura] of Object.entries(REALCE_NOITE)) {
+    if (!mapa.getLayer(camada)) continue;
+    for (const [prop, valor] of Object.entries(pintura)) {
+      mapa.setPaintProperty(camada, prop as Parameters<MapaGL["setPaintProperty"]>[1], valor);
+    }
+  }
+}
+
+/**
+ * Quanto tempo o mapa espera, depois do último toque, para voltar a seguir o
+ * carro. O motorista arrastou para olhar uma rua; ninguém deveria ter de achar
+ * o "recentrar" para voltar a dirigir com o mapa.
+ */
+const VOLTA_A_SEGUIR_MS = 12_000;
+
 /** De quanto em quanto tempo chega uma posição nova. */
 const INTERVALO_GPS_MS = 1000;
 
@@ -68,8 +129,13 @@ const INTERVALO_GPS_MS = 1000;
  */
 const PERIODO_MS = 1000 / 30;
 
-/** O nível de zoom de quem está dirigindo. */
-const ZOOM_DE_RUA = 17;
+/**
+ * O nível de zoom de quem está dirigindo.
+ *
+ * Era 17: no quadro do painel cabiam três quarteirões, e a próxima esquina já
+ * estava fora da tela. 16 mostra o bairro em volta e os nomes ainda se leem.
+ */
+const ZOOM_DE_RUA = 16;
 
 /**
  * De quanto em quanto tempo o mapa pode GIRAR.
@@ -98,7 +164,7 @@ function setaDoCarro(): HTMLElement {
   const el = document.createElement("div");
   el.className = "mapa__carro";
   el.innerHTML =
-    '<svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">' +
+    '<svg viewBox="0 0 24 24" width="38" height="38" aria-hidden="true">' +
     '<path d="M12 2 L20 21 L12 16.5 L4 21 Z" fill="#3ddc97" stroke="#07090d" ' +
     'stroke-width="1.6" stroke-linejoin="round"/></svg>';
   return el;
@@ -398,14 +464,14 @@ function Controles({
       {expandido && (
         <>
           <button
-            className="mapa__botao"
+            className="mapa__botao mapa__botao--sinal"
             onClick={(e) => ajustarZoom(e, 1)}
             aria-label="Aproximar"
           >
             +
           </button>
           <button
-            className="mapa__botao"
+            className="mapa__botao mapa__botao--sinal"
             onClick={(e) => ajustarZoom(e, -1)}
             aria-label="Afastar"
           >
@@ -445,6 +511,8 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
   const estiloAtual = useRef(noite ? ESTILOS.noite : ESTILOS.dia);
   const arrastar = useRef(aoArrastar);
   arrastar.current = aoArrastar;
+  const noiteRef = useRef(noite);
+  noiteRef.current = noite;
 
   useEffect(() => {
     // Coberto pela tela cheia, o mapa some de vez em vez de ficar rodando
@@ -480,8 +548,11 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
       pitch: 0,
       pitchWithRotate: false,
       dragRotate: false,
-      // A atribuição do OpenStreetMap não é enfeite, é a licença — fica.
-      attributionControl: { compact: true },
+      // A atribuição do OpenStreetMap não é enfeite, é a licença — fica. Mas
+      // como texto miúdo no canto (ver o CSS), e não no modo compacto: o
+      // compacto é uma cápsula BRANCA com um "i", que de noite era a coisa
+      // mais clara da tela.
+      attributionControl: { compact: false },
 
       /* Daqui para baixo: performance. Até agora o mapa rodava com TODOS os
          padrões do MapLibre, que são pensados para um desktop.
@@ -519,6 +590,12 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
       // É barato em memória (tile vetorial decodificado é pequeno perto de uma
       // textura) e ataca exatamente a reabertura, que é o caso frequente.
       maxTileCacheSize: 200,
+
+      // Só com o Vite servindo (Eclipse DEV): o print da ponte
+      // (`scripts/carro.mjs print`) lê o canvas depois do desenho, e sem
+      // guardar o buffer o mapa sai preto. Custa memória de GPU, então fica
+      // fora do APK de verdade — `import.meta.hot` some no build.
+      ...(import.meta.hot ? { canvasContextAttributes: { preserveDrawingBuffer: true } } : {}),
     });
 
     // TEMPORÁRIO — os três marcos da vida de um mapa: estilo em pé, primeiro
@@ -529,7 +606,21 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
     mapa.once("load", () => medirMapa("primeiro desenho", performance.now() - nasceu));
     mapa.once("idle", () => medirMapa("acabou de desenhar", performance.now() - nasceu));
 
+    // Dois dedos só aproximam e afastam. Por padrão o MapLibre também GIRA e
+    // INCLINA com dois dedos, e num painel que gira sozinho com o rumo do
+    // carro isso era o mapa saindo torto de um zoom e ficando assim.
+    mapa.touchZoomRotate.disableRotation();
+    mapa.touchPitch.disable();
+
+    // Toda vez que um estilo entra (o primeiro e cada troca de tema).
+    mapa.on("style.load", () => realcar(mapa, noiteRef.current));
+
     mapa.on("dragstart", () => arrastar.current());
+    mapa.on("zoomstart", (e) => {
+      // Só o zoom do dedo conta como "mexi no mapa"; o dos botões e o do
+      // recentrar não têm `originalEvent`.
+      if (e.originalEvent) arrastar.current();
+    });
     // Falha de tile ou de estilo não pode ser silenciosa: sem isto, um mapa
     // que não pinta é indistinguível de um mapa vazio.
     mapa.on("error", (e) => console.error("[eclipse] maplibre", e.error ?? e));
@@ -604,9 +695,18 @@ function Painel({
 
   // Segurar o mapa é assumir a câmera: o seguimento solta na hora e o botão
   // "recentrar" vira o caminho de volta.
-  const { caixa, map } = useMapaGL(data?.noite ?? true, coberto, () =>
-    setSeguindo(false),
-  );
+  // Cada toque no mapa renova a contagem para voltar a seguir.
+  const [toques, setToques] = useState(0);
+  const { caixa, map } = useMapaGL(data?.noite ?? true, coberto, () => {
+    setSeguindo(false);
+    setToques((n) => n + 1);
+  });
+
+  useEffect(() => {
+    if (seguindo) return;
+    const volta = setTimeout(() => setSeguindo(true), VOLTA_A_SEGUIR_MS);
+    return () => clearTimeout(volta);
+  }, [seguindo, toques]);
 
   // O Rust decide o que e quando falar; aqui só se pronuncia.
   useEffect(() => {
