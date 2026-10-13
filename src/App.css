@@ -3411,12 +3411,14 @@ body {
 }
 
 .overlay__painel--nu .overlay__fechar {
-  min-height: 3rem;
-  padding: 0 1.2rem;
+  display: grid;
+  place-items: center;
+  width: 3.6rem;
+  height: 3.6rem;
+  padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 50%;
   background: rgb(var(--veu) / 0.85);
-  font-size: 0.9rem;
 }
 
 /* A manobra ocupa o topo inteiro; aqui ela para antes do "fechar". */
@@ -3927,12 +3929,6 @@ body {
   cursor: pointer;
 }
 
-/* + e −: o sinal é o rótulo inteiro, então ele precisa de corpo. */
-.mapa__botao--sinal {
-  padding: 0;
-  font-size: 1.5rem;
-  line-height: 1;
-}
 
 .mapa__botao:disabled {
   opacity: 0.45;
@@ -3961,16 +3957,6 @@ body {
   filter: drop-shadow(0 1px 3px rgb(var(--sombra) / calc(0.55 * var(--forca-sombra))));
 }
 
-/* Pino de posto/estacionamento. */
-.mapa__pino {
-  width: 0.85rem;
-  height: 0.85rem;
-  border: 2px solid var(--mapa-vazio);
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 1px 3px rgb(var(--sombra) / calc(0.5 * var(--forca-sombra)));
-}
-
 /* A atribuição do OpenStreetMap é a licença dos dados, não enfeite: ela fica.
    Só encolhe para caber num painel de carro sem roubar a tela. */
 .mapa .maplibregl-ctrl-bottom-right {
@@ -3994,16 +3980,16 @@ body {
 /* Rota e manobra                                                      */
 /* ------------------------------------------------------------------ */
 
-/* A caixa ancora embaixo e a lista cresce para cima, empurrando o campo para
-   baixo — assim o que o motorista está digitando não sai de onde ele olha. */
+/* A busca mora no TOPO, onde o olho já está, e a lista de sugestões desce a
+   partir dela. Larga, mas parando antes do "fechar" no canto direito. */
 .rota__caixa {
   position: absolute;
   left: 0.7rem;
-  bottom: 0.7rem;
+  top: 0.7rem;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  width: min(26rem, calc(100% - 9rem));
+  width: min(36rem, calc(100% - 6rem));
 }
 
 .rota__busca {
@@ -4027,13 +4013,13 @@ body {
 .rota__campo {
   min-width: 0;
   flex: 1;
-  min-height: 3rem;
-  padding: 0 1.2rem;
+  min-height: 3.6rem;
+  padding: 0 1.4rem;
   border: 0;
   border-radius: 999px;
   background: rgb(var(--veu) / 0.9);
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 1.1rem;
 }
 
 .rota__campo:focus {
@@ -4042,8 +4028,8 @@ body {
 
 .rota__ir,
 .rota__cancelar {
-  min-height: 3rem;
-  min-width: 3rem;
+  min-height: 3.6rem;
+  min-width: 3.6rem;
   padding: 0 1.2rem;
   border: 0;
   border-radius: 999px;
@@ -4164,8 +4150,8 @@ body {
   flex-direction: column;
   margin: 0;
   padding: 0.3rem;
-  border: 1px solid var(--line);
-  border-radius: 0.7rem;
+  border: 0;
+  border-radius: 1.2rem;
   background: rgb(var(--veu) / 0.98);
   list-style: none;
   max-height: 15rem;

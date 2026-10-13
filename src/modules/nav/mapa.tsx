@@ -35,7 +35,6 @@ import type { TileView } from "../../core/types";
 import { metros } from "./geo";
 import { Manobra } from "./manobra";
 import { MapaContexto, NOSSO, useMapa } from "./mapaContexto";
-import { Pois } from "./pois";
 import { BuscarRota, RotaDesenhada } from "./rota";
 import { falar } from "./voz";
 import type { Fix, MapaState, Rota } from "./tipos";
@@ -404,12 +403,12 @@ function mostrarCarro(
 
 
 /**
- * Botões de câmera: zoom, visão geral da rota e recentrar.
+ * Botões de câmera: visão geral da rota e recentrar.
  *
- * Existem porque o mapa nasce sem controle nenhum — os padrões são pequenos
- * demais para dedo de motorista — e porque arrastar o mapa solta o seguimento
- * (senão a câmera brigava com o dedo): alguém precisa oferecer o caminho de
- * volta.
+ * Zoom não tem botão: é com dois dedos, como em qualquer mapa de celular. O
+ * dono pediu para tirar o + e o −. Arrastar o mapa solta o seguimento (senão
+ * a câmera brigava com o dedo), e o recentrar é o caminho de volta para quem
+ * não quer esperar a volta automática.
  *
  * No tile pequeno sobra só o recentrar, e mesmo ele só aparece depois de o dedo
  * arrastar o mapa: dirigindo, um mapinha do tamanho de um cartão com seis
@@ -434,11 +433,6 @@ function Controles({
   const map = useMapa();
   if (!map) return null;
 
-  const ajustarZoom = (event: MouseEvent, delta: number) => {
-    event.stopPropagation();
-    map.setZoom(map.getZoom() + delta);
-  };
-
   const verRota = (event: MouseEvent) => {
     event.stopPropagation();
     if (!rota?.pontos.length) return;
@@ -461,28 +455,10 @@ function Controles({
   // Só os botões: quem dá o lugar deles na tela é a coluna de ferramentas.
   return (
     <>
-      {expandido && (
-        <>
-          <button
-            className="mapa__botao mapa__botao--sinal"
-            onClick={(e) => ajustarZoom(e, 1)}
-            aria-label="Aproximar"
-          >
-            +
-          </button>
-          <button
-            className="mapa__botao mapa__botao--sinal"
-            onClick={(e) => ajustarZoom(e, -1)}
-            aria-label="Afastar"
-          >
-            −
-          </button>
-          {rota && (
-            <button className="mapa__botao" onClick={verRota}>
-              rota
-            </button>
-          )}
-        </>
+      {expandido && rota && (
+        <button className="mapa__botao" onClick={verRota}>
+          rota
+        </button>
       )}
       {!seguindo && temFix && (
         <button className="mapa__recentrar" onClick={recentrar}>
@@ -733,9 +709,6 @@ function Painel({
           className="mapa__ferramentas"
           onClick={(e) => e.stopPropagation()}
         >
-          {expandido && data?.apiKey && (
-            <Pois fix={data.fix} apiKey={data.apiKey} />
-          )}
           <Controles
             seguindo={seguindo}
             temFix={Boolean(data?.fix)}
@@ -790,7 +763,7 @@ export function Mapa(props: TileView<MapaState>) {
   return <Painel {...props} expandido={false} />;
 }
 
-/** O mapa em tela cheia: aqui cabe tudo — busca, POIs, zoom e manobra. */
+/** O mapa em tela cheia: aqui cabe a busca, a manobra e os botões de câmera. */
 export function MapaCheio(props: TileView<MapaState>) {
   return <Painel {...props} expandido />;
 }

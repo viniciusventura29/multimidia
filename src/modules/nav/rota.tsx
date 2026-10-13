@@ -170,6 +170,27 @@ export function BuscarRota({
 
   return (
     <div className="rota__caixa" onClick={(e) => e.stopPropagation()}>
+      <form className="rota__busca" onSubmit={tracar}>
+        <input
+          className="rota__campo"
+          value={destino}
+          onChange={(e) => setDestino(e.target.value)}
+          // Sem GPS não há origem, e o "ir" está apagado; dizer o motivo aqui é
+          // melhor que um botão morto sem explicação. Com posição, volta a valer
+          // o erro da última busca de rota, ou o convite de sempre.
+          placeholder={motivoSemGps ?? erro ?? "para onde?"}
+          aria-label="Destino"
+        />
+        <button
+          className="rota__ir"
+          type="submit"
+          // Sem posição não há de onde partir, e o Rust ignoraria o pedido em
+          // silêncio — melhor o botão dizer isso antes do toque.
+          disabled={!destino.trim() || buscando || !fix}
+        >
+          {buscando ? "…" : "ir"}
+        </button>
+      </form>
       {sugestoes.length > 0 && (
         <ul className="sugestoes">
           {sugestoes.map((s) => (
@@ -199,27 +220,6 @@ export function BuscarRota({
         </ul>
       )}
 
-      <form className="rota__busca" onSubmit={tracar}>
-        <input
-          className="rota__campo"
-          value={destino}
-          onChange={(e) => setDestino(e.target.value)}
-          // Sem GPS não há origem, e o "ir" está apagado; dizer o motivo aqui é
-          // melhor que um botão morto sem explicação. Com posição, volta a valer
-          // o erro da última busca de rota, ou o convite de sempre.
-          placeholder={motivoSemGps ?? erro ?? "para onde?"}
-          aria-label="Destino"
-        />
-        <button
-          className="rota__ir"
-          type="submit"
-          // Sem posição não há de onde partir, e o Rust ignoraria o pedido em
-          // silêncio — melhor o botão dizer isso antes do toque.
-          disabled={!destino.trim() || buscando || !fix}
-        >
-          {buscando ? "…" : "ir"}
-        </button>
-      </form>
     </div>
   );
 }
