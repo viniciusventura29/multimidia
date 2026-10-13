@@ -27,6 +27,7 @@ export const navTile: AnyTileSpec = defineTile<MapaState>({
   // O mapa É a imagem que ele mostra: título e borda em volta só o fazem
   // parecer menor do que é.
   chrome: "nu",
+  cheioNu: true,
   Compact: Mapa,
   Expanded: MapaCheio,
 });

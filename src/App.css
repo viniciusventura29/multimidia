@@ -3388,6 +3388,42 @@ body {
   justify-content: center;
 }
 
+/* Tela cheia nua (`cheioNu`, o mapa): sem card, sem título, sem borda — o
+   conteúdo vai até a beirada, e o "fechar" flutua no canto com a mesma forma
+   dos botões do mapa. */
+.overlay__painel--nu {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: var(--mapa-vazio);
+}
+
+.overlay__painel--nu .overlay__head {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 2;
+  margin: 0;
+}
+
+.overlay__painel--nu .overlay__titulo {
+  display: none;
+}
+
+.overlay__painel--nu .overlay__fechar {
+  min-height: 3rem;
+  padding: 0 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--veu) / 0.85);
+  font-size: 0.9rem;
+}
+
+/* A manobra ocupa o topo inteiro; aqui ela para antes do "fechar". */
+.overlay__painel--nu .manobra {
+  right: 7rem;
+}
+
 /* ------------------------------------------------------------------ */
 /* Perfis                                                              */
 /* ------------------------------------------------------------------ */
@@ -3874,19 +3910,28 @@ body {
   gap: 0.4rem;
 }
 
-/* A mesma receita do botão de modo — mínimo de 2,4 rem porque é dedo de
-   motorista, e fundo escuro que continua legível sobre o mapa claro de dia. */
+/* Dedo de motorista: 3 rem de altura, e todos com a mesma forma — eram caixas
+   de texto de larguras diferentes, com borda, empilhadas como uma lista. Sem
+   borda: o véu escuro já separa o botão da rua, e a borda era uma segunda
+   moldura dizendo a mesma coisa. */
 .mapa__botao,
 .mapa__recentrar {
-  min-height: 2.4rem;
-  min-width: 2.4rem;
-  padding: 0 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.9);
+  min-height: 3rem;
+  min-width: 3rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--veu) / 0.85);
   color: var(--text);
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   cursor: pointer;
+}
+
+/* + e −: o sinal é o rótulo inteiro, então ele precisa de corpo. */
+.mapa__botao--sinal {
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .mapa__botao:disabled {
@@ -3895,15 +3940,12 @@ body {
 }
 
 .mapa__botao--ativo {
-  border-color: var(--accent);
   color: var(--accent);
 }
 
 /* Destacado: é o caminho de volta depois de arrastar o mapa. */
 .mapa__recentrar {
-  border-color: var(--accent);
   color: var(--accent);
-  font-size: 0.76rem;
 }
 
 /* O carro é um marcador ancorado na coordenada do GPS (em `mapa.tsx`) — um
@@ -3935,9 +3977,13 @@ body {
   font-size: 0.6rem;
 }
 
-.mapa .maplibregl-ctrl-attrib {
-  background: rgb(var(--veu) / 0.6);
-  border-radius: 0.35rem 0 0 0;
+/* Texto miúdo e apagado, direto sobre o mapa: o fundo branco padrão do
+   MapLibre era a coisa mais clara da tela de noite. */
+.mapa .maplibregl-ctrl.maplibregl-ctrl-attrib {
+  margin: 0;
+  padding: 0.15rem 0.5rem;
+  background: none;
+  opacity: 0.55;
 }
 
 .mapa .maplibregl-ctrl-attrib a {
@@ -3976,50 +4022,50 @@ body {
   max-width: calc(100% - 9rem);
 }
 
+/* Mesma forma dos botões do mapa (`.mapa__botao`): 3 rem, cápsula, sem
+   borda. O foco acende o texto do "ir", não uma moldura em volta do campo. */
 .rota__campo {
   min-width: 0;
   flex: 1;
-  min-height: 2.4rem;
-  padding: 0 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.94);
+  min-height: 3rem;
+  padding: 0 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--veu) / 0.9);
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .rota__campo:focus {
-  border-color: var(--accent);
   outline: none;
 }
 
 .rota__ir,
 .rota__cancelar {
-  min-height: 2.4rem;
-  padding: 0 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.94);
+  min-height: 3rem;
+  min-width: 3rem;
+  padding: 0 1.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--veu) / 0.9);
   color: var(--accent);
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 
 .rota__ir:disabled {
-  border-color: var(--line);
   color: var(--muted);
   cursor: default;
 }
 
 .rota__cancelar {
-  border-color: var(--line);
   color: var(--muted);
 }
 
 .rota__destino {
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.5rem;
-  background: rgb(var(--veu) / 0.94);
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  background: rgb(var(--veu) / 0.9);
   font-size: 0.85rem;
   overflow: hidden;
   text-overflow: ellipsis;
