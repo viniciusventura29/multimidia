@@ -89,6 +89,8 @@ interface Pendente {
 }
 
 const TIMEOUT_PADRAO = 60_000;
+/** Sem ping há este tempo, o socket está morto (o Mãos pinga a cada 20 s). */
+const SOCKET_MUDO_MS = 70_000;
 // Quanto do APK pode estar "no ar" sem o carro confirmar que gravou. Sem isso
 // o Durable Object empurra 60 MB para o socket de uma vez e estoura a memória.
 const JANELA_APK = 4 * 1024 * 1024;
@@ -192,8 +194,38 @@ export class Carro extends DurableObject<Env> {
     }
   }
 
+  /**
+   * O socket vivo do app, se houver.
+   *
+   * "Vivo" é ter respondido ping há pouco. A central desligada pela chave não
+   * fecha a conexão — some sem FIN —, e o socket fica aberto deste lado. Visto
+   * em 10/11/2026: `carro_estado` dizia "conectado há 19 min" com a central
+   * desligada, e mandar por ele estourava a exceção 1101 do Worker. O Mãos
+   * manda "ping" a cada 20 s; sem resposta automática há 70 s, está morto.
+   */
   private socket(app: string): WebSocket | undefined {
-    return this.ctx.getWebSockets(app)[0];
+    for (const ws of this.ctx.getWebSockets(app)) {
+      const ultimoPing = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime();
+      const { desde } = ws.deserializeAttachment() as { desde: number };
+      const ultimoSinal = Math.max(ultimoPing ?? 0, desde);
+      if (Date.now() - ultimoSinal < SOCKET_MUDO_MS) return ws;
+      try {
+        ws.close(1001, "sem ping");
+      } catch {
+        // já fechado
+      }
+    }
+    return undefined;
+  }
+
+  /** `send` num socket que caiu lança; aqui isso vira "não entregou". */
+  private enviar(ws: WebSocket, msg: string | ArrayBuffer | Uint8Array): boolean {
+    try {
+      ws.send(msg);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private chamar(
@@ -214,7 +246,11 @@ export class Carro extends DurableObject<Env> {
         });
       }, timeout);
       this.pendentes.set(id, { resolver, timer });
-      ws.send(JSON.stringify({ tipo: "chamada", id, ferramenta, args: args ?? {} }));
+      if (!this.enviar(ws, JSON.stringify({ tipo: "chamada", id, ferramenta, args: args ?? {} }))) {
+        clearTimeout(timer);
+        this.pendentes.delete(id);
+        resolver(this.offline(app));
+      }
     });
   }
 
@@ -253,7 +289,11 @@ export class Carro extends DurableObject<Env> {
     });
 
     this.apkEmCurso = id;
-    ws.send(JSON.stringify({ tipo: "apk_inicio", id, tamanho }));
+    if (!this.enviar(ws, JSON.stringify({ tipo: "apk_inicio", id, tamanho }))) {
+      this.acks.delete(id);
+      this.apkEmCurso = null;
+      return new Response(texto(this.offline("maos").conteudo), { status: 503 });
+    }
     let enviados = 0;
     const buffer = new Uint8Array(PEDACO_APK);
     let usado = 0;
