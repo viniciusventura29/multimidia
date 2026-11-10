@@ -39,6 +39,11 @@ async function transporte(acao: string, tocandoAgora: boolean, arg?: number): Pr
   dispatchAction(MUSIC, acao === "seek" ? { acao, posicaoMs: arg } : { acao });
 }
 
+/** Quanto tempo depois de um seek uma leitura distante do alvo é tida como velha. */
+const SEEK_SEGURA_MS = 3_000;
+/** Perto disto do alvo, a leitura já é a do seek (o Spotify arredonda). */
+const SEEK_TOLERANCIA_MS = 2_500;
+
 /** "m:ss" a partir de milissegundos. */
 function formatarTempo(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
@@ -292,27 +297,48 @@ function ProgressoTocando({
   onSeek: (ms: number) => void;
 }) {
   const [pos, setPos] = useState(posicaoMs ?? 0);
+  const posRef = useRef(pos);
+  posRef.current = pos;
   const trilhoRef = useRef<HTMLDivElement>(null);
   const arrastando = useRef(false);
+  // De onde a barra interpola: a última posição conhecida e quando ela valia.
+  //
+  // Mora num ref, e não no fechamento do timer, por causa do seek. O timer
+  // guardava a posição ANTIGA: o dedo soltava em 2:30, e no tique seguinte a
+  // barra voltava para 1:05 até o Spotify confirmar — visto na central em
+  // 10/11/2026 ("bug no slider").
+  const ancora = useRef({ base: posicaoMs ?? 0, em: Date.now() });
+  // Depois de um seek, por alguns segundos, as leituras que chegam ainda podem
+  // ser de antes dele; elas não podem puxar a barra de volta.
+  const seekAte = useRef<{ alvo: number; ate: number } | null>(null);
 
-  // Reancora quando chega posição nova — a não ser que o dedo esteja arrastando.
+  // Reancora quando chega posição nova — a não ser que o dedo esteja
+  // arrastando, ou que seja uma leitura velha logo depois de um seek.
   useEffect(() => {
-    if (!arrastando.current) setPos(posicaoMs ?? 0);
+    if (arrastando.current) return;
+    const novo = posicaoMs ?? 0;
+    const seek = seekAte.current;
+    if (seek && Date.now() < seek.ate && Math.abs(novo - seek.alvo) > SEEK_TOLERANCIA_MS) return;
+    seekAte.current = null;
+    ancora.current = { base: novo, em: Date.now() };
+    setPos(novo);
   }, [posicaoMs]);
 
-  // Interpola por segundo enquanto toca; zera o timer quando o estado muda.
-  // 1 s basta: o texto só mostra segundos, e o deslizar visual da barra quem
-  // faz é a transition do CSS — de graça, no compositor, sem acordar o React.
+  // Interpola por segundo enquanto toca. 1 s basta: o texto só mostra
+  // segundos, e o deslizar visual da barra quem faz é a transition do CSS — de
+  // graça, no compositor, sem acordar o React.
   useEffect(() => {
     if (!tocando || duracaoMs == null) return;
-    const base = posicaoMs ?? 0;
-    const inicio = Date.now();
+    // Recomeçar a tocar (ou trocar de duração) parte de onde a barra está, e
+    // não de quando a âncora foi posta: senão a pausa entraria na conta.
+    ancora.current = { base: posRef.current, em: Date.now() };
     const id = setInterval(() => {
       if (arrastando.current) return;
-      setPos(Math.min(base + (Date.now() - inicio), duracaoMs));
+      const { base, em } = ancora.current;
+      setPos(Math.min(base + (Date.now() - em), duracaoMs));
     }, 1000);
     return () => clearInterval(id);
-  }, [tocando, posicaoMs, duracaoMs]);
+  }, [tocando, duracaoMs]);
 
   if (duracaoMs == null || duracaoMs <= 0) return null;
 
@@ -342,6 +368,8 @@ function ProgressoTocando({
     e.stopPropagation();
     arrastando.current = false;
     const ms = posDeEvento(e.clientX);
+    ancora.current = { base: ms, em: Date.now() };
+    seekAte.current = { alvo: ms, ate: Date.now() + SEEK_SEGURA_MS };
     setPos(ms);
     onSeek(ms);
   };

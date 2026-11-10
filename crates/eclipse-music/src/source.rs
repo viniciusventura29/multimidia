@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -209,6 +211,38 @@ impl MusicError {
     }
 }
 
+/// Com que frequência o módulo relê o que está tocando, e quanto espera depois
+/// de um comando antes de reler.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cadencia {
+    pub leitura: Duration,
+    pub propagacao: Duration,
+}
+
+impl Cadencia {
+    /// A da Web API, pela nuvem.
+    ///
+    /// O `currently-playing` do Spotify é eventualmente consistente: relendo
+    /// 1 ms depois de pausar, ele ainda devolve o estado ANTIGO. O painel
+    /// republicava "tocando", o toque parecia não ter pegado, e o usuário tocava
+    /// de novo. Por isso os 600 ms. E cada leitura é uma ida à internet, por
+    /// isso só a cada 3 s.
+    pub const NUVEM: Self = Self {
+        leitura: Duration::from_secs(3),
+        propagacao: Duration::from_millis(600),
+    };
+
+    /// A do app do Spotify da própria central (App Remote): de processo para
+    /// processo, sem rede, e o comando só volta depois de aplicado.
+    ///
+    /// Com a cadência da nuvem, na central em 10/11/2026, a barra andava aos
+    /// trancos e o toque levava segundos para aparecer.
+    pub const LOCAL: Self = Self {
+        leitura: Duration::from_secs(1),
+        propagacao: Duration::from_millis(100),
+    };
+}
+
 /// De onde vem a música.
 ///
 /// Mesma ideia do `ObdSource`: o módulo fala com o trait, não com o Spotify.
@@ -219,6 +253,11 @@ pub trait MusicSource: Send {
     async fn toggle(&mut self) -> Result<(), MusicError>;
     async fn next(&mut self) -> Result<(), MusicError>;
     async fn previous(&mut self) -> Result<(), MusicError>;
+
+    /// Ver [`Cadencia`]. O padrão é o da nuvem.
+    fn cadencia(&self) -> Cadencia {
+        Cadencia::NUVEM
+    }
 
     /// Busca faixas e álbuns por texto. Default vazio: fontes que não são a Web
     /// API (demo) não têm busca.
