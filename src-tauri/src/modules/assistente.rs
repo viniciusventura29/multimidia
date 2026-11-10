@@ -305,8 +305,9 @@ impl Module for AssistenteModule {
                             ctx.ready(&painel);
                             // Degradar mantém os cartões anteriores na tela,
                             // esmaecidos, com o motivo — em vez de apagar o que
-                            // ainda era útil.
-                            ctx.degraded(err.to_string());
+                            // ainda era útil. O motivo vai em frase curta; o
+                            // erro inteiro já foi para o log logo acima.
+                            ctx.degraded(err.para_o_motorista());
                         }
                     }
                 }
