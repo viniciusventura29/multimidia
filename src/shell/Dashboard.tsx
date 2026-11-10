@@ -1,4 +1,5 @@
 import { memo, Suspense, useCallback, useState } from "react";
+import { X } from "lucide-react";
 
 import { useModuleEnvelope } from "../core/moduleStore";
 import type { AnyTileSpec, Profile, Status } from "../core/types";
@@ -95,8 +96,8 @@ function Expandido({
             )}
             {spec.title}
           </h2>
-          <button className="overlay__fechar" onClick={aoFechar}>
-            fechar
+          <button className="overlay__fechar" onClick={aoFechar} aria-label="Fechar">
+            {spec.cheioNu ? <X size="1.4em" aria-hidden /> : "fechar"}
           </button>
         </header>
 
