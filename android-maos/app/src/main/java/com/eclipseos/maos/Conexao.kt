@@ -43,6 +43,12 @@ object Conexao {
         private set
 
     init {
+        // O Eclipse pode abrir depois do Mãos (ou ser reinstalado). Quando as
+        // ferramentas dele mudam, anuncia de novo ao relay.
+        agenda.scheduleWithFixedDelay({
+            if (conectado && Eclipse.atualizar()) ws?.send(ola().toString())
+        }, 5, 30, TimeUnit.SECONDS)
+
         // Ping de aplicação, não de protocolo: o relay responde "pong" sem
         // acordar o Durable Object. Sem pong por 50 s, a conexão morreu calada
         // (troca de rede, hotspot que caiu) e é hora de abrir outra.
@@ -111,7 +117,10 @@ object Conexao {
             tentativas = 0
             ultimoPong = System.currentTimeMillis()
             Log.i(TAG, "conectado ao relay")
-            webSocket.send(ola().toString())
+            trabalho.execute {
+                Eclipse.atualizar()
+                webSocket.send(ola().toString())
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -163,6 +172,7 @@ object Conexao {
                 put("timeout", f.timeoutMs)
             })
         }
+        for (f in Eclipse.conhecidas) lista.put(f)
         return JSONObject().apply {
             put("tipo", "ola")
             put("ferramentas", lista)
@@ -176,8 +186,14 @@ object Conexao {
         val args = m.optJSONObject("args") ?: JSONObject()
         val resultado = try {
             val f = Ferramentas.todas.firstOrNull { it.nome == nome }
-                ?: throw Falha("ferramenta desconhecida: $nome")
-            f.executar(args)
+            when {
+                f != null -> {
+                    Ferramentas.travarSeAndando(f)
+                    f.executar(args)
+                }
+                Eclipse.conhece(nome) -> Eclipse.chamar(nome, args)
+                else -> throw Falha("ferramenta desconhecida: $nome")
+            }
         } catch (e: Falha) {
             Resultado.erro(e.message ?: "falhou")
         } catch (e: Exception) {

@@ -6,6 +6,7 @@
 mod assistente;
 mod atualizacao;
 mod diario;
+mod mcp_local;
 mod modules;
 mod obd_bt;
 mod perf;
@@ -798,6 +799,12 @@ pub fn run() {
             }
 
             app.manage(supervisor);
+            // Os dados do carro para o Eclipse Mãos, só em loopback. Ver
+            // `mcp_local` para o porquê de não ir direto ao relay.
+            mcp_local::iniciar(
+                Arc::new(modules::assistente::EstadoDoApp(app.handle().clone())),
+                ativo.as_ref().map(|p| p.name.clone()),
+            );
             // No Android a posição vem do `LocationManager`, não da WebView —
             // ver `obd_bt::bombear_localizacao`. O `push_location` do JS
             // continua existindo para o desktop, onde a WebView funciona.
