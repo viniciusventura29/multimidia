@@ -241,11 +241,17 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn toggle(&mut self) -> Result<(), MusicError> {
+        // O Kotlin não tem "alternar": só `tocar` e `pausar`. Esta função
+        // mandava "alternar", recebia "ação desconhecida", e o botão de pausar
+        // nunca funcionou pelo App Remote — visto na central em 10/11/2026, com
+        // a música seguindo depois de dois toques. Pergunta o estado e manda a
+        // ação certa.
+        let tocando = self.now_playing().await?.is_some_and(|n| n.is_playing);
         Self::transporte(
             self.app.clone(),
             self.client_id.clone(),
             self.redirect_uri,
-            "alternar",
+            acao_de_alternar(tocando),
             0,
         )
         .await
@@ -325,6 +331,15 @@ impl MusicSource for SessaoLocal {
     }
 }
 
+/// O comando que o Kotlin entende para o botão de tocar/pausar.
+fn acao_de_alternar(tocando: bool) -> &'static str {
+    if tocando {
+        "pausar"
+    } else {
+        "tocar"
+    }
+}
+
 /// A posição da `faixa` dentro do `contexto`, se ele for o que está aberto.
 ///
 /// `-1` quer dizer "do começo" (o Kotlin cai em `play(contexto)`): contexto
@@ -351,6 +366,14 @@ fn indice_no_contexto(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alternar_vira_um_comando_que_o_kotlin_conhece() {
+        // `AppRemoteSpotify.comando` só aceita tocar, pausar, proxima,
+        // anterior e saltar.
+        assert_eq!(acao_de_alternar(true), "pausar");
+        assert_eq!(acao_de_alternar(false), "tocar");
+    }
 
     #[test]
     fn a_faixa_escolhida_vira_a_posicao_dela_no_album() {
