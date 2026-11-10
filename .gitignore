@@ -29,3 +29,7 @@ dist-ssr
 
 # O que o `vercel link` cria (ver web/)
 .vercel
+
+# Eclipse DEV (scripts/eclipse-dev.mjs): a página que o APK dev leva, a URL do
+# Mac e o APK gerado. Tudo local à máquina e à rede de agora.
+/.ponte
