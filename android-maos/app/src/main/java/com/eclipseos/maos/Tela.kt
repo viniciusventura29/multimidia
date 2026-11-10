@@ -134,9 +134,20 @@ object Tela {
                     n.contentDescription?.toString()?.contains(alvo, true) == true)
             }.toList()
             if (candidatos.isEmpty()) throw Falha("Nenhum elemento visível com o texto \"$alvo\".")
-            return candidatos.firstOrNull {
-                it.text?.toString()?.trim().equals(alvo, true) || it.contentDescription?.toString()?.trim().equals(alvo, true)
-            } ?: candidatos.first()
+            // Um campo de texto contém o que foi digitado nele: no teclado da
+            // senha da fábrica, depois do primeiro "8", `texto: "8"` passava a
+            // acertar o campo em vez da tecla. Quem é exatamente o texto e
+            // clicável vem primeiro; campo editável, por último.
+            fun exato(n: AccessibilityNodeInfo) =
+                n.text?.toString()?.trim().equals(alvo, true) || n.contentDescription?.toString()?.trim().equals(alvo, true)
+            return candidatos.sortedBy { n ->
+                when {
+                    n.isEditable -> 3
+                    exato(n) && n.isClickable -> 0
+                    exato(n) -> 1
+                    else -> 2
+                }
+            }.first()
         }
         return null
     }
@@ -149,10 +160,12 @@ object Tela {
     fun campoComFoco(): AccessibilityNodeInfo? {
         val ordem = raizes().sortedByDescending { it.first?.isActive == true }
         for ((_, raiz) in ordem) {
+            // Sem exigir "visível": o próprio teclado costuma cobrir o campo em
+            // que se está digitando, e aí o Android o marca como invisível.
             val f = raiz.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            if (f != null && f.isEditable && f.isVisibleToUser) return f
+            if (f != null && f.isEditable) return f
         }
-        return ordem.asSequence().flatMap { percorrer(it.second) }.firstOrNull { it.isEditable && it.isFocused && it.isVisibleToUser }
+        return ordem.asSequence().flatMap { percorrer(it.second) }.firstOrNull { it.isEditable && it.isFocused }
     }
 
     fun centro(no: AccessibilityNodeInfo): Pair<Float, Float> {

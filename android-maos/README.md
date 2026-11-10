@@ -77,6 +77,11 @@ ligue o que ele pedir:
 
 O print pede permissão a cada vez que a central liga; o próprio Mãos aceita.
 
+4. **Whitelist da central:** em Configurações do carro → Fábrica (senha 8888), ligar o Eclipse Mãos e o eclipse-os nos itens 44 "Backend whitelist" e 31 "Sleep whitelist". Ligar também o Spotify no 44.
+   - Sem isso, a central dá force-stop no Mãos toda vez que um app termina de instalar.
+   - No Android 10, force-stop desliga o serviço de acessibilidade, e ele não volta sozinho.
+   - Se o Mãos sumir, a ferramenta `eventos` conta o que aconteceu com ele.
+
 **Daí em diante**, qualquer APK (inclusive o próprio Mãos) vai pelo relay:
 
 ```sh

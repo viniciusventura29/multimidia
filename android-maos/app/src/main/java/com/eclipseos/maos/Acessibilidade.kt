@@ -1,7 +1,6 @@
 package com.eclipseos.maos
 
 import android.accessibilityservice.AccessibilityService
-import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -20,7 +19,7 @@ class Acessibilidade : AccessibilityService() {
 
     override fun onServiceConnected() {
         instancia = this
-        Log.i("maos", "acessibilidade ligada")
+        Eventos.anotar("acessibilidade ligada")
         Conexao.ligar(this)
     }
 
@@ -40,9 +39,17 @@ class Acessibilidade : AccessibilityService() {
         }
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        Eventos.anotar("acessibilidade: onInterrupt")
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        Eventos.anotar("acessibilidade desligada pelo sistema (onUnbind)")
+        return super.onUnbind(intent)
+    }
 
     override fun onDestroy() {
+        Eventos.anotar("acessibilidade: onDestroy")
         if (instancia === this) instancia = null
         Conexao.desligar()
         super.onDestroy()
@@ -57,7 +64,7 @@ class Acessibilidade : AccessibilityService() {
             no.isEnabled && no.isVisibleToUser &&
                 (ids.any { id == it || id.endsWith(":id/$it") } || texto in textos)
         } ?: return false
-        Log.i("maos", "piloto: clicando ${achado.viewIdResourceName} \"${achado.text}\"")
+        Eventos.anotar("piloto: clicando ${achado.viewIdResourceName} \"${achado.text}\" em ${achado.packageName}")
         return achado.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 

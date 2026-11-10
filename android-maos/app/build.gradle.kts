@@ -28,8 +28,8 @@ android {
         // Mirar nele evita as regras de visibilidade de pacotes do 11+, que
         // esconderiam a lista de apps instalados.
         targetSdk = 29
-        versionCode = 3
-        versionName = "3"
+        versionCode = 5
+        versionName = "5"
         buildConfigField("String", "RELAY", "\"${segredos.getProperty("relay", "")}\"")
         buildConfigField("String", "CHAVE", "\"${segredos.getProperty("chave", "")}\"")
     }

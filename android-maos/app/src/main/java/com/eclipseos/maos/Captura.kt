@@ -20,7 +20,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.util.Base64
-import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -66,17 +65,18 @@ class Captura : Service() {
                 p.registerCallback(object : MediaProjection.Callback() {
                     override fun onStop() {
                         if (projecao === p) projecao = null
-                        Log.i("maos", "projeção encerrada")
+                        Eventos.anotar("print: projeção encerrada")
                     }
                 }, Handler(mainLooper))
             }
-            Log.i("maos", "projeção ${if (projecao != null) "ativa" else "recusada"}")
+            Eventos.anotar("print: projeção ${if (projecao != null) "ativa" else "recusada"}")
         }
         if (projecao == null) stopSelf()
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        Eventos.anotar("print: serviço encerrado")
         projecao?.stop()
         projecao = null
         super.onDestroy()

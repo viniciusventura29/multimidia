@@ -56,7 +56,7 @@ object Conexao {
             val atual = ws ?: return@scheduleWithFixedDelay
             if (!conectado) return@scheduleWithFixedDelay
             if (System.currentTimeMillis() - ultimoPong > 50_000) {
-                Log.w(TAG, "sem pong há 50 s; reabrindo")
+                Eventos.anotar("sem pong há 50 s; reabrindo")
                 atual.cancel()
             } else {
                 atual.send("ping")
@@ -74,6 +74,7 @@ object Conexao {
     }
 
     fun desligar() {
+        Eventos.anotar("conexão desligada (serviço saiu)")
         ligado = false
         ws?.close(1000, "serviço desligado")
         ws = null
@@ -116,7 +117,7 @@ object Conexao {
             ultimoErro = null
             tentativas = 0
             ultimoPong = System.currentTimeMillis()
-            Log.i(TAG, "conectado ao relay")
+            Eventos.anotar("conectado ao relay")
             trabalho.execute {
                 Eclipse.atualizar()
                 webSocket.send(ola().toString())
@@ -157,7 +158,7 @@ object Conexao {
             if (webSocket !== ws) return
             conectado = false
             ultimoErro = motivo
-            Log.w(TAG, "conexão caiu: $motivo")
+            Eventos.anotar("conexão caiu: $motivo")
             reabrir()
         }
     }
@@ -184,6 +185,7 @@ object Conexao {
         val id = m.getString("id")
         val nome = m.getString("ferramenta")
         val args = m.optJSONObject("args") ?: JSONObject()
+        Eventos.anotar("chamada: $nome")
         val resultado = try {
             val f = Ferramentas.todas.firstOrNull { it.nome == nome }
             when {
@@ -197,7 +199,7 @@ object Conexao {
         } catch (e: Falha) {
             Resultado.erro(e.message ?: "falhou")
         } catch (e: Exception) {
-            Log.e(TAG, "ferramenta $nome quebrou", e)
+            Eventos.anotar("ferramenta $nome quebrou: ${Log.getStackTraceString(e).take(1500)}")
             Resultado.erro("${e.javaClass.simpleName}: ${e.message}")
         }
         responder(id, resultado)
