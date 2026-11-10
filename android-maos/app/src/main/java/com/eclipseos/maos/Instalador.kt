@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
-import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.ByteString
@@ -88,6 +87,7 @@ object Instalador {
     // --- por URL --------------------------------------------------------------
 
     fun deUrl(url: String): Resultado {
+        Eventos.anotar("instalar: baixando $url")
         val resp = OkHttpClient.Builder().readTimeout(2, TimeUnit.MINUTES).build()
             .newCall(Request.Builder().url(url).build()).execute()
         if (!resp.isSuccessful) throw Falha("Download falhou: HTTP ${resp.code}")
@@ -123,6 +123,7 @@ object Instalador {
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
         val pend = PendingIntent.getBroadcast(ctx, chave, Intent(ctx, Instalacao::class.java).putExtra("chave", chave), flags)
         Acessibilidade.instalarAte = System.currentTimeMillis() + 60_000
+        Eventos.anotar("instalar: $recebido, pedindo confirmação ao Android")
         sessao.commit(pend.intentSender)
         sessao.close()
         trava.await(3, TimeUnit.MINUTES)
@@ -145,7 +146,7 @@ class Instalacao : BroadcastReceiver() {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         val pacote = intent.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME)
-        Log.i("maos", "instalação: status=$status pacote=$pacote msg=$msg")
+        Eventos.anotar("instalação: status=$status pacote=$pacote msg=$msg")
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 val confirmar = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT) ?: return

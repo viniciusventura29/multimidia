@@ -300,6 +300,14 @@ object Ferramentas {
         },
 
         Ferramenta(
+            "eventos",
+            "O diário do próprio Mãos, que sobrevive à morte do processo: quando conectou e caiu, cada chamada, " +
+                "os cliques do piloto, a instalação, e a pilha quando ele quebrou. Uma linha \"processo iniciou\" sem " +
+                "\"morreu: …\" antes quer dizer que alguém de fora matou o app. Use quando o carro sumir ou algo falhar sem motivo.",
+            esquema("linhas" to prop("integer", "Quantas linhas do fim (padrão 80).")),
+        ) { a -> Resultado.texto(Eventos.ultimas(a.optInt("linhas", 80).coerceIn(1, 300))) },
+
+        Ferramenta(
             "info",
             "Sobre a central e o Mãos: modelo, Android, tela, app em primeiro plano e quais permissões estão ligadas.",
             esquema(),
