@@ -11,9 +11,7 @@
 //! aparecem, e é só.
 
 pub mod inbox;
-pub mod mock;
 pub mod source;
 
 pub use inbox::{Autor, Conversation, Inbox, IncomingMessage, Message};
-pub use mock::MockMessageSource;
-pub use source::{MessageSource, MessagingError};
+pub use source::{MessageSource, MessagingError, SemFonte};
