@@ -32,8 +32,30 @@ import { BuscarRota, RotaDesenhada } from "./rota";
 import { falar } from "./voz";
 import type { Fix, MapaState, Rota } from "./tipos";
 
-/** Enquanto o GPS não fixa, o mapa nasce olhando para São Paulo. */
+/** Sem GPS e sem posição guardada (primeiro boot), o mapa nasce em São Paulo. */
 const CENTRO_PADRAO: [number, number] = [-46.6333, -23.5505];
+
+/**
+ * Onde o carro estava da última vez, para o mapa nascer lá enquanto o GPS não
+ * fixa. Sem isto, na central em 10/11/2026, o mapa abriu na Praça da Sé com o
+ * carro na garagem — e o mapa é recriado a cada tela cheia, então voltava para
+ * lá toda vez que o fix demorava.
+ */
+const CHAVE_ULTIMA_POSICAO = "eclipse.ultimaPosicao";
+/** Gravar a cada fix seria escrita em disco por segundo andando; basta isto. */
+const PERIODO_GRAVAR_POSICAO_MS = 15_000;
+
+function centroInicial(): [number, number] {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHAVE_ULTIMA_POSICAO) ?? "null");
+    if (Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === "number" && Number.isFinite(n))) {
+      return [v[0], v[1]];
+    }
+  } catch {
+    // Valor corrompido: cai no padrão.
+  }
+  return CENTRO_PADRAO;
+}
 
 /**
  * Os estilos do OpenFreeMap — sem chave, sem cota, sem cadastro.
@@ -186,6 +208,8 @@ function SeguirCarro({
 }) {
   const map = useMapa();
   const trecho = useRef<{ de: Fix; para: Fix; inicio: number } | null>(null);
+  /** Quando a posição foi gravada pela última vez (ver `CHAVE_ULTIMA_POSICAO`). */
+  const gravouPosicao = useRef(-Infinity);
   // O carro é um marcador ancorado no MUNDO, não um enfeite no centro da
   // tela: com o seguimento solto (dedo arrastando), ele fica parado na
   // geografia enquanto o mapa desliza por baixo — mexer a tela não pode
@@ -297,6 +321,16 @@ function SeguirCarro({
       para: fix,
       inicio: performance.now(),
     };
+
+    const agora = performance.now();
+    if (agora - gravouPosicao.current >= PERIODO_GRAVAR_POSICAO_MS) {
+      gravouPosicao.current = agora;
+      try {
+        localStorage.setItem(CHAVE_ULTIMA_POSICAO, JSON.stringify([fix.lon, fix.lat]));
+      } catch {
+        // Sem armazenamento: o mapa só não lembra, e nasce no padrão.
+      }
+    }
 
     acordar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -511,7 +545,7 @@ function useMapaGL(noite: boolean, pausado: boolean, aoArrastar: () => void) {
     const mapa = new MapaGL({
       container: caixa.current,
       style: estiloAtual.current,
-      center: CENTRO_PADRAO,
+      center: centroInicial(),
       zoom: ZOOM_DE_RUA,
       // Sem 3D e sem rotação pelo dedo: quem gira o mapa é o rumo do carro.
       pitch: 0,
