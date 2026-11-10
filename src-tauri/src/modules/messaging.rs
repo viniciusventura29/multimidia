@@ -4,12 +4,10 @@
 //! barato: são poucas conversas com histórico limitado, e mandar o estado
 //! completo evita a UI ter que reconstruir nada.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use chrono::Utc;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
-use eclipse_messaging::{Inbox, MessageSource, MockMessageSource};
+use eclipse_messaging::{Inbox, MessageSource};
 
 pub const MESSAGING: ModuleId = ModuleId::new("messaging");
 
@@ -24,8 +22,9 @@ impl MessagingModule {
 }
 
 impl Default for MessagingModule {
+    /// Caixa vazia até existir a fonte de verdade — ver `SemFonte`.
     fn default() -> Self {
-        Self::new(Box::new(MockMessageSource::new(Duration::from_secs(12))))
+        Self::new(Box::new(eclipse_messaging::SemFonte))
     }
 }
 
@@ -105,6 +104,7 @@ mod tests {
     use eclipse_core::{factory, StateEnvelope, Status, Supervisor};
     use eclipse_messaging::{IncomingMessage, MessagingError};
     use serde_json::json;
+    use std::time::Duration;
     use tokio::sync::broadcast::Receiver;
 
     /// Entrega uma mensagem e depois fica quieta; pode ser configurada para
