@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="acessibilidade_descricao">Deixa o Claude ver a tela da central e tocar nela, de longe, para testar o Eclipse. Não fala nada e não muda o seu toque. Desligue aqui quando não estiver desenvolvendo.</string>
+</resources>

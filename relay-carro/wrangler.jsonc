@@ -1,0 +1,19 @@
+// O relay que dá ao carro um endereço público. O carro (Eclipse Mãos e, depois,
+// o próprio Eclipse) abre um WebSocket de SAÍDA para cá; quem quer falar com o
+// carro (Claude Code, claude.ai, o Claude do iPhone) fala MCP por HTTP com o
+// relay, e o relay repassa pela conexão que o carro abriu.
+//
+// Conta PESSOAL do Cloudflare, de propósito: o wrangler deste Mac também
+// enxerga a conta da empresa, e o carro não tem nada a ver com ela.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "relay-carro",
+  "account_id": "acf7210bf270b38a2dd9141ee373e265",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-25",
+  "durable_objects": {
+    "bindings": [{ "name": "CARRO", "class_name": "Carro" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Carro"] }],
+  "observability": { "enabled": true }
+}

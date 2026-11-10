@@ -24,7 +24,26 @@ export default tseslint.config(
     // de build e `target` é do cargo — que despeja JS de verdade lá dentro
     // (`__global-api-script.js` do Tauri). Lintar qualquer um deles é reclamar
     // de coisa que ninguém escreveu.
-    ignores: ["dist/", "src-tauri/", "target/", "node_modules/"],
+    //
+    // `android-maos/` é Kotlin com o build do Gradle dentro, e o
+    // `worker-configuration.d.ts` do relay é gerado pelo `wrangler types`.
+    ignores: [
+      "dist/",
+      "src-tauri/",
+      "target/",
+      "node_modules/",
+      "android-maos/",
+      "relay-carro/.wrangler/",
+      "relay-carro/worker-configuration.d.ts",
+    ],
+  },
+
+  {
+    // Scripts que rodam no Mac, com Node.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: { console: "readonly", fetch: "readonly", process: "readonly" },
+    },
   },
 
   js.configs.recommended,
