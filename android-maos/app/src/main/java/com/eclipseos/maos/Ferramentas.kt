@@ -22,8 +22,13 @@ class Ferramenta(
     val descricao: String,
     val esquema: JSONObject,
     val timeoutMs: Int = 60_000,
+    /** Mexe na tela ou no carro (em vez de só ler): fica travada com o carro andando. */
+    val mexe: Boolean = false,
     val executar: (JSONObject) -> Resultado,
 )
+
+/** Acima disto o carro está andando de verdade, não arrastando no trânsito parado. */
+private const val VELOCIDADE_TRAVA_KMH = 5
 
 /**
  * O que o Claude pode fazer na central. Cada uma vira uma ferramenta MCP no
@@ -67,6 +72,7 @@ object Ferramentas {
                 "id" to prop("string", "Id do elemento, completo ou só o final."),
                 "longo" to prop("boolean", "Toque longo (~0,8 s)."),
             ),
+            mexe = true,
         ) { a ->
             val (x, y, alvo) = ponto(a)
             val dur = if (a.optBoolean("longo")) 800L else 60L
@@ -84,6 +90,7 @@ object Ferramentas {
                 "ms" to prop("integer", "Duração em ms (padrão 300; mais lento = menos inércia)."),
                 obrigatorios = listOf("x1", "y1", "x2", "y2"),
             ),
+            mexe = true,
         ) { a ->
             val ms = a.optLong("ms", 300).coerceIn(50, 10_000)
             gesto(traco(a.getDouble("x1").toFloat(), a.getDouble("y1").toFloat(), a.getDouble("x2").toFloat(), a.getDouble("y2").toFloat(), ms))
@@ -99,6 +106,7 @@ object Ferramentas {
                 "distancia" to prop("number", "Quanto cada dedo anda, em pixels (padrão 200)."),
                 obrigatorios = listOf("x", "y", "abrir"),
             ),
+            mexe = true,
         ) { a ->
             val x = a.getDouble("x").toFloat()
             val y = a.getDouble("y").toFloat()
@@ -123,6 +131,7 @@ object Ferramentas {
                 "anexar" to prop("boolean", "Acrescenta ao fim em vez de substituir."),
                 obrigatorios = listOf("valor"),
             ),
+            mexe = true,
         ) { a ->
             val campo = Tela.achar(a) ?: Tela.campoComFoco()
                 ?: throw Falha("Nenhum campo com foco. Toque no campo antes, ou passe {no}/{id}/{texto}.")
@@ -143,6 +152,7 @@ object Ferramentas {
                 "qual" to prop("string", "voltar | home | recentes | notificacoes | config_rapidas"),
                 obrigatorios = listOf("qual"),
             ),
+            mexe = true,
         ) { a ->
             val acao = when (a.getString("qual")) {
                 "voltar" -> AccessibilityService.GLOBAL_ACTION_BACK
@@ -163,6 +173,7 @@ object Ferramentas {
                 "pacote" to prop("string", "Ex.: com.spotify.music"),
                 "url" to prop("string", "Ex.: https://… ou spotify:…"),
             ),
+            mexe = true,
         ) { a ->
             val ctx = Conexao.app
             val intent = when {
@@ -231,6 +242,7 @@ object Ferramentas {
                 "acao" to prop("string", "tocar | pausar | proxima | anterior | parar"),
                 "pacote" to prop("string", "Qual app controlar (padrão: o primeiro da lista)."),
             ),
+            // Pausar ou pular faixa não mexe na tela: fica liberado andando.
         ) { a ->
             if (a.has("acao")) {
                 val r = Notificacoes.controlar(a.optString("pacote").ifEmpty { null }, a.getString("acao"))
@@ -254,6 +266,7 @@ object Ferramentas {
                 "instalado só funciona com a MESMA assinatura (release com release).",
             esquema("url" to prop("string", "URL do APK."), obrigatorios = listOf("url")),
             timeoutMs = 300_000,
+            mexe = true,
         ) { a -> Instalador.deUrl(a.getString("url")) },
 
         Ferramenta(
@@ -265,6 +278,7 @@ object Ferramentas {
                 "pacote" to prop("string", "Para tela=app."),
                 obrigatorios = listOf("tela"),
             ),
+            mexe = true,
         ) { a ->
             val ctx = Conexao.app
             val i = when (a.getString("tela")) {
@@ -293,6 +307,23 @@ object Ferramentas {
     )
 
     // --- apoio ----------------------------------------------------------------
+
+    /**
+     * Com o carro andando, nada que mexa na tela: um toque remoto trocando a
+     * tela na frente de quem dirige é distração. A velocidade vem do OBD pelo
+     * Eclipse; sem leitura (Eclipse fechado, adaptador fora) libera, porque o
+     * caso comum aí é o carro parado na garagem.
+     */
+    fun travarSeAndando(f: Ferramenta) {
+        if (!f.mexe) return
+        val kmh = Eclipse.velocidadeKmh() ?: return
+        if (kmh > VELOCIDADE_TRAVA_KMH) {
+            throw Falha(
+                "O carro está andando ($kmh km/h). Mexer na tela agora distrai quem dirige: até parar, " +
+                    "só as ferramentas de leitura (print, tela, midia, info, as do Eclipse).",
+            )
+        }
+    }
 
     fun resumo(): JSONObject {
         val ctx = Conexao.app

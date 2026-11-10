@@ -72,7 +72,9 @@ pub struct Painel {
 }
 
 /// Lê o estado dos módulos vizinhos pelo estado gerenciado do Tauri.
-struct EstadoDoApp(AppHandle);
+///
+/// Também é a fonte do catálogo que o Eclipse Mãos lê (`mcp_local`).
+pub(crate) struct EstadoDoApp(pub(crate) AppHandle);
 
 impl FonteDeEstado for EstadoDoApp {
     fn estados(&self) -> Vec<StateEnvelope> {

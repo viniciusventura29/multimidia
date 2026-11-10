@@ -12,14 +12,15 @@
 //! esse formato desde dentro significa que acrescentar uma capacidade nova é
 //! sempre o mesmo gesto, venha ela do carro ou da internet.
 //!
-//! **Onde está o transporte.** Não está aqui, de propósito. O único consumidor
-//! hoje é o agente, que roda no mesmo processo — abrir um socket no Android
-//! seria atrito sem retorno. Mas [`protocolo::atender`] já responde JSON-RPC
-//! 2.0, então expor isto como servidor MCP de verdade é escrever um transporte
-//! por cima, não redesenhar nada.
+//! **Onde está o transporte.** O agente roda no mesmo processo e fala direto
+//! com o [`Registro`]. O outro consumidor é o Eclipse Mãos, que lê o catálogo
+//! pela loopback da central: para ele existe [`http`], um transporte mínimo por
+//! cima de [`protocolo::atender`] — foi escrever o transporte, sem redesenhar
+//! nada, como este módulo prometia.
 
 mod erro;
 mod ferramenta;
+pub mod http;
 pub mod protocolo;
 mod registro;
 

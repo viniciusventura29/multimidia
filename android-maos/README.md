@@ -17,6 +17,21 @@ Claude (Code, claude.ai, iPhone) ──MCP/HTTP──▶ relay-carro (Cloudflare
 O carro não tem endereço público, então é o Mãos que liga para fora; o relay
 atende o MCP em nome dele. Ver `relay-carro/`.
 
+## Os dados do Eclipse e a trava de velocidade
+
+O Mãos também repassa as ferramentas do próprio Eclipse:
+- `carro_telemetria`, `carro_localizacao`, `carro_musica` e `carro_mensagens`;
+- `contexto_agora`;
+- `eclipse_modulos`, com o estado de cada módulo e o motivo quando está degradado.
+
+Ele as lê em `127.0.0.1:47823`, onde o Eclipse serve o catálogo (`src-tauri/src/mcp_local.rs`). O Eclipse não fala direto com o relay porque o APK dele é público, e a chave do relay não pode ir junto. Com o Eclipse fechado, essas ferramentas continuam listadas e respondem pedindo para abrir o app.
+
+**Com o carro a mais de 5 km/h (velocidade do OBD), nada que mexa na tela funciona.** Ficam travados:
+- tocar, arrastar, pinça e digitar;
+- teclas, abrir app, abrir configurações e instalar APK.
+
+Ler continua liberado, e pausar ou pular música também. Sem leitura de velocidade (Eclipse fechado, adaptador fora), não trava.
+
 ## Configuração (uma vez por Mac)
 
 `~/.eclipse-carro.properties`, fora do git (o repositório é público):
