@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
-import { ChevronLeft, Disc3, ListMusic, Music, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import { AudioLines, ChevronLeft, Disc3, Music, Pause, Play, Search, SkipBack, SkipForward } from "lucide-react";
 
 import { conectarSpotify, dispatchAction } from "../core/actions";
 import {
   defineTile,
   type AnyTileSpec,
+  type Faixa,
   type MusicState,
   type TileView,
 } from "../core/types";
@@ -115,23 +116,42 @@ function Conectar() {
   );
 }
 
-/** Uma linha da lista: capa, título, subtítulo. Serve faixa, álbum e playlist. */
+/**
+ * Uma linha da lista: capa, título, subtítulo. Serve faixa, álbum e playlist.
+ *
+ * `ativa` é a faixa que está tocando: o título vai para o acento e o lugar da
+ * capa vira um equalizador. Sem isto a lista não dizia o que estava tocando, e
+ * quem voltava a ela no semáforo tinha de ler a barra de baixo para se achar.
+ *
+ * `numero` é para álbum: ali toda faixa tem a MESMA capa, e doze cópias dela
+ * em coluna não dizem nada. O número diz onde se está no disco.
+ */
 function Linha({
   capa,
   titulo,
   subtitulo,
   icone,
+  ativa,
+  numero,
   onClick,
 }: {
   capa: string | null;
   titulo: string;
   subtitulo: string;
   icone?: React.ReactNode;
+  ativa?: boolean;
+  numero?: number;
   onClick: (e: MouseEvent) => void;
 }) {
   return (
-    <button className="sp-linha" onClick={onClick}>
-      {capa ? (
+    <button className={`sp-linha${ativa ? " sp-linha--ativa" : ""}`} onClick={onClick}>
+      {ativa ? (
+        <span className="sp-linha__capa sp-linha__marca">
+          <AudioLines size="1em" />
+        </span>
+      ) : numero != null ? (
+        <span className="sp-linha__capa sp-linha__marca">{numero}</span>
+      ) : capa ? (
         <img className="sp-linha__capa" src={capa} alt="" loading="lazy" />
       ) : (
         <span className="sp-linha__capa sp-linha__capa--vazia">{icone ?? <Music size="1em" />}</span>
@@ -188,22 +208,54 @@ function FileiraDeCapas({
  *
  * Prefere o estado do SDK ao do Rust: o do SDK chega no instante da mudança, o
  * do Rust só no próximo poll (até 3s depois).
+ *
+ * O progresso mora no topo da barra e faz as vezes do fio que separava a barra
+ * da lista. Antes a tela cheia tinha o fio e NÃO tinha progresso — só o quadro
+ * compacto deixava ver quanto faltava ou pular um trecho. Agora a mesma linha
+ * divide e informa.
  */
 function BarraTocando({ data }: { data: MusicState | null }) {
   const local = useEstadoLocal();
   const np = local ?? data?.nowPlaying ?? null;
   if (!np) return null;
 
+  const { posicaoMs, duracaoMs } = progresso(local, data);
+
   return (
     <div className="sp-tocando">
-      {np.albumArt && <img className="sp-tocando__capa" src={np.albumArt} alt="" />}
-      <span className="sp-linha__texto">
-        <span className="sp-linha__titulo">{np.track}</span>
-        <span className="sp-linha__sub">{np.artist}</span>
-      </span>
-      <Controles tocando={np.isPlaying} grande />
+      <ProgressoTocando
+        posicaoMs={posicaoMs}
+        duracaoMs={duracaoMs}
+        tocando={np.isPlaying}
+        onSeek={(ms) => void transporte("seek", np.isPlaying, ms)}
+      />
+      <div className="sp-tocando__linha">
+        {np.albumArt && <img className="sp-tocando__capa" src={np.albumArt} alt="" />}
+        <span className="sp-linha__texto">
+          <span className="sp-linha__titulo">{np.track}</span>
+          <span className="sp-linha__sub">{np.artist}</span>
+        </span>
+        <Controles tocando={np.isPlaying} grande />
+      </div>
     </div>
   );
+}
+
+/**
+ * Esta faixa é a que está tocando?
+ *
+ * Pelo URI quando ele existe (o SDK da WebView traz), e por título + artista
+ * quando não: o estado que vem do Rust — o único no Android, onde o SDK não
+ * sobe — não carrega URI. Dentro de um mesmo álbum ou playlist, nome e artista
+ * iguais em duas faixas é raro o bastante para não valer mudar o Rust.
+ */
+function eAtual(
+  f: Faixa,
+  np: { track: string; artist: string; uri?: string } | null,
+): boolean {
+  if (!np) return false;
+  if (np.uri) return np.uri === f.uri;
+  return np.track === f.track && np.artist === f.artist;
 }
 
 /** Diz se o Eclipse já virou device do Spotify — sem isto "não toca" é mudo. */
@@ -477,6 +529,18 @@ function Completa({ data }: TileView<MusicState>) {
   const problema = data?.problema ?? null;
   const precisaLogin = problema?.tipo === "precisaLogin";
 
+  const local = useEstadoLocal();
+  const np = local ?? data?.nowPlaying ?? null;
+  // A faixa recém-tocada, marcada na hora. O Spotify leva um ou dois segundos
+  // para dizer que trocou, e nesse meio-tempo a marca ficaria na faixa antiga —
+  // parecendo que o toque não pegou. Larga assim que o estado de verdade muda.
+  const [escolhida, setEscolhida] = useState<string | null>(null);
+  const faixaTocando = np ? `${np.track}\u0000${np.artist}` : null;
+  useEffect(() => {
+    setEscolhida(null);
+  }, [faixaTocando]);
+  const ativa = (f: Faixa) => (escolhida ? f.uri === escolhida : eAtual(f, np));
+
   const busca = data?.busca ?? { faixas: [], albuns: [] };
   const recentes = data?.recentes ?? { albuns: [], faixas: [] };
   const playlists = data?.playlists ?? [];
@@ -543,6 +607,7 @@ function Completa({ data }: TileView<MusicState>) {
   // a fila, e é isso que faz "próxima/anterior" andarem em vez de parar.
   const tocar = (event: MouseEvent, opts: { uri?: string; contexto?: string }) => {
     event.stopPropagation();
+    if (opts.uri) setEscolhida(opts.uri);
     void ativarAudio();
     dispatchAction(MUSIC, { acao: "tocar", ...opts });
   };
@@ -571,6 +636,12 @@ function Completa({ data }: TileView<MusicState>) {
       {/* Cabeçalho: busca, ou o contexto aberto com voltar. */}
       {aberto ? (
         <header className="sp-topo">
+          {/* A cor da capa atrás do cabeçalho — a mesma técnica da aura do
+              vinil: a própria imagem desfocada, sem canvas e sem CORS. É tom,
+              não placa: ela morre num degradê, sem borda nenhuma. */}
+          {aberto.albumArt && (
+            <img className="sp-topo__aura" src={aberto.albumArt} alt="" aria-hidden />
+          )}
           <button className="sp-voltar" onClick={voltar} aria-label="Voltar">
             <ChevronLeft size="1.2em" />
           </button>
@@ -595,16 +666,18 @@ function Completa({ data }: TileView<MusicState>) {
               <ChevronLeft size="1.2em" />
             </button>
           )}
-          <input
-            className="sp-busca__campo"
-            value={termo}
-            onChange={(e) => setTermo(e.target.value)}
-            placeholder="buscar música, artista ou álbum…"
-            aria-label="Buscar no Spotify"
-          />
-          <button className="sp-busca__botao" type="submit">
-            buscar
-          </button>
+          {/* Sem botão "buscar": o Enter do teclado já submete o form, e o
+              botão só repetia, desenhado, o que a tecla faz. */}
+          <label className="sp-busca__campo">
+            <Search size="1.05em" aria-hidden />
+            <input
+              value={termo}
+              onChange={(e) => setTermo(e.target.value)}
+              placeholder="buscar música, artista ou álbum…"
+              aria-label="Buscar no Spotify"
+              enterKeyHint="search"
+            />
+          </label>
         </form>
       )}
 
@@ -633,6 +706,8 @@ function Completa({ data }: TileView<MusicState>) {
               capa={f.albumArt}
               titulo={f.track}
               subtitulo={f.artist}
+              ativa={ativa(f)}
+              numero={contexto.uri.startsWith("spotify:album:") ? i + 1 : undefined}
               onClick={(e) => tocar(e, { uri: f.uri, contexto: contexto.uri })}
             />
           ))
@@ -663,6 +738,7 @@ function Completa({ data }: TileView<MusicState>) {
                 capa={f.albumArt}
                 titulo={f.track}
                 subtitulo={f.artist}
+                ativa={ativa(f)}
                 onClick={(e) => tocar(e, { uri: f.uri })}
               />
             ))}
@@ -688,24 +764,24 @@ function Completa({ data }: TileView<MusicState>) {
               </>
             )}
 
-            {playlists.length > 0 && <p className="sp-secao">Suas playlists</p>}
-            {playlists.map((p) => (
-              <Linha
-                key={p.uri}
-                capa={p.albumArt}
-                titulo={p.nome}
-                subtitulo="playlist"
-                icone={<ListMusic size="1em" />}
-                onClick={(e) =>
-                  abrir(e, {
-                    uri: p.uri,
-                    nome: p.nome,
-                    subtitulo: "playlist",
-                    albumArt: p.albumArt,
-                  })
-                }
-              />
-            ))}
+            {/* Capas, e não linhas, pelo mesmo motivo dos álbuns acima:
+                playlist se reconhece pela capa antes de se ler o nome. */}
+            {playlists.length > 0 && (
+              <>
+                <p className="sp-secao">Suas playlists</p>
+                <FileiraDeCapas
+                  itens={playlists.map((p) => ({ ...p, artist: "playlist" }))}
+                  onAbrir={(e, p) =>
+                    abrir(e, {
+                      uri: p.uri,
+                      nome: p.nome,
+                      subtitulo: "playlist",
+                      albumArt: p.albumArt,
+                    })
+                  }
+                />
+              </>
+            )}
 
             {recentes.faixas.length > 0 && (
               <p className="sp-secao">Tocadas recentemente</p>
@@ -716,6 +792,7 @@ function Completa({ data }: TileView<MusicState>) {
                 capa={f.albumArt}
                 titulo={f.track}
                 subtitulo={f.artist}
+                ativa={ativa(f)}
                 onClick={(e) => tocar(e, { uri: f.uri })}
               />
             ))}
@@ -726,7 +803,7 @@ function Completa({ data }: TileView<MusicState>) {
             {playlists.length === 0 &&
               recentes.albuns.length === 0 &&
               recentes.faixas.length === 0 && (
-                <p className="musica__vazio">busque uma música acima 👆</p>
+                <p className="musica__vazio">Busque uma música, um artista ou um álbum.</p>
               )}
           </>
         )}
