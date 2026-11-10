@@ -2779,13 +2779,7 @@ body {
    ganham de um, e sem isto o play perdia o acento e virava mais um botão cinza —
    justamente o único deste bloco que se procura sem olhar. */
 .player--sem-capa .controles__botao:not(.controles__botao--principal) {
-  background: rgb(var(--realce) / 0.08);
   color: var(--text);
-}
-
-.player--sem-capa .controles__botao:not(.controles__botao--principal):hover,
-.player--sem-capa .controles__botao:not(.controles__botao--principal):focus-visible {
-  background: rgb(var(--realce) / 0.16);
 }
 
 .player--sem-capa .progresso__knob {
@@ -2917,16 +2911,21 @@ body {
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
+  /* Sem disco atrás de anterior/próxima: o ícone já é o alvo, e o fundo cinza
+     só repetia a forma redonda que é a assinatura do play. Tirando o dos
+     vizinhos, o play fica sendo a única coisa cheia da fileira. O alvo de
+     toque (min-width/height) não muda. */
+  background: transparent;
   color: var(--text);
   font-size: 1.25rem;
   cursor: pointer;
   transition: background 120ms ease;
 }
 
-.controles__botao:hover,
+/* Só foco de teclado acende o fundo. `:hover` numa tela de toque gruda depois
+   do dedo sair, e o botão ficaria com a placa que acabou de perder. */
 .controles__botao:focus-visible {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgb(var(--realce) / 0.12);
   outline: none;
 }
 
@@ -2979,23 +2978,37 @@ body {
   min-width: 0;
 }
 
+/* O campo é um tom só, sem borda: o fundo um degrau acima do painel já diz
+   "aqui se escreve". A borda volta só no foco, que é quando ela informa algo. */
 .sp-busca__campo {
   flex: 1;
   min-width: 0;
-  padding: 0.7rem 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 0.9rem;
   border-radius: 0.6rem;
-  border: 1px solid var(--line);
-  background: var(--tile);
+  background: var(--tile-alto);
+  color: var(--muted);
+  cursor: text;
+}
+
+.sp-busca__campo:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.sp-busca__campo input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.7rem 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
+  font: inherit;
   font-size: 1rem;
-}
-
-.sp-busca__campo:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
-.sp-busca__botao,
 .sp-tocar-tudo {
   display: inline-flex;
   align-items: center;
@@ -3004,14 +3017,9 @@ body {
   min-height: 2.6rem;
   padding: 0 1.1rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  background: transparent;
-  color: var(--accent);
+  border: 0;
   font-size: 0.95rem;
   cursor: pointer;
-}
-
-.sp-tocar-tudo {
   background: var(--accent);
   color: var(--sobre-acento);
   font-weight: 600;
@@ -3025,23 +3033,65 @@ body {
   flex: none;
   min-width: 2.6rem;
   min-height: 2.6rem;
-  border: 1px solid var(--line);
+  /* Sem borda: o chevron basta, e o alvo de toque continua do mesmo tamanho. */
+  border: 0;
   border-radius: 0.6rem;
   background: transparent;
   color: var(--text);
   cursor: pointer;
 }
 
-.sp-topo__capa {
-  width: 3.4rem;
-  height: 3.4rem;
-  flex: none;
-  border-radius: 0.5rem;
+/* O cabeçalho é quem segura a aura: `isolation` faz o `z-index: -1` dela
+   ficar atrás do conteúdo DELE, e não atrás do painel inteiro. */
+.sp-topo {
+  position: relative;
+  isolation: isolate;
+  padding-block: 0.3rem;
+}
+
+/*
+ * A cor da capa derramada atrás do cabeçalho do álbum/playlist.
+ *
+ * A própria capa, desfocada — como a `.vinil__aura`, e pelos mesmos motivos:
+ * nenhum canvas, nenhum CORS, e as duas ou três manchas que se reconhecem em
+ * vez de uma média cinza. Ela passa das bordas do cabeçalho e morre num
+ * degradê para baixo: sem borda nenhuma, para não virar uma faixa colada no
+ * topo (que seria uma placa com outro nome).
+ */
+.sp-topo__aura {
+  position: absolute;
+  z-index: -1;
+  left: -1rem;
+  top: -1.5rem;
+  width: calc(100% + 2rem);
+  height: calc(100% + 3.5rem);
   object-fit: cover;
+  filter: blur(40px) saturate(1.6);
+  opacity: 0.4;
+  /* Radial, e não um degradê só para baixo: o painel do overlay recorta em
+     cima e dos lados, e um degradê vertical deixava ali uma aresta reta — a
+     faixa colada que se queria evitar. Assim ela some antes de qualquer borda,
+     concentrada atrás da capa. */
+  -webkit-mask-image: radial-gradient(farthest-side at 22% 50%, #000 15%, transparent 100%);
+  mask-image: radial-gradient(farthest-side at 22% 50%, #000 15%, transparent 100%);
+  pointer-events: none;
+}
+
+[data-tema="escuro"] .sp-topo__aura {
+  opacity: 0.32;
+}
+
+.sp-topo__capa {
+  width: 5rem;
+  height: 5rem;
+  flex: none;
+  border-radius: 0.55rem;
+  object-fit: cover;
+  box-shadow: 0 0.6rem 1.6rem rgb(var(--sombra) / 0.35);
 }
 
 .sp-topo__nome {
-  font-size: 1.15rem;
+  font-size: 1.4rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -3064,9 +3114,10 @@ body {
   gap: 0.2rem;
 }
 
+/* 0,75rem, e não menos: é o rótulo que se lê de relance para se achar na tela. */
 .sp-secao {
   margin: 0.5rem 0 0.1rem;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -3100,7 +3151,9 @@ body {
 
 .sp-capa {
   flex: 0 0 auto;
-  width: 7.5rem;
+  /* 6,5rem: agora são DUAS fileiras (recentes e playlists), e a altura é o
+     recurso escasso numa head unit. Ainda é capa que se reconhece de relance. */
+  width: 6.5rem;
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
@@ -3119,8 +3172,8 @@ body {
 }
 
 .sp-capa__img {
-  width: 7.5rem;
-  height: 7.5rem;
+  width: 6.5rem;
+  height: 6.5rem;
   /* Mesma razão do pai: item de flex encolhe por padrão. */
   flex: 0 0 auto;
   border-radius: 0.5rem;
@@ -3201,6 +3254,27 @@ body {
   font-size: 1.1rem;
 }
 
+/* O lugar da capa quando ela não serve: o número da faixa num álbum, ou o
+   equalizador da faixa que está tocando. Sem fundo — é texto, não miniatura. */
+.sp-linha__marca {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-linha--ativa .sp-linha__marca {
+  color: var(--accent);
+  font-size: 1.25rem;
+}
+
+.sp-linha--ativa .sp-linha__titulo {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* min-width:0 é o que deixa o ellipsis funcionar dentro do flex. */
 .sp-linha__texto {
   display: flex;
@@ -3224,13 +3298,33 @@ body {
   text-overflow: ellipsis;
 }
 
+/* Sem fio em cima: o progresso é a primeira coisa da barra e já faz a divisão
+   com a lista. */
 .sp-tocando {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.sp-tocando__linha {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  flex: 0 0 auto;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--line);
+}
+
+/* O progresso nasceu sobre a capa (tinta branca em véu escuro). Aqui ele pousa
+   no painel, e aí segue o tema — a mesma troca do `.player--sem-capa`. */
+.sp-tocando .progresso__tempo {
+  color: var(--muted);
+}
+
+.sp-tocando .progresso__trilho::before {
+  background: var(--line);
+}
+
+.sp-tocando .progresso__knob {
+  background: var(--text);
 }
 
 .sp-tocando__capa {
