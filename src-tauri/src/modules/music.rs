@@ -10,27 +10,22 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use eclipse_core::{Module, ModuleCommand, ModuleCtx, ModuleId, ModuleResult};
 use eclipse_music::{
-    DemoSource, EmAndamento, MusicError, MusicSource, MusicState, SpotifySource, TokenStore,
+    DemoSource, EmAndamento, MusicError, MusicSource, MusicState, NowPlaying, SpotifySource,
+    TokenStore,
 };
 use tauri_plugin_obd_bt::ObdBtExt;
 use uuid::Uuid;
 
 pub const MUSIC: ModuleId = ModuleId::new("music");
 
-/// De quanto em quanto tempo perguntar o que está tocando.
-const INTERVALO: Duration = Duration::from_secs(3);
+/// "Faça na próxima volta do laço", sem esperar o intervalo.
+const AGORA: Duration = Duration::from_millis(1);
 /// Degradado, tenta bem menos: sem device ativo ou sem token, insistir a cada
 /// três segundos só gasta bateria e cota de API.
 const INTERVALO_DEGRADADO: Duration = Duration::from_secs(20);
-/// "Faça na próxima volta do laço", sem esperar o intervalo.
-const AGORA: Duration = Duration::from_millis(1);
-/// Depois de mandar um comando, espera a propagação antes de reler.
-///
-/// O `currently-playing` do Spotify é eventualmente consistente: relendo 1ms
-/// depois de pausar ele ainda devolve o estado ANTIGO, o painel republicava
-/// "tocando" e o toque parecia não ter funcionado — o usuário tocava de novo e
-/// a música voltava. Meio segundo é o suficiente para ler a verdade.
-const PROPAGACAO: Duration = Duration::from_millis(600);
+
+// A cadência de quando tudo vai bem (ler a cada N, esperar M depois de um
+// comando) depende da fonte: ver `eclipse_music::Cadencia`.
 
 /// A partir de quanto uma ida ao Spotify conta como lenta.
 ///
@@ -150,7 +145,7 @@ impl Module for MusicModule {
         let mut perfil: Option<Uuid> = None;
         let mut fonte: Option<Box<dyn MusicSource>> = None;
         // Acumula o que toca + resultados de busca + playlists. Persiste entre
-        // os polls (o now_playing muda a cada 3s, mas busca/playlists ficam).
+        // os polls (o now_playing muda a cada leitura, mas busca/playlists ficam).
         let mut estado = MusicState::default();
         // Um PRAZO, não uma duração: `select!` reconstrói o futuro a cada volta,
         // então `sleep(espera)` era reiniciado por qualquer comando que chegasse.
@@ -191,6 +186,7 @@ impl Module for MusicModule {
                         };
                         let acao = payload.get("acao").and_then(|v| v.as_str());
                         let texto = |chave| payload.get(chave).and_then(|v| v.as_str());
+                        let propagacao = atual.cadencia().propagacao;
 
                         // Avisa a tela ANTES de falar com o Spotify. A resposta
                         // deles leva segundos; o dedo precisa de retorno em
@@ -207,7 +203,8 @@ impl Module for MusicModule {
                             }
                             _ => None,
                         };
-                        if estado.carregando.is_some() {
+                        let mudou = otimista(&mut estado, acao, texto("uri"));
+                        if estado.carregando.is_some() || mudou {
                             ctx.ready(&estado);
                         }
 
@@ -216,9 +213,9 @@ impl Module for MusicModule {
                         // devolvem listas que entram no estado publicado.
                         let comecou = Instant::now();
                         let resultado: Result<(), MusicError> = match acao {
-                            Some("toggle") => atual.toggle().await.map(|_| proximo = agenda(PROPAGACAO)),
-                            Some("next") => atual.next().await.map(|_| proximo = agenda(PROPAGACAO)),
-                            Some("prev") => atual.previous().await.map(|_| proximo = agenda(PROPAGACAO)),
+                            Some("toggle") => atual.toggle().await.map(|_| proximo = agenda(propagacao)),
+                            Some("next") => atual.next().await.map(|_| proximo = agenda(propagacao)),
+                            Some("prev") => atual.previous().await.map(|_| proximo = agenda(propagacao)),
                             Some("tocar") => {
                                 // `uri` é a faixa; `contexto` é a playlist/álbum de
                                 // onde ela veio. Tocar dentro do contexto monta a
@@ -231,13 +228,13 @@ impl Module for MusicModule {
                                 atual
                                     .tocar(faixa, contexto)
                                     .await
-                                    .map(|_| proximo = agenda(PROPAGACAO))
+                                    .map(|_| proximo = agenda(propagacao))
                             }
                             Some("seek") => match payload.get("posicaoMs").and_then(|v| v.as_u64()) {
                                 Some(ms) => atual
                                     .seek(ms as u32)
                                     .await
-                                    .map(|_| proximo = agenda(PROPAGACAO)),
+                                    .map(|_| proximo = agenda(propagacao)),
                                 None => continue,
                             },
                             Some("buscar") => match atual.buscar(texto("termo").unwrap_or("")).await {
@@ -358,6 +355,7 @@ impl Module for MusicModule {
                     }
 
                     let leitura = Instant::now();
+                    let cadencia = fonte.as_ref().expect("acabou de conectar").cadencia();
                     match fonte.as_mut().expect("acabou de conectar").now_playing().await {
                         // Conectado é sempre `ready`, mesmo sem nada tocando: o
                         // painel continua útil (busca e playlists funcionam), e
@@ -374,7 +372,7 @@ impl Module for MusicModule {
                                 avisou_da_lentidao = true;
                                 tracing::warn!(
                                     ms = levou.as_millis() as u64,
-                                    intervalo_ms = INTERVALO.as_millis() as u64,
+                                    intervalo_ms = cadencia.leitura.as_millis() as u64,
                                     "ler o que está tocando demora mais que o esperado"
                                 );
                             }
@@ -383,7 +381,7 @@ impl Module for MusicModule {
                             estado.problema = None;
                             falhas = 0;
                             ctx.ready(&estado);
-                            proximo = agenda(INTERVALO);
+                            proximo = agenda(cadencia.leitura);
                         }
                         Err(err) => {
                             tracing::warn!(%err, "perdi o Spotify; vou reconectar");
@@ -400,6 +398,48 @@ impl Module for MusicModule {
     }
 }
 
+/// O que a tela já pode mostrar antes de o Spotify responder.
+///
+/// O toque precisa de resposta em milissegundos, e o comando leva de um a
+/// alguns segundos (o Spotify carrega a faixa pela internet). Na central, em
+/// 10/11/2026, o ícone de tocar/pausar e o nome da faixa só mudavam depois
+/// dessa volta, e o dono achou que estava travado. A leitura seguinte corrige
+/// se o comando falhar.
+///
+/// Devolve se mudou algo, para o módulo publicar.
+fn otimista(estado: &mut MusicState, acao: Option<&str>, faixa: Option<&str>) -> bool {
+    match acao {
+        Some("toggle") => match estado.now_playing.as_mut() {
+            Some(np) => {
+                np.is_playing = !np.is_playing;
+                true
+            }
+            None => false,
+        },
+        Some("tocar") => {
+            let Some(uri) = faixa else { return false };
+            let achada = estado
+                .contexto
+                .iter()
+                .flat_map(|c| c.faixas.iter())
+                .chain(estado.busca.faixas.iter())
+                .chain(estado.recentes.faixas.iter())
+                .find(|f| f.uri == uri);
+            let Some(f) = achada else { return false };
+            estado.now_playing = Some(NowPlaying {
+                track: f.track.clone(),
+                artist: f.artist.clone(),
+                is_playing: true,
+                album_art: f.album_art.clone(),
+                progress_ms: Some(0),
+                duration_ms: None,
+            });
+            true
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +447,75 @@ mod tests {
     use eclipse_music::{MusicState, NowPlaying, TipoProblema};
     use serde_json::json;
     use tokio::sync::broadcast::Receiver;
+
+    fn faixa(uri: &str, nome: &str) -> eclipse_music::Faixa {
+        eclipse_music::Faixa {
+            uri: uri.into(),
+            track: nome.into(),
+            artist: "Imagine Dragons".into(),
+            album_art: Some("capa".into()),
+        }
+    }
+
+    #[test]
+    fn tocar_mostra_a_faixa_escolhida_antes_do_spotify_responder() {
+        let mut estado = MusicState {
+            contexto: Some(eclipse_music::Contexto {
+                uri: "spotify:album:evolve".into(),
+                nome: "Evolve".into(),
+                subtitulo: "Imagine Dragons".into(),
+                album_art: None,
+                faixas: vec![
+                    faixa("spotify:track:next", "Next To Me"),
+                    faixa("spotify:track:believer", "Believer"),
+                ],
+            }),
+            ..Default::default()
+        };
+        assert!(otimista(
+            &mut estado,
+            Some("tocar"),
+            Some("spotify:track:believer")
+        ));
+        let np = estado.now_playing.expect("otimista");
+        assert_eq!(np.track, "Believer");
+        assert!(np.is_playing);
+        assert_eq!(np.progress_ms, Some(0));
+    }
+
+    #[test]
+    fn tocar_alternar_vira_o_icone_na_hora() {
+        let mut vazio = MusicState::default();
+        assert!(
+            !otimista(&mut vazio, Some("toggle"), None),
+            "nada tocando: nada a virar"
+        );
+        let mut estado = MusicState {
+            now_playing: Some(NowPlaying {
+                track: "Believer".into(),
+                artist: "Imagine Dragons".into(),
+                is_playing: true,
+                album_art: None,
+                progress_ms: Some(10_000),
+                duration_ms: Some(204_000),
+            }),
+            ..Default::default()
+        };
+        assert!(otimista(&mut estado, Some("toggle"), None));
+        assert!(!estado.now_playing.as_ref().unwrap().is_playing);
+    }
+
+    #[test]
+    fn faixa_desconhecida_ou_outra_acao_nao_inventa_nada() {
+        let mut estado = MusicState::default();
+        assert!(!otimista(
+            &mut estado,
+            Some("tocar"),
+            Some("spotify:track:x")
+        ));
+        assert!(!otimista(&mut estado, Some("buscar"), None));
+        assert!(estado.now_playing.is_none());
+    }
 
     /// Conector de teste: devolve o que mandarem, sem rede.
     struct FakeConector {

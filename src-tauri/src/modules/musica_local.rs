@@ -240,6 +240,10 @@ impl MusicSource for SessaoLocal {
         Ok(montar(estado, &mut self.capa))
     }
 
+    fn cadencia(&self) -> eclipse_music::Cadencia {
+        eclipse_music::Cadencia::LOCAL
+    }
+
     async fn toggle(&mut self) -> Result<(), MusicError> {
         // O Kotlin não tem "alternar": só `tocar` e `pausar`. Esta função
         // mandava "alternar", recebia "ação desconhecida", e o botão de pausar
