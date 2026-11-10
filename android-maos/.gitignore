@@ -1,0 +1,5 @@
+.gradle
+build
+local.properties
+# Endereço do relay e a chave. O repositório é público.
+maos.properties

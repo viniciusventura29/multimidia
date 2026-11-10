@@ -1,0 +1,5 @@
+.wrangler
+.dev.vars
+node_modules
+# Gerado por `wrangler types` (npm run tipos); 14 mil linhas que só o tsc lê.
+worker-configuration.d.ts
