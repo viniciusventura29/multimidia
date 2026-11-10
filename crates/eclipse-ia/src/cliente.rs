@@ -41,6 +41,36 @@ pub enum IaError {
 }
 
 impl IaError {
+    /// O motivo em uma frase que se lê de relance, para a tela do carro.
+    ///
+    /// O `Display` continua sendo o que vai para o log, com o corpo inteiro da
+    /// API. Na tela, ele aparecia cru — `a API recusou (400): {"type":"error",…`
+    /// — no meio do painel, visto na central em 10/11/2026 quando o crédito da
+    /// conta acabou. Quem dirige precisa saber o que houve, não ler JSON.
+    pub fn para_o_motorista(&self) -> String {
+        match self {
+            Self::SemChave => "falta a chave da Anthropic".into(),
+            Self::Rede(_) => "sem internet para o assistente".into(),
+            Self::Sobrecarregada { .. } => "a IA está sobrecarregada; tento de novo depois".into(),
+            Self::Resposta(_) | Self::NaoTerminou(_) => {
+                "o assistente se enrolou; tento de novo depois".into()
+            }
+            Self::Recusado { status, corpo } => {
+                let mensagem = serde_json::from_str::<Value>(corpo)
+                    .ok()
+                    .and_then(|v| v["error"]["message"].as_str().map(str::to_lowercase))
+                    .unwrap_or_default();
+                if mensagem.contains("credit balance") {
+                    "o assistente está sem crédito na Anthropic".into()
+                } else if *status == 401 || *status == 403 {
+                    "a chave da Anthropic foi recusada".into()
+                } else {
+                    format!("a IA recusou o pedido (erro {status})")
+                }
+            }
+        }
+    }
+
     /// Se vale a pena tentar de novo mais tarde. O módulo usa isto para decidir
     /// entre degradar em silêncio e reagendar.
     pub fn temporario(&self) -> bool {
@@ -176,5 +206,38 @@ mod tests {
         }
         .temporario());
         assert!(!IaError::SemChave.temporario());
+    }
+
+    #[test]
+    fn credito_acabou_vira_frase_e_nao_json() {
+        // O corpo exato que a central recebeu em 10/11/2026.
+        let e = IaError::Recusado {
+            status: 400,
+            corpo: r#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011CguSnSe4Yszj9L8zBnSHq"}"#.into(),
+        };
+        assert_eq!(
+            e.para_o_motorista(),
+            "o assistente está sem crédito na Anthropic"
+        );
+        // O log continua com tudo.
+        assert!(e.to_string().contains("credit balance"));
+    }
+
+    #[test]
+    fn recusa_sem_corpo_conhecido_nao_mostra_o_corpo() {
+        let chave = IaError::Recusado {
+            status: 401,
+            corpo: "{}".into(),
+        };
+        assert_eq!(
+            chave.para_o_motorista(),
+            "a chave da Anthropic foi recusada"
+        );
+        let outra = IaError::Recusado {
+            status: 400,
+            corpo: "não é json {".into(),
+        };
+        assert_eq!(outra.para_o_motorista(), "a IA recusou o pedido (erro 400)");
+        assert!(!outra.para_o_motorista().contains('{'));
     }
 }
