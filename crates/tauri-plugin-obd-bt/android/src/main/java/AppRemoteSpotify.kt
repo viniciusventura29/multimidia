@@ -108,10 +108,14 @@ internal object AppRemoteSpotify {
 
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
-            // `false`: num carro em movimento não se abre tela de login. Se o
-            // dono não estiver logado no app do Spotify, a conexão falha e o
-            // Rust cai na Web API — que é o comportamento de hoje.
-            .showAuthView(false)
+            // `true`, embora pareça errado num carro. O App Remote exige que o
+            // dono autorize ESTE app uma vez (pacote + certificado), e com
+            // `false` essa autorização nunca acontece: a conexão falha para
+            // sempre ("Unable to connect to Spotify service"), visto no
+            // Eclipse DEV em 11/10/2026 com o dono logado no Spotify. Depois de
+            // autorizado, o SDK não mostra tela nenhuma — conecta e inicia o
+            // Spotify em segundo plano, que é o que se quer.
+            .showAuthView(true)
             .build()
 
         // O SDK cria Handler internamente: nasce na thread principal ou não
