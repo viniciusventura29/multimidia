@@ -87,6 +87,13 @@ pub struct SessaoLocal {
     capa: Option<String>,
     /// Por que o App Remote não está atendendo. Para o diário, uma vez só.
     ja_reclamou: bool,
+    /// A playlist/álbum aberto por último e as faixas dele, em ordem.
+    ///
+    /// O App Remote só começa um contexto numa faixa por POSIÇÃO
+    /// (`skipToIndex`), não por URI como a Web API. Sem isto, tocar em
+    /// "Believer" no meio do Evolve começava o álbum da primeira faixa — visto
+    /// na central em 10/11/2026.
+    aberto: Option<(String, Vec<String>)>,
 }
 
 impl SessaoLocal {
@@ -102,6 +109,7 @@ impl SessaoLocal {
             biblioteca,
             capa: None,
             ja_reclamou: false,
+            aberto: None,
         }
     }
 
@@ -118,13 +126,14 @@ impl SessaoLocal {
         redirect: &'static str,
         faixa: Option<&str>,
         contexto: Option<&str>,
+        indice: i32,
     ) -> Result<(), MusicError> {
         let uri = faixa.map(str::to_string);
         let ctx = contexto.map(str::to_string);
 
         let saida = tokio::task::spawn_blocking(move || {
             app.obd_bt()
-                .app_remote_tocar(&id, redirect, uri.as_deref(), ctx.as_deref(), -1)
+                .app_remote_tocar(&id, redirect, uri.as_deref(), ctx.as_deref(), indice)
         })
         .await;
 
@@ -280,12 +289,14 @@ impl MusicSource for SessaoLocal {
         faixa: Option<&str>,
         contexto: Option<&str>,
     ) -> Result<(), MusicError> {
+        let indice = indice_no_contexto(self.aberto.as_ref(), faixa, contexto);
         Self::tocar_no_app(
             self.app.clone(),
             self.client_id.clone(),
             self.redirect_uri,
             faixa,
             contexto,
+            indice,
         )
         .await
     }
@@ -297,7 +308,12 @@ impl MusicSource for SessaoLocal {
     }
 
     async fn abrir(&mut self, uri: &str) -> Result<Contexto, MusicError> {
-        self.biblioteca.abrir(uri).await
+        let contexto = self.biblioteca.abrir(uri).await?;
+        self.aberto = Some((
+            contexto.uri.clone(),
+            contexto.faixas.iter().map(|f| f.uri.clone()).collect(),
+        ));
+        Ok(contexto)
     }
 
     async fn recentes(&mut self) -> Result<Recentes, MusicError> {
@@ -309,9 +325,90 @@ impl MusicSource for SessaoLocal {
     }
 }
 
+/// A posição da `faixa` dentro do `contexto`, se ele for o que está aberto.
+///
+/// `-1` quer dizer "do começo" (o Kotlin cai em `play(contexto)`): contexto
+/// diferente do aberto, faixa fora dele, ou sem faixa nenhuma.
+fn indice_no_contexto(
+    aberto: Option<&(String, Vec<String>)>,
+    faixa: Option<&str>,
+    contexto: Option<&str>,
+) -> i32 {
+    let (Some((uri_aberto, faixas)), Some(faixa), Some(contexto)) = (aberto, faixa, contexto)
+    else {
+        return -1;
+    };
+    if uri_aberto != contexto {
+        return -1;
+    }
+    faixas
+        .iter()
+        .position(|f| f == faixa)
+        .and_then(|i| i32::try_from(i).ok())
+        .unwrap_or(-1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_faixa_escolhida_vira_a_posicao_dela_no_album() {
+        let aberto = (
+            "spotify:album:evolve".to_string(),
+            vec![
+                "spotify:track:next".into(),
+                "spotify:track:idk".into(),
+                "spotify:track:believer".into(),
+            ],
+        );
+        let i = indice_no_contexto(
+            Some(&aberto),
+            Some("spotify:track:believer"),
+            Some("spotify:album:evolve"),
+        );
+        assert_eq!(i, 2);
+    }
+
+    #[test]
+    fn sem_como_saber_a_posicao_comeca_do_inicio() {
+        let aberto = (
+            "spotify:album:evolve".to_string(),
+            vec!["spotify:track:next".into()],
+        );
+        // Outro contexto que não o aberto.
+        assert_eq!(
+            indice_no_contexto(
+                Some(&aberto),
+                Some("spotify:track:next"),
+                Some("spotify:album:outro")
+            ),
+            -1
+        );
+        // Faixa que não está nele.
+        assert_eq!(
+            indice_no_contexto(
+                Some(&aberto),
+                Some("spotify:track:x"),
+                Some("spotify:album:evolve")
+            ),
+            -1
+        );
+        // "Tocar tudo": sem faixa.
+        assert_eq!(
+            indice_no_contexto(Some(&aberto), None, Some("spotify:album:evolve")),
+            -1
+        );
+        // Nada aberto ainda.
+        assert_eq!(
+            indice_no_contexto(
+                None,
+                Some("spotify:track:next"),
+                Some("spotify:album:evolve")
+            ),
+            -1
+        );
+    }
 
     fn tocando(faixa: &str, capa: Option<&str>) -> EstadoLocal {
         EstadoLocal {
